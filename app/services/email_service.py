@@ -61,13 +61,17 @@ class EmailService:
 
             msg.attach(MIMEText(html_content, "html"))
 
+            use_tls = settings.SMTP_PORT == 465
+            start_tls = settings.SMTP_PORT == 587
+
             await aiosmtplib.send(
                 msg,
                 hostname=settings.SMTP_HOST,
                 port=settings.SMTP_PORT,
                 username=settings.SMTP_USER,
                 password=settings.SMTP_PASSWORD,
-                use_tls=True,
+                use_tls=use_tls,
+                start_tls=start_tls,
             )
             return True
         except Exception as e:
