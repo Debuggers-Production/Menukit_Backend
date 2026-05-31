@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "change-this-to-a-random-secret-key-in-production"
-    FRONTEND_URL: str = "http://localhost:5173"
+    FRONTEND_URL: str = "http://localhost:5175"
     API_V1_PREFIX: str = "/api/v1"
 
     # Database
@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     OTP_EXPIRE_SECONDS: int = 300  # 5 minutes
     OTP_MAX_ATTEMPTS: int = 3
     OTP_RATE_LIMIT_SECONDS: int = 900  # 15 minutes
+
+
+    MINIO_ENDPOINT: str = ""
+    MINIO_ACCESS_KEY: str = ""
+    MINIO_SECRET_KEY: str = ""
+    MINIO_BUCKET_NAME: str = ""
 
     class Config:
         env_file = ".env"

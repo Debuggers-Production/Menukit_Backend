@@ -22,14 +22,14 @@ JPEG_QUALITY = 80
 
 class UploadService:
     def __init__(self):
-        self.minio_endpoint = "89.167.72.254:9000"
-        self.bucket_name = "menuproductimages"
+        self.minio_endpoint = settings.MINIO_ENDPOINT
+        self.bucket_name = settings.MINIO_BUCKET_NAME
 
         self.minio_client = Minio(
             self.minio_endpoint,
-            access_key="admin",
-            secret_key="password123",
-            secure=False
+            access_key=settings.MINIO_ACCESS_KEY,
+            secret_key=settings.MINIO_SECRET_KEY,
+            secure=True
         )
 
         self._ensure_bucket_exists()
