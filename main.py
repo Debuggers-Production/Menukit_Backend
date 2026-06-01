@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import get_settings
 from app.api.v1.router import api_router
 from app.database.session import init_db, close_db
-from app.database.redis import init_redis, close_redis
+from app.database.redis import init_redis, close_redis, get_redis
 
 # Configure logging
 logging.basicConfig(
@@ -29,6 +29,8 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up SmartMenu QR backend...")
     await init_db()
     await init_redis()
+    redis_client = await get_redis()
+    await redis_client.flushdb()  # Clear Redis on startup for a clean slate
     
     yield
     

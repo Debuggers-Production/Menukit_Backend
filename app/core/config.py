@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "change-this-to-a-random-secret-key-in-production"
-    FRONTEND_URL: str = "http://localhost:5175"
+    FRONTEND_URL: str = "http://localhost:5173"
     API_V1_PREFIX: str = "/api/v1"
 
     # Database

@@ -181,6 +181,7 @@ def _item_response(item) -> MenuItemResponse:
         price=str(item.price),
         offer_price=str(item.offer_price) if item.offer_price else None,
         food_type=item.food_type,
+        allow_ice_preference=item.allow_ice_preference,
         is_bestseller=item.is_bestseller,
         is_highlighted=item.is_highlighted,
         is_available=item.is_available,
@@ -188,5 +189,7 @@ def _item_response(item) -> MenuItemResponse:
         image_url=image_url,
         thumbnail_url=thumbnail_url,
         images=images_list,
+        variants=item.variants,
+        addons=item.addons,
         created_at=str(item.created_at),
     )

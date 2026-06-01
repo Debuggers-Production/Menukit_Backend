@@ -3,7 +3,7 @@
 import uuid
 from decimal import Decimal
 from sqlalchemy import String, Text, Integer, Boolean, Numeric, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base, UUIDMixin, TimestampMixin
 
@@ -23,11 +23,14 @@ class MenuItem(Base, UUIDMixin, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     offer_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
-    food_type: Mapped[str] = mapped_column(String(10), default="veg", nullable=False)  # veg | non-veg
+    food_type: Mapped[str] = mapped_column(String(10), default="veg", nullable=False)  # veg | non-veg | egg | drink
+    allow_ice_preference: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_bestseller: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_highlighted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    variants: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    addons: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     # Relationships
     shop = relationship("Shop", back_populates="menu_items")

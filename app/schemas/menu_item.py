@@ -17,6 +17,19 @@ class MenuImageResponse(BaseModel):
         from_attributes = True
 
 
+class MenuItemVariant(BaseModel):
+    """Menu item variant."""
+    name: str
+    price: str
+    offer_price: Optional[str] = None
+
+
+class MenuItemAddon(BaseModel):
+    """Menu item addon."""
+    name: str
+    price: str
+
+
 class MenuItemCreate(BaseModel):
     """Create a new menu item."""
     category_id: str
@@ -24,11 +37,14 @@ class MenuItemCreate(BaseModel):
     description: Optional[str] = None
     price: Decimal
     offer_price: Optional[Decimal] = None
-    food_type: str = "veg"  # veg | non-veg
+    food_type: str = "veg"  # veg | non-veg | egg | drink
+    allow_ice_preference: bool = False
     is_bestseller: bool = False
     is_highlighted: bool = False
     is_available: bool = True
     display_order: Optional[int] = 0
+    variants: Optional[List[MenuItemVariant]] = []
+    addons: Optional[List[MenuItemAddon]] = None
 
 
 class MenuItemUpdate(BaseModel):
@@ -39,10 +55,13 @@ class MenuItemUpdate(BaseModel):
     price: Optional[Decimal] = None
     offer_price: Optional[Decimal] = None
     food_type: Optional[str] = None
+    allow_ice_preference: Optional[bool] = None
     is_bestseller: Optional[bool] = None
     is_highlighted: Optional[bool] = None
     is_available: Optional[bool] = None
     display_order: Optional[int] = None
+    variants: Optional[List[MenuItemVariant]] = None
+    addons: Optional[List[MenuItemAddon]] = None
 
 
 class MenuItemReorder(BaseModel):
@@ -59,6 +78,7 @@ class MenuItemResponse(BaseModel):
     price: str
     offer_price: Optional[str] = None
     food_type: str
+    allow_ice_preference: bool
     is_bestseller: bool
     is_highlighted: bool
     is_available: bool
@@ -66,6 +86,8 @@ class MenuItemResponse(BaseModel):
     image_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
     images: List[MenuImageResponse] = []
+    variants: Optional[List[MenuItemVariant]] = []
+    addons: Optional[List[MenuItemAddon]] = []
     created_at: str
 
     class Config:

@@ -35,7 +35,7 @@ class QRService:
         qr.add_data(url)
         qr.make(fit=True)
 
-        img = qr.make_image(fill_color="#1e293b", back_color="white")
+        img = qr.make_image(fill_color="black", back_color="white")
         buffer = io.BytesIO()
         img.save(buffer, format="PNG")
         return buffer.getvalue()
