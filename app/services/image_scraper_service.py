@@ -53,6 +53,66 @@ class ImageScraperService:
         logger.warning(f"[ImageScraper] All sources failed for: {query}")
         return None
 
+    async def search_image_urls(self, item_name: str, limit: int = 4) -> list[str]:
+        """
+        Search for food images and return a list of URLs (without downloading).
+        """
+        query = item_name.strip()
+        logger.info(f"[ImageScraper] Searching image URLs for: {query}")
+        urls = []
+
+        if settings.PIXABAY_API_KEY:
+            encoded = urllib.parse.quote(f"{query} food")
+            api_url = (
+                f"https://pixabay.com/api/"
+                f"?key={settings.PIXABAY_API_KEY}"
+                f"&q={encoded}"
+                f"&image_type=photo"
+                f"&category=food"
+                f"&min_width=400"
+                f"&min_height=400"
+                f"&safesearch=true"
+                f"&per_page={limit}"
+                f"&order=popular"
+            )
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(api_url)
+                    if resp.status_code == 200:
+                        hits = resp.json().get("hits", [])
+                        if not hits:
+                            # Retry broad search
+                            api_url_broad = api_url.replace("&category=food", "")
+                            resp2 = await client.get(api_url_broad)
+                            if resp2.status_code == 200:
+                                hits = resp2.json().get("hits", [])
+                        
+                        for hit in hits:
+                            img_url = hit.get("largeImageURL") or hit.get("webformatURL")
+                            if img_url and img_url not in urls:
+                                urls.append(img_url)
+            except Exception as e:
+                logger.error(f"[Pixabay] Failed to fetch variants: {e}")
+
+        # Fallback to multiple random picsum if pixabay fails or isn't set
+        if not urls:
+            seed_base = abs(hash(query)) % 1000
+            urls = [f"https://picsum.photos/seed/{seed_base + i}/800/600" for i in range(limit)]
+
+        return urls[:limit]
+
+    async def download_image_url(self, url: str) -> Optional[Tuple[bytes, str]]:
+        """Downloads a specific URL and returns its bytes and content-type."""
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=15.0, headers=HEADERS) as client:
+                resp = await client.get(url)
+                if resp.status_code == 200 and len(resp.content) > 1000:
+                    content_type = resp.headers.get("content-type", "image/jpeg").split(";")[0]
+                    return resp.content, content_type
+        except Exception as e:
+            logger.error(f"Failed to download image URL {url}: {e}")
+        return None
+
     async def _try_pixabay(self, query: str) -> Optional[Tuple[bytes, str]]:
         """
         Query Pixabay image search API.

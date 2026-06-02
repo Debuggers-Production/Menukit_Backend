@@ -18,7 +18,9 @@ from app.services.shop_service import ShopService
 from app.services.image_scraper_service import ImageScraperService
 from app.services.upload_service import UploadService
 from app.models.user import User
-
+from app.models.menu_image import MenuImage
+from sqlalchemy import select, func
+from pydantic import BaseModel
 router = APIRouter(prefix="/menu-items", tags=["Menu Item Management"])
 
 
@@ -147,6 +149,95 @@ async def set_primary_image(
 
 
 from sqlalchemy import inspect
+
+class ImageUrlRequest(BaseModel):
+    url: str
+
+@router.get("/{item_id}/search-images")
+async def search_item_images(
+    item_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Search for food images and return a list of URLs for the user to choose from.
+    """
+    menu_service = MenuService(db)
+    shop_service = ShopService(db)
+
+    shop = await shop_service.get_shop_by_user(user.id)
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+
+    item = await menu_service.get_menu_item(uuid.UUID(item_id))
+    if not item or item.shop_id != shop.id:
+        raise HTTPException(status_code=404, detail="Menu item not found")
+
+    scraper = ImageScraperService()
+    urls = await scraper.search_image_urls(item.name)
+    return {"urls": urls}
+
+@router.post("/{item_id}/save-image-url", response_model=MenuImageResponse)
+async def save_item_image_url(
+    item_id: str,
+    payload: ImageUrlRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Download a specific image URL and save it to the menu item.
+    """
+    menu_service = MenuService(db)
+    shop_service = ShopService(db)
+
+    shop = await shop_service.get_shop_by_user(user.id)
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+
+    item = await menu_service.get_menu_item(uuid.UUID(item_id))
+    if not item or item.shop_id != shop.id:
+        raise HTTPException(status_code=404, detail="Menu item not found")
+
+    scraper = ImageScraperService()
+    result = await scraper.download_image_url(payload.url)
+    if not result:
+        raise HTTPException(status_code=400, detail="Could not download the selected image.")
+
+    image_bytes, content_type = result
+    
+    # Check if this is the first image
+    result_images = await db.execute(
+        select(func.count(MenuImage.id)).where(MenuImage.menu_item_id == item.id)
+    )
+    existing_count = result_images.scalar() or 0
+    is_primary = (existing_count == 0)
+
+    # Upload and save
+    upload_service = UploadService()
+    
+    try:
+        upload_result = await upload_service.upload_image_from_bytes(
+            image_bytes=image_bytes,
+            folder=f"menu-items/{shop.id}",
+        )
+        menu_image = await menu_service.add_menu_image(
+            item_id=item.id,
+            image_url=upload_result["image_url"],
+            thumbnail_url=upload_result["thumbnail_url"],
+            is_primary=is_primary
+        )
+        await db.commit()
+        return MenuImageResponse(
+            id=str(menu_image.id),
+            image_url=menu_image.image_url,
+            thumbnail_url=menu_image.thumbnail_url,
+            is_primary=menu_image.is_primary,
+            display_order=menu_image.display_order,
+            created_at=menu_image.created_at,
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
 
 @router.post("/{item_id}/auto-image", response_model=MenuImageResponse)
 async def auto_fetch_item_image(
