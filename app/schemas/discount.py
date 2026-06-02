@@ -10,8 +10,11 @@ class DiscountCreate(BaseModel):
     """Create a new discount."""
     title: str
     description: Optional[str] = None
-    discount_type: str = "percentage"  # "percentage" | "flat"
-    discount_value: Decimal
+    discount_type: str = "percentage"  # "percentage" | "flat" | "bogo" | "combo"
+    discount_value: Optional[Decimal] = None
+    buy_quantity: Optional[int] = None
+    get_quantity: Optional[int] = None
+    reward_target_ids: Optional[List[str]] = None
     applies_to: str = "all"  # "all" | "category" | "items"
     target_ids: Optional[List[str]] = None
     start_date: Optional[datetime] = None
@@ -25,6 +28,9 @@ class DiscountUpdate(BaseModel):
     description: Optional[str] = None
     discount_type: Optional[str] = None
     discount_value: Optional[Decimal] = None
+    buy_quantity: Optional[int] = None
+    get_quantity: Optional[int] = None
+    reward_target_ids: Optional[List[str]] = None
     applies_to: Optional[str] = None
     target_ids: Optional[List[str]] = None
     start_date: Optional[datetime] = None
@@ -39,7 +45,10 @@ class DiscountResponse(BaseModel):
     title: str
     description: Optional[str] = None
     discount_type: str
-    discount_value: str
+    discount_value: Optional[str] = None
+    buy_quantity: Optional[int] = None
+    get_quantity: Optional[int] = None
+    reward_target_ids: Optional[List[str]] = None
     applies_to: str
     target_ids: Optional[List[str]] = None
     start_date: Optional[str] = None
