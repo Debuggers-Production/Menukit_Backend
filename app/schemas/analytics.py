@@ -41,10 +41,21 @@ class ActivityLogResponse(BaseModel):
         from_attributes = True
 
 
+class DashboardReviewResponse(BaseModel):
+    """Review entry for the dashboard."""
+    id: str
+    item_name: str
+    reviewer_name: str
+    rating: int
+    comment: Optional[str] = None
+    created_at: str
+
+
 class AnalyticsResponse(BaseModel):
     """Full analytics response."""
     overview: OverviewStats
     daily_scans: List[ScanData] = []
     top_items: List[TopItem] = []
     top_searches: List[SearchTermStat] = []
+    top_reviews: List[DashboardReviewResponse] = []
     recent_activities: List[ActivityLogResponse] = []

@@ -88,6 +88,8 @@ class MenuItemResponse(BaseModel):
     images: List[MenuImageResponse] = []
     variants: Optional[List[MenuItemVariant]] = []
     addons: Optional[List[MenuItemAddon]] = []
+    average_rating: Optional[float] = None
+    review_count: int = 0
     created_at: str
 
     class Config:

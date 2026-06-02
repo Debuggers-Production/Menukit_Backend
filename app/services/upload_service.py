@@ -175,6 +175,31 @@ class UploadService:
                 "Failed to upload image to MinIO"
             ) from e
 
+    async def upload_image_from_bytes(
+        self,
+        image_bytes: bytes,
+        folder: str = "general",
+    ) -> dict:
+        """Upload raw image bytes directly to MinIO (no UploadFile needed)."""
+        max_bytes = settings.MAX_IMAGE_SIZE_MB * 1024 * 1024
+        if len(image_bytes) > max_bytes:
+            raise ValueError(
+                f"Image size exceeds {settings.MAX_IMAGE_SIZE_MB}MB limit"
+            )
+
+        main_bytes, thumb_bytes = self._process_image(image_bytes)
+
+        file_id = str(uuid.uuid4())
+        main_filename = f"{folder}/{file_id}.jpg"
+        thumb_filename = f"{folder}/{file_id}_thumb.jpg"
+
+        return await self._upload_minio(
+            main_bytes=main_bytes,
+            thumb_bytes=thumb_bytes,
+            main_path=main_filename,
+            thumb_path=thumb_filename,
+        )
+
     async def delete_image(self, filename: str):
         try:
             self.minio_client.remove_object(

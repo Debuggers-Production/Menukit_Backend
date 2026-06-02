@@ -1,8 +1,5 @@
-"""Authentication API endpoints."""
-
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.database.session import get_db
 from app.database.redis import get_redis
 from app.core.deps import get_current_user

@@ -144,6 +144,31 @@ class AnalyticsService:
         )
         return list(result.scalars().all())
 
+    async def get_top_reviews(self, user_id: uuid.UUID, limit: int = 5) -> List[dict]:
+        """Get top recent product reviews for the shop's menu items."""
+        from app.models.review import MenuItemReview
+        shop_id = await self._get_shop_id(user_id)
+
+        result = await self.db.execute(
+            select(MenuItemReview, MenuItem.name.label("item_name"))
+            .join(MenuItem, MenuItem.id == MenuItemReview.menu_item_id)
+            .where(MenuItemReview.shop_id == shop_id)
+            .order_by(desc(MenuItemReview.rating), desc(MenuItemReview.created_at))
+            .limit(limit)
+        )
+        
+        reviews = []
+        for review, item_name in result:
+            reviews.append({
+                "id": str(review.id),
+                "item_name": item_name,
+                "reviewer_name": review.reviewer_name or "Anonymous",
+                "rating": review.rating,
+                "comment": review.comment,
+                "created_at": review.created_at.strftime("%b %d, %Y")
+            })
+        return reviews
+
     # ── Admin Stats ───────────────────────────────────────────
 
     async def get_platform_stats(self) -> dict:

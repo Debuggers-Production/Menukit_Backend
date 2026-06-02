@@ -28,9 +28,13 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up SmartMenu QR backend...")
     await init_db()
-    await init_redis()
-    redis_client = await get_redis()
-    await redis_client.flushdb()  # Clear Redis on startup for a clean slate
+    try:
+        await init_redis()
+        redis_client = await get_redis()
+        await redis_client.flushdb()  # Clear Redis on startup for a clean slate
+        logger.info("Redis connected and flushed.")
+    except Exception as e:
+        logger.warning(f"Redis unavailable — running without cache: {e}")
     
     yield
     

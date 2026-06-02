@@ -38,3 +38,5 @@ class Shop(Base, UUIDMixin, TimestampMixin):
     qr_scans = relationship("QRScan", back_populates="shop", lazy="dynamic")
     menu_views = relationship("MenuView", back_populates="shop", lazy="dynamic")
     search_history = relationship("SearchHistory", back_populates="shop", lazy="dynamic")
+    discounts = relationship("Discount", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
+    reviews = relationship("MenuItemReview", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")

@@ -39,3 +39,7 @@ class MenuItem(Base, UUIDMixin, TimestampMixin):
         "MenuImage", back_populates="menu_item", lazy="selectin",
         cascade="all, delete-orphan", order_by="MenuImage.display_order"
     )
+    reviews = relationship(
+        "MenuItemReview", back_populates="menu_item",
+        cascade="all, delete-orphan", lazy="noload"
+    )

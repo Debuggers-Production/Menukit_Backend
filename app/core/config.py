@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str = ""
     MINIO_BUCKET_NAME: str = ""
 
+    # Gemini AI
+    GEMINI_API_KEY: str = "AIzaSyDGw-M11foUXuUX6MaGMJxcNC-3sOps1ZQ"
+
+    # Image Search (Pixabay — free tier, 2500 req/day, no credit card)
+    # Get your free key at: https://pixabay.com/api/docs/
+    PIXABAY_API_KEY: str = "56123521-df85c9fe398583c4be8b772f1"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

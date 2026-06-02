@@ -12,6 +12,8 @@ from app.models.menu_image import MenuImage
 from app.models.qr_code import QRCode
 from app.models.analytics import QRScan, MenuView, SearchHistory
 from app.models.activity_log import ActivityLog
+from app.models.discount import Discount
+from app.models.review import MenuItemReview
 
 __all__ = [
     "User",
@@ -28,4 +30,6 @@ __all__ = [
     "MenuView",
     "SearchHistory",
     "ActivityLog",
+    "Discount",
+    "MenuItemReview",
 ]

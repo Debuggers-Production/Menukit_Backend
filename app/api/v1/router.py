@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     auth, shops, categories, menu_items,
-    upload, qr, analytics, public, admin
+    upload, qr, analytics, public, admin, discounts, bulk_upload
 )
 
 api_router = APIRouter()
@@ -18,3 +18,5 @@ api_router.include_router(qr.router)
 api_router.include_router(analytics.router)
 api_router.include_router(public.router)
 api_router.include_router(admin.router)
+api_router.include_router(discounts.router)
+api_router.include_router(bulk_upload.router)
