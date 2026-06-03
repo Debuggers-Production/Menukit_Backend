@@ -198,22 +198,20 @@ async def submit_review(
     if not item or item.shop_id != shop.id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
-    # IP-based rate limit: max 3 reviews per IP per item per day
+    # IP-based spam guard: max 1 review per IP per item ever
     client_ip = request.client.host if request.client else "unknown"
-    today_start = datetime.combine(date.today(), time.min)
     
     existing = await db.execute(
         select(func.count(MenuItemReview.id)).where(
             MenuItemReview.menu_item_id == item_id,
             MenuItemReview.reviewer_ip == client_ip,
-            MenuItemReview.created_at >= today_start,
         )
     )
-    count_today = existing.scalar_one()
-    if count_today >= 3:
+    count_existing = existing.scalar_one()
+    if count_existing > 0:
         raise HTTPException(
             status_code=429,
-            detail="You have submitted too many reviews for this item today. Please try again tomorrow."
+            detail="You have already submitted a review for this item."
         )
 
     review = MenuItemReview(

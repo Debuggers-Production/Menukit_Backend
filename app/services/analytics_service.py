@@ -33,6 +33,17 @@ class AnalyticsService:
 
     async def record_qr_scan(self, shop_id: uuid.UUID, ip: str = None, ua: str = None, ref: str = None):
         """Record a QR code scan."""
+        if ip:
+            # Check if this IP scanned this shop in the last 24 hours
+            since = datetime.now(timezone.utc) - timedelta(hours=24)
+            recent_scan = await self.db.execute(
+                select(QRScan.id)
+                .where(QRScan.shop_id == shop_id, QRScan.ip_address == ip, QRScan.scanned_at >= since)
+                .limit(1)
+            )
+            if recent_scan.scalar_one_or_none():
+                return  # Skip recording to prevent spam from refreshes
+
         scan = QRScan(shop_id=shop_id, ip_address=ip, user_agent=ua, referrer=ref)
         self.db.add(scan)
         await self.db.flush()
@@ -41,6 +52,27 @@ class AnalyticsService:
         self, shop_id: uuid.UUID, item_id: uuid.UUID = None, category_id: uuid.UUID = None, ip: str = None
     ):
         """Record a menu page/item view."""
+        if ip:
+            # Check if this IP viewed this specific item/category in the last 24 hours
+            since = datetime.now(timezone.utc) - timedelta(hours=24)
+            query = select(MenuView.id).where(
+                MenuView.shop_id == shop_id, 
+                MenuView.ip_address == ip, 
+                MenuView.viewed_at >= since
+            )
+            
+            if item_id:
+                query = query.where(MenuView.menu_item_id == item_id)
+            elif category_id:
+                query = query.where(MenuView.category_id == category_id)
+            else:
+                # Top level menu view
+                query = query.where(MenuView.menu_item_id.is_(None), MenuView.category_id.is_(None))
+                
+            recent_view = await self.db.execute(query.limit(1))
+            if recent_view.scalar_one_or_none():
+                return  # Skip recording to prevent spam
+
         view = MenuView(shop_id=shop_id, menu_item_id=item_id, category_id=category_id, ip_address=ip)
         self.db.add(view)
         await self.db.flush()
