@@ -20,6 +20,7 @@ class DiscountCreate(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     is_active: bool = True
+    members_only: bool = False
 
 
 class DiscountUpdate(BaseModel):
@@ -36,6 +37,7 @@ class DiscountUpdate(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     is_active: Optional[bool] = None
+    members_only: Optional[bool] = None
 
 
 class DiscountResponse(BaseModel):
@@ -54,6 +56,7 @@ class DiscountResponse(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     is_active: bool
+    members_only: bool
     created_at: str
     updated_at: str
 

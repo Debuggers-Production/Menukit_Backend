@@ -35,6 +35,7 @@ class Discount(Base, UUIDMixin, TimestampMixin):
     start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    members_only: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
     shop = relationship("Shop", back_populates="discounts")
