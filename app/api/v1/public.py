@@ -33,6 +33,114 @@ class PublicCategoryResponse(CategoryResponse):
 
 router = APIRouter(prefix="/public/shop/{shop_id}", tags=["Public Menu"])
 
+shops_router = APIRouter(prefix="/public/shops", tags=["Public Discovery"])
+
+
+class PublicShopListing(BaseModel):
+    """Lightweight shop info for the discovery map."""
+    id: str
+    name: str
+    slug: str
+    logo_url: Optional[str] = None
+    address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    opening_time: Optional[str] = None
+    closing_time: Optional[str] = None
+    active_discounts_count: int = 0
+    best_discount_label: Optional[str] = None
+    average_rating: Optional[float] = None
+    total_reviews: int = 0
+
+
+@shops_router.get("", response_model=List[PublicShopListing])
+async def list_public_shops(
+    db: AsyncSession = Depends(get_db),
+):
+    """List all active shops with discount and rating aggregations for the discovery page."""
+    from app.models.shop import Shop
+    from app.models.discount import Discount
+    from app.models.review import MenuItemReview
+    from datetime import datetime, timezone
+
+    # Load all active shops
+    result = await db.execute(select(Shop).where(Shop.is_active == True))
+    shops = result.scalars().all()
+
+    now = datetime.now(timezone.utc)
+    listing = []
+
+    for shop in shops:
+        # Count active non-members-only discounts
+        disc_result = await db.execute(
+            select(Discount).where(
+                Discount.shop_id == shop.id,
+                Discount.is_active == True,
+                Discount.members_only == False,
+            )
+        )
+        all_discounts = disc_result.scalars().all()
+
+        # Filter truly active (within date range)
+        active_discs = [
+            d for d in all_discounts
+            if (d.start_date is None or d.start_date.replace(tzinfo=timezone.utc) <= now)
+            and (d.end_date is None or d.end_date.replace(tzinfo=timezone.utc) >= now)
+        ]
+
+        # Find best discount label
+        best_label = None
+        best_value = -1.0
+        for d in active_discs:
+            if d.discount_type == 'percentage' and d.discount_value is not None:
+                v = float(d.discount_value)
+                if v > best_value:
+                    best_value = v
+                    best_label = f"{int(v)}% Off"
+            elif d.discount_type == 'flat' and d.discount_value is not None:
+                v = float(d.discount_value)
+                if v > best_value:
+                    best_value = v
+                    best_label = f"₹{int(v)} Off"
+            elif d.discount_type == 'bogo':
+                if best_label is None:
+                    best_label = f"Buy {d.buy_quantity} Get {d.get_quantity}"
+            elif d.discount_type == 'combo':
+                if best_label is None:
+                    best_label = "Combo Deal"
+
+        # Average rating from menu_item_reviews
+        rating_result = await db.execute(
+            select(
+                func.avg(MenuItemReview.rating),
+                func.count(MenuItemReview.id)
+            ).where(MenuItemReview.shop_id == shop.id)
+        )
+        avg_rating, total_reviews = rating_result.one()
+        avg_rating = round(float(avg_rating), 1) if avg_rating else None
+
+        listing.append(PublicShopListing(
+            id=str(shop.id),
+            name=shop.name,
+            slug=shop.slug,
+            logo_url=shop.logo_url,
+            address=shop.address,
+            latitude=shop.latitude,
+            longitude=shop.longitude,
+            opening_time=shop.opening_time,
+            closing_time=shop.closing_time,
+            active_discounts_count=len(active_discs),
+            best_discount_label=best_label,
+            average_rating=avg_rating,
+            total_reviews=total_reviews or 0,
+        ))
+
+    # Sort: shops with active discounts first, then by rating
+    listing.sort(key=lambda s: (-s.active_discounts_count, -(s.average_rating or 0)))
+    return listing
+
+
+
 
 class ScanRequest(BaseModel):
     referrer: Optional[str] = None

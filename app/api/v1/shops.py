@@ -131,7 +131,12 @@ def _shop_to_response(shop) -> ShopResponse:
         opening_time=shop.opening_time,
         closing_time=shop.closing_time,
         is_active=shop.is_active,
+        latitude=shop.latitude,
+        longitude=shop.longitude,
+        google_review_link=shop.google_review_link,
+        review_widget_code=shop.review_widget_code,
         settings=settings_resp,
         theme=theme_resp,
         created_at=str(shop.created_at),
     )
+

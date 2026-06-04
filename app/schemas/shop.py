@@ -28,6 +28,10 @@ class ShopUpdate(BaseModel):
     address: Optional[str] = None
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    google_review_link: Optional[str] = None
+    review_widget_code: Optional[str] = None
 
 
 class ShopSettingsUpdate(BaseModel):
@@ -89,6 +93,10 @@ class ShopResponse(BaseModel):
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
     is_active: bool
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    google_review_link: Optional[str] = None
+    review_widget_code: Optional[str] = None
     settings: Optional[ShopSettingsResponse] = None
     theme: Optional[ThemeSettingsResponse] = None
     created_at: str

@@ -17,6 +17,8 @@ api_router.include_router(upload.router)
 api_router.include_router(qr.router)
 api_router.include_router(analytics.router)
 api_router.include_router(public.router)
+api_router.include_router(public.shops_router)
 api_router.include_router(admin.router)
 api_router.include_router(discounts.router)
 api_router.include_router(bulk_upload.router)
+
