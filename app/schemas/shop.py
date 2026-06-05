@@ -40,6 +40,8 @@ class ShopSettingsUpdate(BaseModel):
     language: Optional[str] = None
     show_prices: Optional[bool] = None
     show_offers: Optional[bool] = None
+    is_discoverable: Optional[bool] = None
+    show_menus_in_discovery: Optional[bool] = None
 
 
 class ThemeSettingsUpdate(BaseModel):
@@ -73,6 +75,8 @@ class ShopSettingsResponse(BaseModel):
     language: str
     show_prices: bool
     show_offers: bool
+    is_discoverable: bool
+    show_menus_in_discovery: bool
 
     class Config:
         from_attributes = True

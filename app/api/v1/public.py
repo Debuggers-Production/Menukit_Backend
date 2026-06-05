@@ -51,6 +51,7 @@ class PublicShopListing(BaseModel):
     best_discount_label: Optional[str] = None
     average_rating: Optional[float] = None
     total_reviews: int = 0
+    show_menus_in_discovery: bool = True
 
 
 @shops_router.get("", response_model=List[PublicShopListing])
@@ -63,14 +64,22 @@ async def list_public_shops(
     from app.models.review import MenuItemReview
     from datetime import datetime, timezone
 
-    # Load all active shops
-    result = await db.execute(select(Shop).where(Shop.is_active == True))
+    # Load all active shops with settings
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(select(Shop).options(selectinload(Shop.settings)).where(Shop.is_active == True))
     shops = result.scalars().all()
 
     now = datetime.now(timezone.utc)
     listing = []
 
     for shop in shops:
+        # Check if shop is discoverable
+        is_discoverable = shop.settings.is_discoverable if shop.settings else True
+        if not is_discoverable:
+            continue
+            
+        show_menus = shop.settings.show_menus_in_discovery if shop.settings else True
+
         # Count active non-members-only discounts
         disc_result = await db.execute(
             select(Discount).where(
@@ -133,6 +142,7 @@ async def list_public_shops(
             best_discount_label=best_label,
             average_rating=avg_rating,
             total_reviews=total_reviews or 0,
+            show_menus_in_discovery=show_menus,
         ))
 
     # Sort: shops with active discounts first, then by rating

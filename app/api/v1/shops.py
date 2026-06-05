@@ -90,6 +90,8 @@ async def update_settings(
         language=settings.language,
         show_prices=settings.show_prices,
         show_offers=settings.show_offers,
+        is_discoverable=settings.is_discoverable,
+        show_menus_in_discovery=settings.show_menus_in_discovery,
     )
 
 
@@ -115,6 +117,8 @@ def _shop_to_response(shop) -> ShopResponse:
             language=shop.settings.language,
             show_prices=shop.settings.show_prices,
             show_offers=shop.settings.show_offers,
+            is_discoverable=shop.settings.is_discoverable,
+            show_menus_in_discovery=shop.settings.show_menus_in_discovery,
         )
 
     return ShopResponse(

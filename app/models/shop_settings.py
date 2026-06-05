@@ -19,6 +19,8 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     language: Mapped[str] = mapped_column(String(10), default="en", nullable=False)
     show_prices: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     show_offers: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_discoverable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    show_menus_in_discovery: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships
     shop = relationship("Shop", back_populates="settings")
