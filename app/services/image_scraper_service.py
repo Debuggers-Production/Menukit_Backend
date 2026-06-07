@@ -26,7 +26,8 @@ class ImageScraperService:
 
     Priority order:
       1. Pixabay API (free, 2500 req/day) — if PIXABAY_API_KEY is set
-      2. Picsum Photos (deterministic placeholder, always works)
+      2. Wikipedia API (free, high quality images for named entities)
+      3. Picsum Photos (deterministic placeholder, always works)
     """
 
     async def fetch_food_image(self, item_name: str) -> Optional[Tuple[bytes, str]]:
@@ -38,13 +39,21 @@ class ImageScraperService:
         logger.info(f"[ImageScraper] Searching image for: {query}")
 
         # --- Source 1: Pixabay API (requires free key) ---
-        if settings.PIXABAY_API_KEY:
+        if getattr(settings, "PIXABAY_API_KEY", None):
             result = await self._try_pixabay(query)
             if result:
                 logger.info(f"[ImageScraper] Got image from Pixabay for: {query}")
                 return result
 
-        # --- Source 2: Picsum Photos (guaranteed fallback) ---
+        # --- Source 2: Wikipedia API (high quality, specific) ---
+        wiki_urls = await self._search_wikipedia(query)
+        for url in wiki_urls:
+            result = await self.download_image_url(url)
+            if result:
+                logger.info(f"[ImageScraper] Got image from Wikipedia for: {query}")
+                return result
+
+        # --- Source 3: Picsum Photos (guaranteed fallback) ---
         result = await self._try_picsum(query)
         if result:
             logger.info(f"[ImageScraper] Used Picsum fallback for: {query}")
@@ -61,7 +70,7 @@ class ImageScraperService:
         logger.info(f"[ImageScraper] Searching image URLs for: {query}")
         urls = []
 
-        if settings.PIXABAY_API_KEY:
+        if getattr(settings, "PIXABAY_API_KEY", None):
             encoded = urllib.parse.quote(f"{query} food")
             api_url = (
                 f"https://pixabay.com/api/"
@@ -94,7 +103,11 @@ class ImageScraperService:
             except Exception as e:
                 logger.error(f"[Pixabay] Failed to fetch variants: {e}")
 
-        # Fallback to multiple random picsum if pixabay fails or isn't set
+        # Fallback to Wikipedia if Pixabay fails or isn't set
+        if not urls:
+            urls = await self._search_wikipedia(query)
+
+        # Fallback to multiple random picsum if all else fails
         if not urls:
             seed_base = abs(hash(query)) % 1000
             urls = [f"https://picsum.photos/seed/{seed_base + i}/800/600" for i in range(limit)]
@@ -112,6 +125,29 @@ class ImageScraperService:
         except Exception as e:
             logger.error(f"Failed to download image URL {url}: {e}")
         return None
+
+    async def _search_wikipedia(self, query: str) -> list[str]:
+        """
+        Search Wikipedia for images related to the query.
+        Returns a list of image URLs.
+        """
+        encoded = urllib.parse.quote(query)
+        url = f"https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch={encoded}&prop=pageimages&format=json&pithumbsize=800"
+        urls = []
+        try:
+            async with httpx.AsyncClient(timeout=10.0, headers=HEADERS) as client:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    pages = data.get("query", {}).get("pages", {})
+                    for p in pages.values():
+                        src = p.get("thumbnail", {}).get("source")
+                        # Filter out common wikipedia UI icons
+                        if src and not any(x in src for x in ["Commons-logo", "Ambox", "Wiktionary-logo", "Symbol_", "Flag_"]):
+                            urls.append(src)
+        except Exception as e:
+            logger.debug(f"[Wikipedia] Failed for '{query}': {e}")
+        return urls
 
     async def _try_pixabay(self, query: str) -> Optional[Tuple[bytes, str]]:
         """
