@@ -31,6 +31,10 @@ class MenuItem(Base, UUIDMixin, TimestampMixin):
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     variants: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     addons: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    available_days: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
+    available_time_presets: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
+    custom_time_from: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    custom_time_to: Mapped[str | None] = mapped_column(String(5), nullable=True)
 
     # Relationships
     shop = relationship("Shop", back_populates="menu_items")

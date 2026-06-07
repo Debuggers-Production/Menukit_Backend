@@ -45,6 +45,10 @@ class MenuItemCreate(BaseModel):
     display_order: Optional[int] = 0
     variants: Optional[List[MenuItemVariant]] = []
     addons: Optional[List[MenuItemAddon]] = None
+    available_days: Optional[List[str]] = []
+    available_time_presets: Optional[List[str]] = []
+    custom_time_from: Optional[str] = None
+    custom_time_to: Optional[str] = None
 
 
 class MenuItemUpdate(BaseModel):
@@ -62,6 +66,10 @@ class MenuItemUpdate(BaseModel):
     display_order: Optional[int] = None
     variants: Optional[List[MenuItemVariant]] = None
     addons: Optional[List[MenuItemAddon]] = None
+    available_days: Optional[List[str]] = None
+    available_time_presets: Optional[List[str]] = None
+    custom_time_from: Optional[str] = None
+    custom_time_to: Optional[str] = None
 
 
 class MenuItemReorder(BaseModel):
@@ -88,6 +96,10 @@ class MenuItemResponse(BaseModel):
     images: List[MenuImageResponse] = []
     variants: Optional[List[MenuItemVariant]] = []
     addons: Optional[List[MenuItemAddon]] = []
+    available_days: Optional[List[str]] = []
+    available_time_presets: Optional[List[str]] = []
+    custom_time_from: Optional[str] = None
+    custom_time_to: Optional[str] = None
     average_rating: Optional[float] = None
     review_count: int = 0
     created_at: str
