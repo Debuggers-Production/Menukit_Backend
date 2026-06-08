@@ -81,7 +81,7 @@ class ImageScraperService:
                 f"&min_width=400"
                 f"&min_height=400"
                 f"&safesearch=true"
-                f"&per_page={limit}"
+                f"&per_page=20"
                 f"&order=popular"
             )
             try:
@@ -111,6 +111,10 @@ class ImageScraperService:
         if not urls:
             seed_base = abs(hash(query)) % 1000
             urls = [f"https://picsum.photos/seed/{seed_base + i}/800/600" for i in range(limit)]
+
+        if urls:
+            import random
+            random.shuffle(urls)
 
         return urls[:limit]
 

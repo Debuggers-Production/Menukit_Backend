@@ -15,7 +15,7 @@ class ExtractedMenuItem(BaseModel):
     name: str = Field(description="Name of the menu item")
     description: Optional[str] = Field(description="Description of the menu item, ingredients, etc.")
     price: float = Field(description="Price of the item as a number")
-    food_type: str = Field(description="One of: 'veg', 'non-veg', 'egg', 'drink'")
+    food_types: List[str] = Field(description="List of dietary types. Valid values are: 'veg', 'non-veg', 'egg', 'drink', 'none', 'dessert'")
 
 class ExtractedMenu(BaseModel):
     items: List[ExtractedMenuItem] = Field(description="List of all extracted menu items")
@@ -40,7 +40,7 @@ class GeminiService:
         - The name of the item
         - The description (if any)
         - The price (extract the numeric value)
-        - The food_type based on the name or description. Use 'drink' for beverages/liquids. Use 'veg' for vegetarian items, 'non-veg' for meat/seafood, and 'egg' if it contains egg but no meat. If unsure, default to 'veg'.
+        - The food_types based on the name or description. Use 'drink' for beverages/liquids. Use 'dessert' for sweets. Use 'veg' for vegetarian items, 'non-veg' for meat/seafood, and 'egg' if it contains egg but no meat. Use 'none' if it does not fit these. If unsure, default to ['none']. Can have multiple values like ['veg', 'dessert'].
 
         Return the data as a structured JSON array of items.
         """

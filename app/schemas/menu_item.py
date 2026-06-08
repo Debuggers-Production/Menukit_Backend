@@ -37,7 +37,7 @@ class MenuItemCreate(BaseModel):
     description: Optional[str] = None
     price: Decimal
     offer_price: Optional[Decimal] = None
-    food_type: str = "veg"  # veg | non-veg | egg | drink
+    food_types: List[str] = ["veg"]  # veg | non-veg | egg | drink
     allow_ice_preference: bool = False
     is_bestseller: bool = False
     is_highlighted: bool = False
@@ -58,7 +58,7 @@ class MenuItemUpdate(BaseModel):
     description: Optional[str] = None
     price: Optional[Decimal] = None
     offer_price: Optional[Decimal] = None
-    food_type: Optional[str] = None
+    food_types: Optional[List[str]] = None
     allow_ice_preference: Optional[bool] = None
     is_bestseller: Optional[bool] = None
     is_highlighted: Optional[bool] = None
@@ -85,7 +85,7 @@ class MenuItemResponse(BaseModel):
     description: Optional[str] = None
     price: str
     offer_price: Optional[str] = None
-    food_type: str
+    food_types: List[str]
     allow_ice_preference: bool
     is_bestseller: bool
     is_highlighted: bool

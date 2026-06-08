@@ -46,3 +46,6 @@ slugify
 
 # Gemini AI
 google-genai
+
+# Debugging
+icecream

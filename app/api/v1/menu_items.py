@@ -65,6 +65,23 @@ async def get_menu_items(
     return [_item_response(i) for i in items]
 
 
+@router.get("/search-images-by-name")
+async def search_images_by_name(
+    q: str,
+    user: User = Depends(get_current_user),
+):
+    """
+    Search for food images by query string.
+    """
+    if not q or not q.strip():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Query string is required")
+        
+    scraper = ImageScraperService()
+    urls = await scraper.search_image_urls(q.strip())
+    return {"urls": urls}
+
+
 @router.get("/{item_id}", response_model=MenuItemResponse)
 async def get_menu_item(
     item_id: str,
@@ -177,6 +194,7 @@ async def search_item_images(
     urls = await scraper.search_image_urls(item.name)
     return {"urls": urls}
 
+
 @router.post("/{item_id}/save-image-url", response_model=MenuImageResponse)
 async def save_item_image_url(
     item_id: str,
@@ -198,24 +216,24 @@ async def save_item_image_url(
     if not item or item.shop_id != shop.id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
-    scraper = ImageScraperService()
-    result = await scraper.download_image_url(payload.url)
-    if not result:
-        raise HTTPException(status_code=400, detail="Could not download the selected image.")
-
-    image_bytes, content_type = result
-    
-    # Check if this is the first image
-    result_images = await db.execute(
-        select(func.count(MenuImage.id)).where(MenuImage.menu_item_id == item.id)
-    )
-    existing_count = result_images.scalar() or 0
-    is_primary = (existing_count == 0)
-
-    # Upload and save
-    upload_service = UploadService()
-    
     try:
+        scraper = ImageScraperService()
+        result = await scraper.download_image_url(payload.url)
+        if not result:
+            raise HTTPException(status_code=400, detail="Could not download the selected image.")
+
+        image_bytes, content_type = result
+        
+        # Check if this is the first image
+        result_images = await db.execute(
+            select(func.count(MenuImage.id)).where(MenuImage.menu_item_id == item.id)
+        )
+        existing_count = result_images.scalar() or 0
+        is_primary = (existing_count == 0)
+
+        # Upload and save
+        upload_service = UploadService()
+        
         upload_result = await upload_service.upload_image_from_bytes(
             image_bytes=image_bytes,
             folder=f"menu-items/{shop.id}",
@@ -235,8 +253,11 @@ async def save_item_image_url(
             display_order=menu_image.display_order,
             created_at=menu_image.created_at,
         )
+    except HTTPException:
+        raise
     except Exception as e:
-        await db.rollback()
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
 
 @router.post("/{item_id}/auto-image", response_model=MenuImageResponse)
@@ -337,7 +358,7 @@ def _item_response(item, avg_rating: float = None, review_count: int = 0) -> Men
         description=item.description,
         price=str(item.price),
         offer_price=str(item.offer_price) if item.offer_price else None,
-        food_type=item.food_type,
+        food_types=item.food_types,
         allow_ice_preference=item.allow_ice_preference,
         is_bestseller=item.is_bestseller,
         is_highlighted=item.is_highlighted,

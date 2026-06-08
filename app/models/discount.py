@@ -34,6 +34,11 @@ class Discount(Base, UUIDMixin, TimestampMixin):
 
     start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Scheduling & Availability
+    available_days: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    available_time_presets: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     members_only: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

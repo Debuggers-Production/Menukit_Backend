@@ -23,7 +23,7 @@ class MenuItem(Base, UUIDMixin, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     offer_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
-    food_type: Mapped[str] = mapped_column(String(10), default="veg", nullable=False)  # veg | non-veg | egg | drink
+    food_types: Mapped[list] = mapped_column(JSONB, default=lambda: ["veg"], nullable=False)  # veg | non-veg | egg | drink
     allow_ice_preference: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_bestseller: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_highlighted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

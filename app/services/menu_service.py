@@ -144,7 +144,7 @@ class MenuService:
         if category_id:
             query = query.where(MenuItem.category_id == category_id)
         if food_type:
-            query = query.where(MenuItem.food_type == food_type)
+            query = query.where(MenuItem.food_types.contains([food_type]))
         if search:
             query = query.where(MenuItem.name.ilike(f"%{search}%"))
 

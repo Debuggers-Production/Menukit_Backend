@@ -23,14 +23,14 @@ class ParsedItemResponse(BaseModel):
     name: str
     description: Optional[str] = None
     price: float
-    food_type: str
+    food_types: List[str]
 
 class BulkImportItem(BaseModel):
     category_name: str
     name: str
     description: Optional[str] = None
     price: float
-    food_type: str
+    food_types: List[str]
 
 class BulkImportRequest(BaseModel):
     items: List[BulkImportItem]
@@ -121,7 +121,7 @@ async def confirm_bulk_import(
                 "name": item.name,
                 "description": item.description,
                 "price": item.price,
-                "food_type": item.food_type,
+                "food_types": item.food_types,
                 "is_available": True,
                 "is_bestseller": False,
                 "is_highlighted": False,

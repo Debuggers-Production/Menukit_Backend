@@ -10,6 +10,7 @@ from app.services.otp_service import OTPService
 from app.services.email_service import EmailService
 from app.services.auth_service import AuthService
 from app.models.user import User
+from icecream import ic
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -22,12 +23,14 @@ async def request_otp(
     """Send OTP to the provided email address."""
     otp_service = OTPService(redis)
     code = await otp_service.create_otp(data.email)
+    ic("OTP CODE :",code)
 
     if code is None:
         raise RateLimitException("Too many OTP requests. Please try again later.")
 
     email_service = EmailService()
-    sent = await email_service.send_otp_email(data.email, code)
+    # sent = await email_service.send_otp_email(data.email, code)
+    sent = True
 
     if not sent:
         raise BadRequestException("Failed to send OTP email. Please try again.")

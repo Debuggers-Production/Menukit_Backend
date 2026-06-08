@@ -33,6 +33,8 @@ def _discount_response(d) -> DiscountResponse:
         target_ids=d.target_ids,
         start_date=d.start_date.isoformat() if d.start_date else None,
         end_date=d.end_date.isoformat() if d.end_date else None,
+        available_days=d.available_days,
+        available_time_presets=d.available_time_presets,
         is_active=d.is_active,
         members_only=d.members_only,
         created_at=str(d.created_at),

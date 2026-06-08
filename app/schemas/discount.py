@@ -19,6 +19,8 @@ class DiscountCreate(BaseModel):
     target_ids: Optional[List[str]] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+    available_days: Optional[List[str]] = None
+    available_time_presets: Optional[List[str]] = None
     is_active: bool = True
     members_only: bool = False
 
@@ -36,6 +38,8 @@ class DiscountUpdate(BaseModel):
     target_ids: Optional[List[str]] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+    available_days: Optional[List[str]] = None
+    available_time_presets: Optional[List[str]] = None
     is_active: Optional[bool] = None
     members_only: Optional[bool] = None
 
@@ -55,6 +59,8 @@ class DiscountResponse(BaseModel):
     target_ids: Optional[List[str]] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    available_days: Optional[List[str]] = None
+    available_time_presets: Optional[List[str]] = None
     is_active: bool
     members_only: bool
     created_at: str
