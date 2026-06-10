@@ -58,6 +58,17 @@ async def update_category(
     return _category_response(category)
 
 
+@router.delete("/all", response_model=MessageResponse)
+async def delete_all_categories(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete ALL categories and their items for the user's shop."""
+    service = MenuService(db)
+    await service.delete_all_categories(user.id)
+    return MessageResponse(message="All categories deleted successfully")
+
+
 @router.delete("/{category_id}", response_model=MessageResponse)
 async def delete_category(
     category_id: str,

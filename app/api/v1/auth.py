@@ -29,7 +29,7 @@ async def request_otp(
         raise RateLimitException("Too many OTP requests. Please try again later.")
 
     email_service = EmailService()
-    sent = await email_service.send_otp_email(data.email, code)
+    # sent = await email_service.send_otp_email(data.email, code)
     sent = True
 
     if not sent:

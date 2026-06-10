@@ -115,6 +115,17 @@ async def update_menu_item(
     return _item_response(item)
 
 
+@router.delete("/all", response_model=MessageResponse)
+async def delete_all_menu_items(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete ALL menu items for the user's shop."""
+    service = MenuService(db)
+    await service.delete_all_menu_items(user.id)
+    return MessageResponse(message="All menu items deleted successfully")
+
+
 @router.delete("/{item_id}", response_model=MessageResponse)
 async def delete_menu_item(
     item_id: str,

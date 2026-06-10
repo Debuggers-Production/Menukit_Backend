@@ -89,6 +89,20 @@ class MenuService:
         await self.db.delete(category)
         await self.db.flush()
 
+    async def delete_all_categories(self, user_id: uuid.UUID):
+        """Delete all categories (and their items) for the user's shop."""
+        shop = await self._get_user_shop(user_id)
+        await self.db.execute(
+            delete(Category).where(Category.shop_id == shop.id)
+        )
+        activity = ActivityLog(
+            user_id=user_id,
+            action="category_delete_all",
+            details="Deleted all categories",
+        )
+        self.db.add(activity)
+        await self.db.flush()
+
     async def reorder_categories(self, user_id: uuid.UUID, order: List[dict]):
         """Reorder categories."""
         shop = await self._get_user_shop(user_id)
@@ -201,6 +215,20 @@ class MenuService:
         self.db.add(activity)
 
         await self.db.delete(item)
+        await self.db.flush()
+
+    async def delete_all_menu_items(self, user_id: uuid.UUID):
+        """Delete all menu items for the user's shop."""
+        shop = await self._get_user_shop(user_id)
+        await self.db.execute(
+            delete(MenuItem).where(MenuItem.shop_id == shop.id)
+        )
+        activity = ActivityLog(
+            user_id=user_id,
+            action="menu_delete_all",
+            details="Deleted all menu items",
+        )
+        self.db.add(activity)
         await self.db.flush()
 
     async def reorder_menu_items(self, user_id: uuid.UUID, order: List[dict]):
