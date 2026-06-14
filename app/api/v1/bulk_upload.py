@@ -15,6 +15,10 @@ from app.models.menu_item import MenuItem
 from app.services.gemini_service import GeminiService
 from app.services.shop_service import ShopService
 from app.services.menu_service import MenuService
+from app.services.discount_service import DiscountService
+from app.schemas.category import CategoryCreate
+from app.schemas.menu_item import MenuItemCreate
+from app.schemas.discount import DiscountCreate
 
 router = APIRouter(prefix="/bulk-upload", tags=["Bulk Upload"])
 
@@ -141,3 +145,51 @@ async def confirm_bulk_import(
         categories_created=categories_created,
         items_created=items_created
     )
+
+
+@router.post("/internal/categories")
+async def internal_bulk_categories(
+    categories: List[CategoryCreate],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Bulk create categories directly from JSON."""
+    menu_service = MenuService(db)
+    created_count = 0
+    for cat in categories:
+        await menu_service.create_category(user.id, cat.model_dump())
+        created_count += 1
+    
+    return {"message": f"Successfully created {created_count} categories", "count": created_count}
+
+
+@router.post("/internal/menus")
+async def internal_bulk_menus(
+    menus: List[MenuItemCreate],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Bulk create menu items directly from JSON."""
+    menu_service = MenuService(db)
+    created_count = 0
+    for item in menus:
+        await menu_service.create_menu_item(user.id, item.model_dump())
+        created_count += 1
+    
+    return {"message": f"Successfully created {created_count} menu items", "count": created_count}
+
+
+@router.post("/internal/discounts")
+async def internal_bulk_discounts(
+    discounts: List[DiscountCreate],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Bulk create discounts (and combos) directly from JSON."""
+    discount_service = DiscountService(db)
+    created_count = 0
+    for discount in discounts:
+        await discount_service.create_discount(user.id, discount.model_dump())
+        created_count += 1
+    
+    return {"message": f"Successfully created {created_count} discounts/combos", "count": created_count}
