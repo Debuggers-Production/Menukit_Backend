@@ -43,6 +43,7 @@ pytest-asyncio==0.26.0
 httpx==0.28.1
 minio==7.2.0
 slugify
+duckduckgo-search
 
 # Gemini AI
 google-genai
