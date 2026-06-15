@@ -7,6 +7,18 @@ from pydantic import BaseModel, Field, constr
 
 class MobileVerifyRequest(BaseModel):
     mobile_number: constr(min_length=10, max_length=15, pattern=r'^\+?[0-9]+$') # type: ignore
+    token: str | None = None
+    shop_id: uuid.UUID | None = None
+
+class MobileVerifyResponse(BaseModel):
+    otp_required: bool
+    message: str | None = None
+    # Below fields populated if otp_required = False
+    is_global_customer: bool = False
+    is_member: bool = False
+    is_strict_member: bool = False
+    customer_name: str | None = None
+    access_token: str | None = None
 
 
 class OTPVerifyRequest(BaseModel):
@@ -35,6 +47,7 @@ class CustomerResponse(BaseModel):
     name: str | None
     mobile_number: str
     created_at: datetime
+    access_token: str | None = None
 
     class Config:
         from_attributes = True

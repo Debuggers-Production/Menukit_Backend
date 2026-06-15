@@ -4,7 +4,7 @@ import uuid
 from typing import List, Optional
 from pydantic import BaseModel
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
@@ -278,8 +278,9 @@ async def record_search(
 async def get_active_discounts_public(
     shop_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    Authorization: Optional[str] = Header(None)
 ):
-    """Get active discounts for public display."""
+    """Get active discounts for public display, filtering out hidden ones if unauthenticated."""
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
@@ -289,8 +290,24 @@ async def get_active_discounts_public(
     service = DiscountService(db)
     discounts = await service.get_active_discounts(shop.id)
 
+    # Verify token
+    is_authenticated = False
+    if Authorization:
+        from app.core.security import verify_customer_token
+        token = Authorization.replace("Bearer ", "") if "Bearer " in Authorization else Authorization
+        if verify_customer_token(token):
+            is_authenticated = True
+
     from app.api.v1.discounts import _discount_response
-    return [_discount_response(d) for d in discounts]
+    
+    # Filter out 'members_only_hidden' if unauthenticated
+    result = []
+    for d in discounts:
+        if not is_authenticated and d.visibility_type == 'members_only_hidden':
+            continue
+        result.append(_discount_response(d))
+        
+    return result
 
 
 # ── Reviews ────────────────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ import redis.asyncio as redis
 from app.database.session import get_db
 from app.database.redis import get_redis
 from app.schemas.customer import (
-    MobileVerifyRequest, OTPVerifyRequest, OTPVerifyResponse,
+    MobileVerifyRequest, MobileVerifyResponse, OTPVerifyRequest, OTPVerifyResponse,
     CustomerRegisterRequest, CustomerResponse
 )
 from app.services.customer_service import CustomerService
@@ -18,14 +18,49 @@ from app.services.membership_service import MembershipService
 router = APIRouter(prefix="/customers", tags=["Customers"])
 
 
-@router.post("/verify-mobile")
+@router.post("/verify-mobile", response_model=MobileVerifyResponse)
 async def verify_mobile(
     data: MobileVerifyRequest,
+    db: AsyncSession = Depends(get_db),
     redis_client: redis.Redis = Depends(get_redis)
 ):
-    """Generate and send OTP for mobile verification."""
+    """Generate and send OTP for mobile verification, or bypass if valid token provided."""
+    from app.core.security import verify_customer_token
+    
+    # 1. Check if valid token matches the mobile number
+    if data.token:
+        token_mobile = verify_customer_token(data.token)
+        if token_mobile and token_mobile == data.mobile_number:
+            # Token is valid! Bypass OTP and return customer status
+            customer_service = CustomerService(db)
+            membership_service = MembershipService(db)
+            customer = await customer_service.get_customer_by_mobile(data.mobile_number)
+            
+            response = MobileVerifyResponse(otp_required=False, message="Verified via token")
+            
+            if data.shop_id:
+                await membership_service.log_event(data.shop_id, "token_verified")
+                
+            if customer:
+                response.is_global_customer = True
+                response.customer_name = customer.name
+                
+                if data.shop_id:
+                    membership = await customer_service.get_membership(customer.id, data.shop_id)
+                    if membership:
+                        response.is_member = True
+                        response.is_strict_member = membership.is_retailer_added
+                        await membership_service.log_event(data.shop_id, "discount_unlocked", customer.id)
+                    else:
+                        response.is_member = False
+                        response.is_strict_member = False
+                        await customer_service.add_membership(customer.id, data.shop_id, is_retailer_added=False)
+                        await membership_service.log_event(data.shop_id, "member_matched", customer.id)
+            
+            return response
+
+    # 2. Token invalid or missing, proceed with OTP generation
     otp_service = OTPService(redis_client)
-    # Using mobile_number as the key in OTPService
     code = await otp_service.create_otp(data.mobile_number)
     if not code:
         raise HTTPException(
@@ -34,10 +69,9 @@ async def verify_mobile(
         )
     
     # In a real app, send the OTP via SMS gateway here.
-    # For development, we print it.
     print(f"DEBUG: OTP for {data.mobile_number} is {code}")
     
-    return {"message": "OTP sent successfully"}
+    return MobileVerifyResponse(otp_required=True, message="OTP sent successfully")
 
 
 @router.post("/verify-otp", response_model=OTPVerifyResponse)
@@ -76,6 +110,9 @@ async def verify_otp(
         response.is_global_customer = True
         response.customer_name = customer.name
         
+        from app.core.security import create_customer_token
+        response.access_token = create_customer_token(customer.mobile_number)
+        
         if data.shop_id:
             membership = await customer_service.get_membership(customer.id, data.shop_id)
             if membership:
@@ -106,4 +143,12 @@ async def register_customer(
         await customer_service.add_membership(customer.id, data.shop_id, is_retailer_added=False)
         await membership_service.log_event(data.shop_id, "member_matched", customer.id)
         
-    return customer
+    from app.core.security import create_customer_token
+    
+    return CustomerResponse(
+        id=customer.id,
+        name=customer.name,
+        mobile_number=customer.mobile_number,
+        created_at=customer.created_at,
+        access_token=create_customer_token(customer.mobile_number)
+    )

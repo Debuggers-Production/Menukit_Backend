@@ -18,6 +18,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
+def create_customer_token(mobile_number: str) -> str:
+    """Create a long-lived JWT token for a verified customer."""
+    expire = datetime.now(timezone.utc) + timedelta(days=365) # 1 year expiration
+    to_encode = {"sub": mobile_number, "type": "customer_access", "exp": expire}
+    return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
 def create_refresh_token(data: dict) -> str:
     """Create a JWT refresh token."""
     to_encode = data.copy()
@@ -42,6 +49,14 @@ def verify_access_token(token: str) -> Optional[dict]:
     payload = decode_token(token)
     if payload and payload.get("type") == "access":
         return payload
+    return None
+
+
+def verify_customer_token(token: str) -> Optional[str]:
+    """Verify a customer token and return the mobile number."""
+    payload = decode_token(token)
+    if payload and payload.get("type") == "customer_access":
+        return payload.get("sub")
     return None
 
 
