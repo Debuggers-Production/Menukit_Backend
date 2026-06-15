@@ -22,7 +22,7 @@ class DiscountCreate(BaseModel):
     available_days: Optional[List[str]] = None
     available_time_presets: Optional[List[str]] = None
     is_active: bool = True
-    members_only: bool = False
+    visibility_type: str = "everyone_unlock_members"
 
 
 class DiscountUpdate(BaseModel):
@@ -41,7 +41,7 @@ class DiscountUpdate(BaseModel):
     available_days: Optional[List[str]] = None
     available_time_presets: Optional[List[str]] = None
     is_active: Optional[bool] = None
-    members_only: Optional[bool] = None
+    visibility_type: Optional[str] = None
 
 
 class DiscountResponse(BaseModel):
@@ -62,7 +62,7 @@ class DiscountResponse(BaseModel):
     available_days: Optional[List[str]] = None
     available_time_presets: Optional[List[str]] = None
     is_active: bool
-    members_only: bool
+    visibility_type: str
     created_at: str
     updated_at: str
 

@@ -36,7 +36,7 @@ def _discount_response(d) -> DiscountResponse:
         available_days=d.available_days,
         available_time_presets=d.available_time_presets,
         is_active=d.is_active,
-        members_only=d.members_only,
+        visibility_type=d.visibility_type,
         created_at=str(d.created_at),
         updated_at=str(d.updated_at),
     )

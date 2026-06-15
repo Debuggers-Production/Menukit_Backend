@@ -44,3 +44,4 @@ class Shop(Base, UUIDMixin, TimestampMixin):
     search_history = relationship("SearchHistory", back_populates="shop", lazy="dynamic")
     discounts = relationship("Discount", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     reviews = relationship("MenuItemReview", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
+    memberships = relationship("CustomerRetailerMembership", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")

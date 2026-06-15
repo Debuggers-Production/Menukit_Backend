@@ -10,10 +10,12 @@ from app.models.category import Category
 from app.models.menu_item import MenuItem
 from app.models.menu_image import MenuImage
 from app.models.qr_code import QRCode
-from app.models.analytics import QRScan, MenuView, SearchHistory
+from app.models.analytics import QRScan, MenuView, SearchHistory, MembershipEvent
 from app.models.activity_log import ActivityLog
 from app.models.discount import Discount
 from app.models.review import MenuItemReview
+from app.models.customer import Customer
+from app.models.membership import CustomerRetailerMembership
 
 __all__ = [
     "User",
@@ -32,4 +34,7 @@ __all__ = [
     "ActivityLog",
     "Discount",
     "MenuItemReview",
+    "Customer",
+    "CustomerRetailerMembership",
+    "MembershipEvent",
 ]

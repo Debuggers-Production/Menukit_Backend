@@ -74,3 +74,28 @@ class SearchHistory(Base, UUIDMixin):
 
     # Relationships
     shop = relationship("Shop", back_populates="search_history")
+
+
+class MembershipEvent(Base, UUIDMixin):
+    """Tracks customer membership and unlock events."""
+
+    __tablename__ = "membership_events"
+
+    shop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False) # popup_viewed, popup_closed, mobile_entered, otp_verified, member_matched, discount_unlocked
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"), nullable=True
+    )
+    event_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+
+    # Relationships
+    shop = relationship("Shop")
+    customer = relationship("Customer")
+

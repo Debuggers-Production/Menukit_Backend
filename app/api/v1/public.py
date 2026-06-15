@@ -85,7 +85,7 @@ async def list_public_shops(
             select(Discount).where(
                 Discount.shop_id == shop.id,
                 Discount.is_active == True,
-                Discount.members_only == False,
+                Discount.visibility_type != 'members_only',
             )
         )
         all_discounts = disc_result.scalars().all()

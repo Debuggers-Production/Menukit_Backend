@@ -40,7 +40,7 @@ class Discount(Base, UUIDMixin, TimestampMixin):
     available_time_presets: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    members_only: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    visibility_type: Mapped[str] = mapped_column(String(50), default="everyone_unlock_members", server_default="everyone_unlock_members", nullable=False)
 
     # Relationships
     shop = relationship("Shop", back_populates="discounts")
