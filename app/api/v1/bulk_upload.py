@@ -117,8 +117,12 @@ async def confirm_bulk_import(
         # Get existing items in this category to set display order
         existing_items = await menu_service.get_menu_items(shop.id, category_id=cat_id)
         max_item_order = max([i.display_order for i in existing_items]) if existing_items else 0
+        existing_item_names = {i.name.lower() for i in existing_items}
         
         for item in items:
+            if item.name.lower() in existing_item_names:
+                continue
+                
             max_item_order += 1
             item_data = {
                 "category_id": str(cat_id),
@@ -135,6 +139,7 @@ async def confirm_bulk_import(
                 "addons": []
             }
             await menu_service.create_menu_item(user.id, item_data)
+            existing_item_names.add(item.name.lower())
             items_created += 1
             
     # Commit changes from services

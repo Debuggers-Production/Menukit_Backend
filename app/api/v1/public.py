@@ -1,8 +1,10 @@
 """Public API endpoints for customer menu access."""
 
 import uuid
+import asyncio
 from typing import List, Optional
 from pydantic import BaseModel
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +15,7 @@ from sqlalchemy import select, func
 from app.models.review import MenuItemReview
 from app.schemas.discount import DiscountResponse
 from app.schemas.review import ReviewCreate, ReviewResponse, ReviewSummary
-from datetime import date, datetime, time
+from datetime import datetime, timezone
 from app.schemas.shop import ShopResponse
 from app.schemas.category import CategoryResponse
 from app.schemas.menu_item import MenuItemResponse
@@ -26,13 +28,13 @@ from app.api.v1.shops import _shop_to_response
 from app.api.v1.categories import _category_response
 from app.api.v1.menu_items import _item_response
 
+
 class PublicCategoryResponse(CategoryResponse):
     """Public category response with menu items."""
     items: List[MenuItemResponse] = []
 
 
 router = APIRouter(prefix="/public/shop/{shop_id}", tags=["Public Menu"])
-
 shops_router = APIRouter(prefix="/public/shops", tags=["Public Discovery"])
 
 
@@ -58,46 +60,67 @@ class PublicShopListing(BaseModel):
 async def list_public_shops(
     db: AsyncSession = Depends(get_db),
 ):
-    """List all active shops with discount and rating aggregations for the discovery page."""
+    """List all active shops for the discovery page.
+
+    Optimized: 3 bulk queries instead of 2N+1 queries.
+    """
     from app.models.shop import Shop
     from app.models.discount import Discount
-    from app.models.review import MenuItemReview
-    from datetime import datetime, timezone
-
-    # Load all active shops with settings
     from sqlalchemy.orm import selectinload
-    result = await db.execute(select(Shop).options(selectinload(Shop.settings)).where(Shop.is_active == True))
-    shops = result.scalars().all()
 
     now = datetime.now(timezone.utc)
-    listing = []
 
-    for shop in shops:
-        # Check if shop is discoverable
-        is_discoverable = shop.settings.is_discoverable if shop.settings else True
-        if not is_discoverable:
-            continue
-            
-        show_menus = shop.settings.show_menus_in_discovery if shop.settings else True
+    # ── 1. Load all active shops with settings ────────────────────────────────
+    result = await db.execute(
+        select(Shop).options(selectinload(Shop.settings)).where(Shop.is_active == True)
+    )
+    shops = result.scalars().all()
 
-        # Count active non-members-only discounts
-        disc_result = await db.execute(
-            select(Discount).where(
-                Discount.shop_id == shop.id,
-                Discount.is_active == True,
-                Discount.visibility_type != 'members_only',
-            )
+    # Filter to discoverable only
+    shops = [s for s in shops if (s.settings.is_discoverable if s.settings else True)]
+    if not shops:
+        return []
+
+    shop_ids = [s.id for s in shops]
+
+    # ── 2. Bulk-load all active discounts for all shops ───────────────────────
+    disc_result = await db.execute(
+        select(Discount).where(
+            Discount.shop_id.in_(shop_ids),
+            Discount.is_active == True,
+            Discount.visibility_type != 'members_only',
         )
-        all_discounts = disc_result.scalars().all()
+    )
+    all_discounts = disc_result.scalars().all()
 
-        # Filter truly active (within date range)
-        active_discs = [
-            d for d in all_discounts
-            if (d.start_date is None or d.start_date.replace(tzinfo=timezone.utc) <= now)
+    # Group and date-filter in Python — no extra DB queries
+    discount_map: dict = defaultdict(list)
+    for d in all_discounts:
+        in_range = (
+            (d.start_date is None or d.start_date.replace(tzinfo=timezone.utc) <= now)
             and (d.end_date is None or d.end_date.replace(tzinfo=timezone.utc) >= now)
-        ]
+        )
+        if in_range:
+            discount_map[d.shop_id].append(d)
 
-        # Find best discount label
+    # ── 3. Bulk-aggregate ratings for all shops ───────────────────────────────
+    rating_result = await db.execute(
+        select(
+            MenuItemReview.shop_id,
+            func.avg(MenuItemReview.rating).label("avg_rating"),
+            func.count(MenuItemReview.id).label("total_reviews"),
+        )
+        .where(MenuItemReview.shop_id.in_(shop_ids))
+        .group_by(MenuItemReview.shop_id)
+    )
+    rating_map = {row.shop_id: (row.avg_rating, row.total_reviews) for row in rating_result}
+
+    # ── 4. Build response in Python ───────────────────────────────────────────
+    listing = []
+    for shop in shops:
+        show_menus = shop.settings.show_menus_in_discovery if shop.settings else True
+        active_discs = discount_map.get(shop.id, [])
+
         best_label = None
         best_value = -1.0
         for d in active_discs:
@@ -118,15 +141,8 @@ async def list_public_shops(
                 if best_label is None:
                     best_label = "Combo Deal"
 
-        # Average rating from menu_item_reviews
-        rating_result = await db.execute(
-            select(
-                func.avg(MenuItemReview.rating),
-                func.count(MenuItemReview.id)
-            ).where(MenuItemReview.shop_id == shop.id)
-        )
-        avg_rating, total_reviews = rating_result.one()
-        avg_rating = round(float(avg_rating), 1) if avg_rating else None
+        avg_rating_raw, total_reviews = rating_map.get(shop.id, (None, 0))
+        avg_rating = round(float(avg_rating_raw), 1) if avg_rating_raw else None
 
         listing.append(PublicShopListing(
             id=str(shop.id),
@@ -145,12 +161,11 @@ async def list_public_shops(
             show_menus_in_discovery=show_menus,
         ))
 
-    # Sort: shops with active discounts first, then by rating
     listing.sort(key=lambda s: (-s.active_discounts_count, -(s.average_rating or 0)))
     return listing
 
 
-
+# ── Request models ─────────────────────────────────────────────────────────────
 
 class ScanRequest(BaseModel):
     referrer: Optional[str] = None
@@ -165,6 +180,8 @@ class SearchRequest(BaseModel):
     term: str
     result_count: int
 
+
+# ── Shop & Menu endpoints ──────────────────────────────────────────────────────
 
 @router.get("", response_model=ShopResponse)
 async def get_public_shop(
@@ -184,30 +201,62 @@ async def get_public_menu(
     shop_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get full menu organized by categories."""
+    """Get full menu organized by categories.
+
+    Optimized: 2 queries total instead of N+1 (one per category).
+    """
+    from app.models.category import Category
+    from app.models.menu_item import MenuItem
+    from sqlalchemy.orm import selectinload
+
+    # ── 1. Verify shop exists ─────────────────────────────────────────────────
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
 
-    menu_service = MenuService(db)
-    categories = await menu_service.get_categories(shop.id)
-    
-    # Filter out inactive categories
-    categories = [cat for cat in categories if cat.is_active]
-    
-    # We load items for each category. In a real app we might optimize this query
+    # ── 2. Load all active categories ────────────────────────────────────────
+    cat_result = await db.execute(
+        select(Category)
+        .where(Category.shop_id == shop_id, Category.is_active == True)
+        .order_by(Category.display_order)
+    )
+    categories = cat_result.scalars().all()
+    if not categories:
+        return []
+
+    cat_ids = [c.id for c in categories]
+
+    # ── 3. Single bulk query for ALL items across all categories ─────────────
+    items_result = await db.execute(
+        select(MenuItem)
+        .options(selectinload(MenuItem.images))
+        .where(
+            MenuItem.shop_id == shop_id,
+            MenuItem.category_id.in_(cat_ids),
+            MenuItem.is_available == True,
+        )
+        .order_by(MenuItem.category_id, MenuItem.display_order)
+    )
+    all_items = items_result.scalars().all()
+
+    # Group items by category in Python
+    items_by_cat: dict = defaultdict(list)
+    for item in all_items:
+        items_by_cat[item.category_id].append(item)
+
+    # ── 4. Assemble response ──────────────────────────────────────────────────
     result = []
     for cat in categories:
-        items = await menu_service.get_menu_items(shop.id, category_id=cat.id)
         cat_resp = _category_response(cat)
-        # Add items to category dict
         cat_dict = cat_resp.model_dump()
-        cat_dict["items"] = [_item_response(i).model_dump() for i in items]
+        cat_dict["items"] = [_item_response(i).model_dump() for i in items_by_cat.get(cat.id, [])]
         result.append(cat_dict)
-        
+
     return result
 
+
+# ── Analytics endpoints (fire-and-forget) ─────────────────────────────────────
 
 @router.post("/scan", response_model=MessageResponse)
 async def record_scan(
@@ -216,7 +265,7 @@ async def record_scan(
     data: ScanRequest = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Record a QR scan for analytics."""
+    """Record a QR scan — returns immediately, writes analytics in background."""
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
@@ -226,9 +275,13 @@ async def record_scan(
     ua = request.headers.get("user-agent", "")[:500]
     ref = data.referrer if data else None
 
-    analytics = AnalyticsService(db)
-    await analytics.record_qr_scan(shop.id, ip=ip, ua=ua, ref=ref)
-    
+    async def _record():
+        try:
+            await AnalyticsService(db).record_qr_scan(shop.id, ip=ip, ua=ua, ref=ref)
+        except Exception:
+            pass
+
+    asyncio.create_task(_record())
     return MessageResponse(message="Scan recorded")
 
 
@@ -239,20 +292,23 @@ async def record_view(
     data: ViewRequest = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Record a menu item or category view."""
+    """Record a menu view — returns immediately, writes analytics in background."""
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
 
     ip = request.client.host if request.client else None
-    
     item_id = uuid.UUID(data.item_id) if data and data.item_id else None
     cat_id = uuid.UUID(data.category_id) if data and data.category_id else None
 
-    analytics = AnalyticsService(db)
-    await analytics.record_menu_view(shop.id, item_id=item_id, category_id=cat_id, ip=ip)
-    
+    async def _record():
+        try:
+            await AnalyticsService(db).record_menu_view(shop.id, item_id=item_id, category_id=cat_id, ip=ip)
+        except Exception:
+            pass
+
+    asyncio.create_task(_record())
     return MessageResponse(message="View recorded")
 
 
@@ -262,17 +318,23 @@ async def record_search(
     data: SearchRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Record a search query."""
+    """Record a search query — returns immediately, writes analytics in background."""
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
 
-    analytics = AnalyticsService(db)
-    await analytics.record_search(shop.id, data.term, data.result_count)
-    
+    async def _record():
+        try:
+            await AnalyticsService(db).record_search(shop.id, data.term, data.result_count)
+        except Exception:
+            pass
+
+    asyncio.create_task(_record())
     return MessageResponse(message="Search recorded")
 
+
+# ── Discounts ──────────────────────────────────────────────────────────────────
 
 @router.get("/discounts", response_model=List[DiscountResponse])
 async def get_active_discounts_public(
@@ -290,7 +352,6 @@ async def get_active_discounts_public(
     service = DiscountService(db)
     discounts = await service.get_active_discounts(shop.id)
 
-    # Verify token
     is_authenticated = False
     if Authorization:
         from app.core.security import verify_customer_token
@@ -299,14 +360,13 @@ async def get_active_discounts_public(
             is_authenticated = True
 
     from app.api.v1.discounts import _discount_response
-    
-    # Filter out 'members_only_hidden' if unauthenticated
+
     result = []
     for d in discounts:
         if not is_authenticated and d.visibility_type == 'members_only_hidden':
             continue
         result.append(_discount_response(d))
-        
+
     return result
 
 
@@ -321,29 +381,25 @@ async def submit_review(
     db: AsyncSession = Depends(get_db),
 ):
     """Submit a star review for a menu item (public, no auth required)."""
-    # Verify shop exists
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
 
-    # Verify item belongs to this shop
     menu_service = MenuService(db)
     item = await menu_service.get_menu_item(item_id)
     if not item or item.shop_id != shop.id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
-    # IP-based spam guard: max 1 review per IP per item ever
     client_ip = request.client.host if request.client else "unknown"
-    
+
     existing = await db.execute(
         select(func.count(MenuItemReview.id)).where(
             MenuItemReview.menu_item_id == item_id,
             MenuItemReview.reviewer_ip == client_ip,
         )
     )
-    count_existing = existing.scalar_one()
-    if count_existing > 0:
+    if existing.scalar_one() > 0:
         raise HTTPException(
             status_code=429,
             detail="You have already submitted a review for this item."
@@ -433,9 +489,6 @@ async def get_public_item(
     if not item or item.shop_id != shop.id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
-    from sqlalchemy import select, func
-    from app.models.review import MenuItemReview
-    
     result = await db.execute(
         select(
             func.avg(MenuItemReview.rating),
@@ -445,5 +498,4 @@ async def get_public_item(
     avg_rating, review_count = result.one()
     avg_rating = round(float(avg_rating), 1) if avg_rating else None
 
-    from app.api.v1.menu_items import _item_response
     return _item_response(item, avg_rating=avg_rating, review_count=review_count)

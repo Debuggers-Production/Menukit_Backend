@@ -1,6 +1,7 @@
 """Analytics service for tracking and reporting."""
 
 import uuid
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
@@ -86,38 +87,32 @@ class AnalyticsService:
     # ── Dashboard Stats ───────────────────────────────────────
 
     async def get_overview(self, user_id: uuid.UUID) -> dict:
-        """Get dashboard overview statistics."""
+        """Get dashboard overview statistics (parallel queries via asyncio.gather)."""
         shop_id = await self._get_shop_id(user_id)
 
-        # Total menu items
-        items_count = await self.db.execute(
+        # Run all 4 COUNT queries concurrently instead of sequentially
+        items_count_q = self.db.execute(
             select(func.count(MenuItem.id)).where(MenuItem.shop_id == shop_id)
         )
-        total_items = items_count.scalar() or 0
-
-        # Total categories
-        cats_count = await self.db.execute(
+        cats_count_q = self.db.execute(
             select(func.count(Category.id)).where(Category.shop_id == shop_id)
         )
-        total_categories = cats_count.scalar() or 0
-
-        # Total QR scans
-        scans_count = await self.db.execute(
+        scans_count_q = self.db.execute(
             select(func.count(QRScan.id)).where(QRScan.shop_id == shop_id)
         )
-        total_scans = scans_count.scalar() or 0
-
-        # Total menu views
-        views_count = await self.db.execute(
+        views_count_q = self.db.execute(
             select(func.count(MenuView.id)).where(MenuView.shop_id == shop_id)
         )
-        total_views = views_count.scalar() or 0
+
+        items_res, cats_res, scans_res, views_res = await asyncio.gather(
+            items_count_q, cats_count_q, scans_count_q, views_count_q
+        )
 
         return {
-            "total_menu_items": total_items,
-            "total_categories": total_categories,
-            "total_qr_scans": total_scans,
-            "total_menu_views": total_views,
+            "total_menu_items": items_res.scalar() or 0,
+            "total_categories": cats_res.scalar() or 0,
+            "total_qr_scans": scans_res.scalar() or 0,
+            "total_menu_views": views_res.scalar() or 0,
         }
 
     async def get_daily_scans(self, user_id: uuid.UUID, days: int = 30) -> List[dict]:
