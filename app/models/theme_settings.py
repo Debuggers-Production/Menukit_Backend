@@ -21,6 +21,10 @@ class ThemeSettings(Base, UUIDMixin, TimestampMixin):
     font_family: Mapped[str] = mapped_column(String(100), default="Inter", nullable=False)
     layout: Mapped[str] = mapped_column(String(20), default="grid", nullable=False)  # grid | list
     banner_style: Mapped[str] = mapped_column(String(20), default="hero", nullable=False)  # hero | carousel
+    theme_scope: Mapped[str] = mapped_column(String(20), default="public", nullable=False)  # public | app | all
+    discount_card_style: Mapped[str] = mapped_column(String(20), default="modern", nullable=False)  # modern | minimal | gradient | solid
+    menu_item_style: Mapped[str] = mapped_column(String(20), default="default", nullable=False)  # default | elevated | flat | bordered
+    border_radius: Mapped[str] = mapped_column(String(20), default="smooth", nullable=False)  # sharp | smooth | pill
 
     # Relationships
     shop = relationship("Shop", back_populates="theme")

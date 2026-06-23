@@ -51,3 +51,6 @@ google-genai
 
 # Debugging
 icecream
+
+# Payment
+razorpay

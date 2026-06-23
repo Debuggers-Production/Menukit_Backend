@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
 from app.core.deps import get_current_user
-from app.schemas.analytics import AnalyticsResponse, OverviewStats
+from app.schemas.analytics import AnalyticsResponse, OverviewStats, DailyReportResponse
 from app.services.analytics_service import AnalyticsService
 from app.models.user import User
 
@@ -47,3 +47,13 @@ async def get_dashboard_analytics(
         top_reviews=top_reviews,
         recent_activities=recent_activities
     )
+
+@router.get("/daily", response_model=DailyReportResponse)
+async def get_daily_analytics(
+    date: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get analytics for a specific day."""
+    service = AnalyticsService(db)
+    return await service.get_daily_report(user.id, date)

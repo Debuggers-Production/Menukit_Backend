@@ -37,3 +37,9 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ChangeEmailRequest(BaseModel):
+    """Change email request with OTPs."""
+    old_email_otp: str
+    new_email: EmailStr
+    new_email_otp: str

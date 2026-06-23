@@ -72,6 +72,10 @@ async def update_theme(
         font_family=theme.font_family,
         layout=theme.layout,
         banner_style=theme.banner_style,
+        theme_scope=theme.theme_scope,
+        discount_card_style=theme.discount_card_style,
+        menu_item_style=theme.menu_item_style,
+        border_radius=theme.border_radius,
     )
 
 
@@ -107,6 +111,10 @@ def _shop_to_response(shop) -> ShopResponse:
             font_family=shop.theme.font_family,
             layout=shop.theme.layout,
             banner_style=shop.theme.banner_style,
+            theme_scope=shop.theme.theme_scope,
+            discount_card_style=shop.theme.discount_card_style,
+            menu_item_style=shop.theme.menu_item_style,
+            border_radius=shop.theme.border_radius,
         )
 
     settings_resp = None

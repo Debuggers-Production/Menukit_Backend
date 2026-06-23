@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     auth, shops, categories, menu_items,
     upload, qr, analytics, public, admin, discounts, bulk_upload,
-    customers, memberships
+    customers, memberships, notifications, subscription, seo
 )
 
 api_router = APIRouter()
@@ -24,5 +24,6 @@ api_router.include_router(discounts.router)
 api_router.include_router(bulk_upload.router)
 api_router.include_router(customers.router)
 api_router.include_router(memberships.router)
-
-
+api_router.include_router(notifications.router)
+api_router.include_router(subscription.router, prefix="/subscription", tags=["Subscription"])
+api_router.include_router(seo.seo_router, prefix="/seo", tags=["SEO"])

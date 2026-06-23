@@ -100,3 +100,24 @@ class DiscountService:
         await self.db.delete(discount)
         await self.db.flush()
         await self.db.commit()
+
+    async def reorder_discounts(self, user_id: uuid.UUID, order_items: List[dict]):
+        """Reorder discounts."""
+        shop = await self._get_user_shop(user_id)
+        
+        # Get all discounts for shop to ensure they belong to it
+        result = await self.db.execute(
+            select(Discount).where(Discount.shop_id == shop.id)
+        )
+        shop_discounts = {str(d.id): d for d in result.scalars().all()}
+        
+        for item in order_items:
+            # Pydantic v2 support
+            item_id = item.id if hasattr(item, "id") else item["id"]
+            display_order = item.display_order if hasattr(item, "display_order") else item["display_order"]
+            
+            if item_id in shop_discounts:
+                shop_discounts[item_id].display_order = display_order
+                
+        await self.db.flush()
+        await self.db.commit()

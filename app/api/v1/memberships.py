@@ -8,7 +8,8 @@ from app.database.session import get_db
 from app.core.deps import get_current_user
 from app.models.user import User
 from app.schemas.membership import (
-    AddMemberRequest, MembershipAnalyticsResponse, MembershipEventRequest, MemberResponse
+    AddMemberRequest, MembershipAnalyticsResponse, MembershipEventRequest, MemberResponse,
+    RepeatedCustomerResponse
 )
 from app.services.membership_service import MembershipService
 from app.services.shop_service import ShopService
@@ -101,6 +102,88 @@ async def get_retailer_members(
     ]
 
 
+@router.get("/retailer/{shop_id}/auto-registered", response_model=List[MemberResponse])
+async def get_auto_registered_members(
+    shop_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get list of auto-registered members for retailer dashboard."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
+    if not shop or shop.id != shop_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this shop")
+
+    stmt = select(CustomerRetailerMembership).options(
+        joinedload(CustomerRetailerMembership.customer)
+    ).where(
+        CustomerRetailerMembership.shop_id == shop_id,
+        CustomerRetailerMembership.is_retailer_added == False
+    ).order_by(CustomerRetailerMembership.created_at.desc())
+
+    result = await db.execute(stmt)
+    memberships = result.scalars().all()
+
+    return [
+        MemberResponse(
+            id=m.customer.id,
+            name=m.customer.name,
+            mobile_number=m.customer.mobile_number,
+            joined_at=m.created_at
+        )
+        for m in memberships
+    ]
+
+
+@router.get("/retailer/{shop_id}/repeated", response_model=List[RepeatedCustomerResponse])
+async def get_repeated_customers(
+    shop_id: uuid.UUID,
+    min_visits: int = 2,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get list of customers with multiple visits."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
+    if not shop or shop.id != shop_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this shop")
+
+    membership_service = MembershipService(db)
+    customers = await membership_service.get_repeated_customers(shop_id, min_visits)
+
+    return [RepeatedCustomerResponse(**c) for c in customers]
+
+
+@router.post("/retailer/{shop_id}/members/{customer_id}/convert")
+async def convert_to_member(
+    shop_id: uuid.UUID,
+    customer_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Convert an auto-registered member to a manually verified member."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
+    if not shop or shop.id != shop_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this shop")
+
+    stmt = select(CustomerRetailerMembership).where(
+        CustomerRetailerMembership.shop_id == shop_id,
+        CustomerRetailerMembership.customer_id == customer_id,
+        CustomerRetailerMembership.is_retailer_added == False
+    )
+    result = await db.execute(stmt)
+    membership = result.scalar_one_or_none()
+
+    if not membership:
+        raise HTTPException(status_code=404, detail="Auto-registered membership not found")
+
+    membership.is_retailer_added = True
+    await db.commit()
+
+    return {"message": "Customer converted to verified member successfully"}
+
+
 @router.put("/retailer/{shop_id}/members/{customer_id}")
 async def update_member(
     shop_id: uuid.UUID,
@@ -122,6 +205,37 @@ async def update_member(
         raise HTTPException(status_code=404, detail=str(e))
     
     return {"message": "Member updated successfully"}
+
+
+@router.delete("/retailer/{shop_id}/all")
+async def delete_all_members(
+    shop_id: uuid.UUID,
+    type: str = "all",
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete all members for a shop."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
+    if not shop or shop.id != shop_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this shop")
+
+    # Delete all memberships for this shop
+    stmt = select(CustomerRetailerMembership).where(CustomerRetailerMembership.shop_id == shop_id)
+    
+    if type == "existing":
+        stmt = stmt.where(CustomerRetailerMembership.is_retailer_added == True)
+    elif type == "new":
+        stmt = stmt.where(CustomerRetailerMembership.is_retailer_added == False)
+
+    result = await db.execute(stmt)
+    memberships = result.scalars().all()
+    
+    for membership in memberships:
+        await db.delete(membership)
+        
+    await db.commit()
+    return {"message": f"Deleted {len(memberships)} members successfully"}
 
 
 @router.delete("/retailer/{shop_id}/members/{customer_id}")

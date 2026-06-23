@@ -25,3 +25,7 @@ class MemberResponse(BaseModel):
     name: str | None = None
     mobile_number: str
     joined_at: datetime
+
+
+class RepeatedCustomerResponse(MemberResponse):
+    visit_count: int

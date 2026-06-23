@@ -16,6 +16,8 @@ from app.models.discount import Discount
 from app.models.review import MenuItemReview
 from app.models.customer import Customer
 from app.models.membership import CustomerRetailerMembership
+from app.models.notification import Notification
+from app.models.subscription import Subscription, PaymentTransaction
 
 __all__ = [
     "User",
@@ -37,4 +39,7 @@ __all__ = [
     "Customer",
     "CustomerRetailerMembership",
     "MembershipEvent",
+    "Notification",
+    "Subscription",
+    "PaymentTransaction",
 ]

@@ -53,10 +53,11 @@ def create_app() -> FastAPI:
     # Configure CORS
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.FRONTEND_URL, "http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_origins=[settings.FRONTEND_URL, "http://localhost:5173/", "http://127.0.0.1:8002","http://localhost:5174/","http://localhost:5174/landing/","https://menukit.debuggers.co.in/","https://menukit.debuggers.co.in/landing/"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        max_age=86400,
     )
 
     # Include API router

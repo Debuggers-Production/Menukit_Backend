@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
 from app.core.deps import get_current_user
-from app.schemas.discount import DiscountCreate, DiscountUpdate, DiscountResponse
+from app.schemas.discount import DiscountCreate, DiscountUpdate, DiscountResponse, DiscountReorder
 from app.schemas.common import MessageResponse
 from app.services.discount_service import DiscountService
 from app.services.shop_service import ShopService
@@ -37,6 +37,7 @@ def _discount_response(d) -> DiscountResponse:
         available_time_presets=d.available_time_presets,
         is_active=d.is_active,
         visibility_type=d.visibility_type,
+        display_order=d.display_order,
         created_at=str(d.created_at),
         updated_at=str(d.updated_at),
     )
@@ -84,6 +85,18 @@ async def update_discount(
     return _discount_response(discount)
 
 
+@router.put("/reorder/batch", response_model=MessageResponse)
+async def reorder_discounts(
+    data: DiscountReorder,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reorder discounts."""
+    service = DiscountService(db)
+    await service.reorder_discounts(user.id, data.order)
+    return MessageResponse(message="Discounts reordered successfully")
+
+
 @router.delete("/{discount_id}", response_model=MessageResponse)
 async def delete_discount(
     discount_id: str,
@@ -94,3 +107,27 @@ async def delete_discount(
     service = DiscountService(db)
     await service.delete_discount(user.id, uuid.UUID(discount_id))
     return MessageResponse(message="Discount deleted successfully")
+
+@router.delete("/all", response_model=MessageResponse)
+async def delete_all_discounts(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete all discounts for the user's shop."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
+    if not shop:
+        return MessageResponse(message="No shop found")
+
+    from app.models.discount import Discount
+    from sqlalchemy import select
+    
+    stmt = select(Discount).where(Discount.shop_id == shop.id)
+    result = await db.execute(stmt)
+    discounts = result.scalars().all()
+    
+    for discount in discounts:
+        await db.delete(discount)
+        
+    await db.commit()
+    return MessageResponse(message=f"Deleted {len(discounts)} discounts successfully")

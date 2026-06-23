@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     SECRET_KEY: str = "change-this-to-a-random-secret-key-in-production"
     FRONTEND_URL: str = "http://localhost:5173"
+    SEO_FRONTEND_URL:str="http://localhost:5174"
     API_V1_PREFIX: str = "/api/v1"
 
     # Database
@@ -61,6 +62,17 @@ class Settings(BaseSettings):
     # Image Search (Pixabay — free tier, 2500 req/day, no credit card)
     # Get your free key at: https://pixabay.com/api/docs/
     PIXABAY_API_KEY: str = "56123521-df85c9fe398583c4be8b772f1"
+
+    # Whatsapp Configurations
+    WHATSAPP_ACCESS_TOKEN:str = ""
+    WHATSAPP_PHONE_NUMBER_ID:str = ""
+
+    # Razorpay
+    RAZORPAY_KEY_ID: str = ""
+    RAZORPAY_KEY_SECRET: str = ""
+    
+    # Subscription Mock Mode (set to true to test UI without real payments)
+    MOCK_PAYMENT_MODE: bool = True
 
     class Config:
         env_file = ".env"

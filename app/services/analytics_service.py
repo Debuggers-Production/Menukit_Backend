@@ -90,22 +90,17 @@ class AnalyticsService:
         """Get dashboard overview statistics (parallel queries via asyncio.gather)."""
         shop_id = await self._get_shop_id(user_id)
 
-        # Run all 4 COUNT queries concurrently instead of sequentially
-        items_count_q = self.db.execute(
+        items_res = await self.db.execute(
             select(func.count(MenuItem.id)).where(MenuItem.shop_id == shop_id)
         )
-        cats_count_q = self.db.execute(
+        cats_res = await self.db.execute(
             select(func.count(Category.id)).where(Category.shop_id == shop_id)
         )
-        scans_count_q = self.db.execute(
+        scans_res = await self.db.execute(
             select(func.count(QRScan.id)).where(QRScan.shop_id == shop_id)
         )
-        views_count_q = self.db.execute(
+        views_res = await self.db.execute(
             select(func.count(MenuView.id)).where(MenuView.shop_id == shop_id)
-        )
-
-        items_res, cats_res, scans_res, views_res = await asyncio.gather(
-            items_count_q, cats_count_q, scans_count_q, views_count_q
         )
 
         return {
@@ -212,4 +207,120 @@ class AnalyticsService:
             "total_restaurants": shops.scalar() or 0,
             "total_qr_scans": scans.scalar() or 0,
             "total_menu_views": views.scalar() or 0,
+        }
+
+    async def get_daily_report(self, user_id: uuid.UUID, target_date: str) -> dict:
+        """Get daily report statistics for a specific date (YYYY-MM-DD)."""
+        shop_id = await self._get_shop_id(user_id)
+        # Parse target date
+        try:
+            target_dt = datetime.strptime(target_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError("Invalid date format. Expected YYYY-MM-DD")
+
+        # Scans on target_date
+        scans_res = await self.db.execute(
+            select(func.count(QRScan.id)).where(
+                QRScan.shop_id == shop_id,
+                func.date(QRScan.scanned_at) == target_dt
+            )
+        )
+        
+        # Views on target_date
+        views_res = await self.db.execute(
+            select(func.count(MenuView.id)).where(
+                MenuView.shop_id == shop_id,
+                func.date(MenuView.viewed_at) == target_dt
+            )
+        )
+        
+        # Searches on target_date
+        searches_res = await self.db.execute(
+            select(func.count(SearchHistory.id)).where(
+                SearchHistory.shop_id == shop_id,
+                func.date(SearchHistory.searched_at) == target_dt
+            )
+        )
+        
+        total_scans = scans_res.scalar() or 0
+        total_views = views_res.scalar() or 0
+        total_searches = searches_res.scalar() or 0
+        
+        # Top items on target_date
+        top_items_res = await self.db.execute(
+            select(MenuItem.name, func.count(MenuView.id).label("count"))
+            .join(MenuView, MenuView.menu_item_id == MenuItem.id)
+            .where(
+                MenuView.shop_id == shop_id, 
+                MenuView.menu_item_id.isnot(None),
+                func.date(MenuView.viewed_at) == target_dt
+            )
+            .group_by(MenuItem.name)
+            .order_by(desc("count"))
+            .limit(5)
+        )
+        top_items = [{"name": row.name, "count": row.count} for row in top_items_res]
+        
+        # Repeated customers on target_date
+        # Customers who visited on this date AND have overall visit_count >= 2
+        from app.models.analytics import MembershipEvent
+        
+        # Subquery: get total visit count per customer
+        visit_count_subq = (
+            select(
+                MembershipEvent.customer_id,
+                func.count(func.distinct(func.date(MembershipEvent.event_time))).label("visit_count")
+            )
+            .where(
+                MembershipEvent.shop_id == shop_id,
+                MembershipEvent.event_type.in_(["member_matched", "otp_verified", "token_verified", "discount_unlocked"])
+            )
+            .group_by(MembershipEvent.customer_id)
+            .subquery()
+        )
+        # Top searches on target_date
+        top_searches_res = await self.db.execute(
+            select(SearchHistory.search_term, func.count(SearchHistory.id).label("count"))
+            .where(
+                SearchHistory.shop_id == shop_id,
+                func.date(SearchHistory.searched_at) == target_dt
+            )
+            .group_by(SearchHistory.search_term)
+            .order_by(desc("count"))
+            .limit(10)
+        )
+        top_searches = [{"term": row.search_term, "count": row.count} for row in top_searches_res]
+
+        # Query: distinct customers who visited on target_date AND visit_count >= 2
+        from app.models.customer import Customer
+        repeated_customers_res = await self.db.execute(
+            select(Customer.name, Customer.mobile_number, visit_count_subq.c.visit_count)
+            .join(visit_count_subq, visit_count_subq.c.customer_id == Customer.id)
+            .join(MembershipEvent, MembershipEvent.customer_id == Customer.id)
+            .where(
+                MembershipEvent.shop_id == shop_id,
+                MembershipEvent.event_type.in_(["member_matched", "otp_verified", "token_verified", "discount_unlocked"]),
+                func.date(MembershipEvent.event_time) == target_dt,
+                visit_count_subq.c.visit_count >= 2
+            )
+            .distinct()
+        )
+        repeated_customers_list = [
+            {
+                "name": row.name,
+                "mobile_number": row.mobile_number,
+                "visit_count": row.visit_count
+            }
+            for row in repeated_customers_res
+        ]
+        
+        return {
+            "date": target_date,
+            "total_scans": total_scans,
+            "total_views": total_views,
+            "total_searches": total_searches,
+            "repeated_customers_count": len(repeated_customers_list),
+            "top_items": top_items,
+            "top_searches": top_searches,
+            "repeated_customers": repeated_customers_list
         }

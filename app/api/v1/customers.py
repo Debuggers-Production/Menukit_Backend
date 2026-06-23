@@ -14,6 +14,8 @@ from app.schemas.customer import (
 from app.services.customer_service import CustomerService
 from app.services.otp_service import OTPService
 from app.services.membership_service import MembershipService
+from app.services.whatsapp_service import WhatsAppClient
+from app.services.notification_service import NotificationService
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
 
@@ -70,6 +72,10 @@ async def verify_mobile(
     
     # In a real app, send the OTP via SMS gateway here.
     print(f"DEBUG: OTP for {data.mobile_number} is {code}")
+
+    what_client=WhatsAppClient()
+
+    what_client.send_text_message(phone_number=data.mobile_number,message=f"Ypur Otp is {code}")
     
     return MobileVerifyResponse(otp_required=True, message="OTP sent successfully")
 
@@ -124,6 +130,14 @@ async def verify_otp(
                 response.is_strict_member = False
                 await customer_service.add_membership(customer.id, data.shop_id, is_retailer_added=False)
                 await membership_service.log_event(data.shop_id, "member_matched", customer.id)
+                # Send Notification
+                await NotificationService(db).create_notification(
+                    shop_id=data.shop_id,
+                    type="NEW_CUSTOMER",
+                    title="New Customer Joined!",
+                    message=f"Customer {customer.name} verified their number.",
+                    metadata={"customer_id": str(customer.id)}
+                )
 
     return response
 
@@ -142,6 +156,14 @@ async def register_customer(
     if data.shop_id:
         await customer_service.add_membership(customer.id, data.shop_id, is_retailer_added=False)
         await membership_service.log_event(data.shop_id, "member_matched", customer.id)
+        # Send Notification
+        await NotificationService(db).create_notification(
+            shop_id=data.shop_id,
+            type="NEW_CUSTOMER",
+            title="New Customer Registered!",
+            message=f"Customer {customer.name} has joined your shop.",
+            metadata={"customer_id": str(customer.id)}
+        )
         
     from app.core.security import create_customer_token
     

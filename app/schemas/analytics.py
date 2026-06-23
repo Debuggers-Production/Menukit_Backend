@@ -59,3 +59,15 @@ class AnalyticsResponse(BaseModel):
     top_searches: List[SearchTermStat] = []
     top_reviews: List[DashboardReviewResponse] = []
     recent_activities: List[ActivityLogResponse] = []
+
+
+class DailyReportResponse(BaseModel):
+    """Specific day analytics report."""
+    date: str
+    total_scans: int
+    total_views: int
+    total_searches: int
+    repeated_customers_count: int
+    top_items: List[TopItem] = []
+    top_searches: List[SearchTermStat] = []
+    repeated_customers: List[dict] = []

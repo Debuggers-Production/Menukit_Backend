@@ -4,7 +4,8 @@ from app.database.session import get_db
 from app.database.redis import get_redis
 from app.core.deps import get_current_user
 from app.core.exceptions import BadRequestException, RateLimitException
-from app.schemas.auth import OTPRequest, OTPVerify, TokenResponse, RefreshTokenRequest, UserResponse
+from app.schemas.auth import OTPRequest, OTPVerify, TokenResponse, RefreshTokenRequest, UserResponse, ChangeEmailRequest
+from sqlalchemy import select
 from app.schemas.common import MessageResponse
 from app.services.otp_service import OTPService
 from app.services.email_service import EmailService
@@ -109,3 +110,35 @@ async def get_me(user: User = Depends(get_current_user)):
         last_login=str(user.last_login) if user.last_login else None,
         created_at=str(user.created_at),
     )
+
+@router.post("/change-email", response_model=MessageResponse)
+async def change_email(
+    data: ChangeEmailRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    """Change user email requiring old and new OTPs."""
+    otp_service = OTPService(redis)
+    
+    # Verify old email OTP
+    is_old_valid = await otp_service.verify_otp(user.email, data.old_email_otp)
+    if not is_old_valid:
+        raise BadRequestException("Invalid or expired OTP for current email")
+        
+    # Verify new email OTP
+    is_new_valid = await otp_service.verify_otp(data.new_email, data.new_email_otp)
+    if not is_new_valid:
+        raise BadRequestException("Invalid or expired OTP for new email")
+        
+    # Check if new email already exists
+    stmt = select(User).where(User.email == data.new_email)
+    result = await db.execute(stmt)
+    if result.scalar_one_or_none():
+        raise BadRequestException("This email address is already registered")
+        
+    # Update email
+    user.email = data.new_email
+    await db.commit()
+    
+    return MessageResponse(message="Email updated successfully")

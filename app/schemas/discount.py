@@ -63,8 +63,16 @@ class DiscountResponse(BaseModel):
     available_time_presets: Optional[List[str]] = None
     is_active: bool
     visibility_type: str
+    display_order: int
     created_at: str
     updated_at: str
 
     class Config:
         from_attributes = True
+
+class DiscountReorderItem(BaseModel):
+    id: str
+    display_order: int
+
+class DiscountReorder(BaseModel):
+    order: List[DiscountReorderItem]

@@ -12,6 +12,10 @@ class ShopCreate(BaseModel):
     phone: Optional[str] = None
     whatsapp: Optional[str] = None
     address: Optional[str] = None
+    category: Optional[str] = None
+    cuisine: Optional[str] = None
+    city: Optional[str] = None
+    area: Optional[str] = None
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
 
@@ -26,6 +30,10 @@ class ShopUpdate(BaseModel):
     phone: Optional[str] = None
     whatsapp: Optional[str] = None
     address: Optional[str] = None
+    category: Optional[str] = None
+    cuisine: Optional[str] = None
+    city: Optional[str] = None
+    area: Optional[str] = None
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
     latitude: Optional[float] = None
@@ -52,6 +60,10 @@ class ThemeSettingsUpdate(BaseModel):
     font_family: Optional[str] = None
     layout: Optional[str] = None
     banner_style: Optional[str] = None
+    theme_scope: Optional[str] = None
+    discount_card_style: Optional[str] = None
+    menu_item_style: Optional[str] = None
+    border_radius: Optional[str] = None
 
 
 class ThemeSettingsResponse(BaseModel):
@@ -63,6 +75,10 @@ class ThemeSettingsResponse(BaseModel):
     font_family: str
     layout: str
     banner_style: str
+    theme_scope: str
+    discount_card_style: str
+    menu_item_style: str
+    border_radius: str
 
     class Config:
         from_attributes = True
@@ -94,6 +110,10 @@ class ShopResponse(BaseModel):
     phone: Optional[str] = None
     whatsapp: Optional[str] = None
     address: Optional[str] = None
+    category: Optional[str] = None
+    cuisine: Optional[str] = None
+    city: Optional[str] = None
+    area: Optional[str] = None
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
     is_active: bool

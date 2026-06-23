@@ -41,6 +41,7 @@ class Discount(Base, UUIDMixin, TimestampMixin):
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     visibility_type: Mapped[str] = mapped_column(String(50), default="everyone_unlock_members", server_default="everyone_unlock_members", nullable=False)
+    display_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     # Relationships
     shop = relationship("Shop", back_populates="discounts")

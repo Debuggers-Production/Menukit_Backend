@@ -6,10 +6,10 @@ from typing import List, Optional
 from pydantic import BaseModel
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, Request, Header
+from fastapi import APIRouter, Depends, Request, Header, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.session import get_db
+from app.database.session import get_db, async_session_factory
 from fastapi import HTTPException
 from sqlalchemy import select, func
 from app.models.review import MenuItemReview
@@ -23,6 +23,7 @@ from app.schemas.common import MessageResponse
 from app.services.shop_service import ShopService
 from app.services.menu_service import MenuService
 from app.services.analytics_service import AnalyticsService
+from app.services.notification_service import NotificationService
 from app.core.exceptions import NotFoundException
 from app.api.v1.shops import _shop_to_response
 from app.api.v1.categories import _category_response
@@ -45,6 +46,10 @@ class PublicShopListing(BaseModel):
     slug: str
     logo_url: Optional[str] = None
     address: Optional[str] = None
+    category: Optional[str] = None
+    cuisine: Optional[str] = None
+    city: Optional[str] = None
+    area: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     opening_time: Optional[str] = None
@@ -58,32 +63,62 @@ class PublicShopListing(BaseModel):
 
 @shops_router.get("", response_model=List[PublicShopListing])
 async def list_public_shops(
+    city: Optional[str] = None,
+    category: Optional[str] = None,
+    cuisine: Optional[str] = None,
+    area: Optional[str] = None,
+    open_now: Optional[bool] = None,
+    has_offers: Optional[bool] = None,
+    min_rating: Optional[float] = None,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = "nearest",
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    """List all active shops for the discovery page.
-
-    Optimized: 3 bulk queries instead of 2N+1 queries.
-    """
+    """List all active shops for the discovery page with filters and sorting."""
     from app.models.shop import Shop
     from app.models.discount import Discount
     from sqlalchemy.orm import selectinload
+    from sqlalchemy import or_
 
     now = datetime.now(timezone.utc)
-
-    # ── 1. Load all active shops with settings ────────────────────────────────
-    result = await db.execute(
-        select(Shop).options(selectinload(Shop.settings)).where(Shop.is_active == True)
-    )
+    
+    # Base query
+    stmt = select(Shop).options(selectinload(Shop.settings)).where(Shop.is_active == True)
+    
+    # Filters
+    if city:
+        stmt = stmt.where(func.lower(Shop.city) == city.lower())
+    if category:
+        stmt = stmt.where(func.lower(Shop.category) == category.lower())
+    if cuisine:
+        stmt = stmt.where(func.lower(Shop.cuisine).contains(cuisine.lower()))
+    if area:
+        stmt = stmt.where(func.lower(Shop.area) == area.lower())
+    if q:
+        search_term = f"%{q.lower()}%"
+        stmt = stmt.where(or_(
+            func.lower(Shop.name).like(search_term),
+            func.lower(Shop.category).like(search_term),
+            func.lower(Shop.cuisine).like(search_term),
+            func.lower(Shop.city).like(search_term),
+            func.lower(Shop.area).like(search_term),
+        ))
+        
+    result = await db.execute(stmt)
     shops = result.scalars().all()
 
-    # Filter to discoverable only
+    # Filter discoverable
     shops = [s for s in shops if (s.settings.is_discoverable if s.settings else True)]
     if not shops:
         return []
 
     shop_ids = [s.id for s in shops]
 
-    # ── 2. Bulk-load all active discounts for all shops ───────────────────────
+    # Discounts
     disc_result = await db.execute(
         select(Discount).where(
             Discount.shop_id.in_(shop_ids),
@@ -92,9 +127,7 @@ async def list_public_shops(
         )
     )
     all_discounts = disc_result.scalars().all()
-
-    # Group and date-filter in Python — no extra DB queries
-    discount_map: dict = defaultdict(list)
+    discount_map = defaultdict(list)
     for d in all_discounts:
         in_range = (
             (d.start_date is None or d.start_date.replace(tzinfo=timezone.utc) <= now)
@@ -103,7 +136,7 @@ async def list_public_shops(
         if in_range:
             discount_map[d.shop_id].append(d)
 
-    # ── 3. Bulk-aggregate ratings for all shops ───────────────────────────────
+    # Ratings
     rating_result = await db.execute(
         select(
             MenuItemReview.shop_id,
@@ -115,11 +148,19 @@ async def list_public_shops(
     )
     rating_map = {row.shop_id: (row.avg_rating, row.total_reviews) for row in rating_result}
 
-    # ── 4. Build response in Python ───────────────────────────────────────────
     listing = []
+    import math
     for shop in shops:
         show_menus = shop.settings.show_menus_in_discovery if shop.settings else True
         active_discs = discount_map.get(shop.id, [])
+        if has_offers and not active_discs:
+            continue
+            
+        avg_rating_raw, total_reviews = rating_map.get(shop.id, (None, 0))
+        avg_rating = round(float(avg_rating_raw), 1) if avg_rating_raw else None
+        
+        if min_rating and (avg_rating is None or avg_rating < min_rating):
+            continue
 
         best_label = None
         best_value = -1.0
@@ -141,15 +182,16 @@ async def list_public_shops(
                 if best_label is None:
                     best_label = "Combo Deal"
 
-        avg_rating_raw, total_reviews = rating_map.get(shop.id, (None, 0))
-        avg_rating = round(float(avg_rating_raw), 1) if avg_rating_raw else None
-
         listing.append(PublicShopListing(
             id=str(shop.id),
             name=shop.name,
             slug=shop.slug,
             logo_url=shop.logo_url,
             address=shop.address,
+            category=shop.category,
+            cuisine=shop.cuisine,
+            city=shop.city,
+            area=shop.area,
             latitude=shop.latitude,
             longitude=shop.longitude,
             opening_time=shop.opening_time,
@@ -161,8 +203,30 @@ async def list_public_shops(
             show_menus_in_discovery=show_menus,
         ))
 
-    listing.sort(key=lambda s: (-s.active_discounts_count, -(s.average_rating or 0)))
-    return listing
+    # Calculate distance if lat/lng provided
+    if lat is not None and lng is not None:
+        def calc_dist(s):
+            if s.latitude is None or s.longitude is None:
+                return float('inf')
+            # very simple pythagorean distance for sorting, not actual km
+            return math.hypot(s.latitude - lat, s.longitude - lng)
+        for s in listing:
+            s.__dict__['_dist'] = calc_dist(s)
+            
+    # Sorting
+    if sort_by == "nearest" and lat is not None and lng is not None:
+        listing.sort(key=lambda s: s.__dict__.get('_dist', float('inf')))
+    elif sort_by == "popular":
+        listing.sort(key=lambda s: (-s.total_reviews, -(s.average_rating or 0)))
+    elif sort_by == "rating":
+        listing.sort(key=lambda s: -(s.average_rating or 0))
+    elif sort_by == "a-z":
+        listing.sort(key=lambda s: s.name.lower())
+    else: # default sorting from original
+        listing.sort(key=lambda s: (-s.active_discounts_count, -(s.average_rating or 0)))
+
+    # Pagination
+    return listing[offset : offset + limit]
 
 
 # ── Request models ─────────────────────────────────────────────────────────────
@@ -199,6 +263,8 @@ async def get_public_shop(
 @router.get("/menu", response_model=List[PublicCategoryResponse])
 async def get_public_menu(
     shop_id: uuid.UUID,
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
     """Get full menu organized by categories.
@@ -220,6 +286,8 @@ async def get_public_menu(
         select(Category)
         .where(Category.shop_id == shop_id, Category.is_active == True)
         .order_by(Category.display_order)
+        .offset(offset)
+        .limit(limit)
     )
     categories = cat_result.scalars().all()
     if not categories:
@@ -262,10 +330,11 @@ async def get_public_menu(
 async def record_scan(
     shop_id: uuid.UUID,
     request: Request,
+    background_tasks: BackgroundTasks,
     data: ScanRequest = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Record a QR scan — returns immediately, writes analytics in background."""
+    """Record a QR scan — writes analytics in background."""
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
@@ -277,11 +346,12 @@ async def record_scan(
 
     async def _record():
         try:
-            await AnalyticsService(db).record_qr_scan(shop.id, ip=ip, ua=ua, ref=ref)
+            async with async_session_factory() as bg_db:
+                await AnalyticsService(bg_db).record_qr_scan(shop.id, ip=ip, ua=ua, ref=ref)
         except Exception:
             pass
 
-    asyncio.create_task(_record())
+    background_tasks.add_task(_record)
     return MessageResponse(message="Scan recorded")
 
 
@@ -289,10 +359,11 @@ async def record_scan(
 async def record_view(
     shop_id: uuid.UUID,
     request: Request,
+    background_tasks: BackgroundTasks,
     data: ViewRequest = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Record a menu view — returns immediately, writes analytics in background."""
+    """Record a menu view — writes analytics in background."""
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
@@ -304,11 +375,12 @@ async def record_view(
 
     async def _record():
         try:
-            await AnalyticsService(db).record_menu_view(shop.id, item_id=item_id, category_id=cat_id, ip=ip)
+            async with async_session_factory() as bg_db:
+                await AnalyticsService(bg_db).record_menu_view(shop.id, item_id=item_id, category_id=cat_id, ip=ip)
         except Exception:
             pass
 
-    asyncio.create_task(_record())
+    background_tasks.add_task(_record)
     return MessageResponse(message="View recorded")
 
 
@@ -316,9 +388,10 @@ async def record_view(
 async def record_search(
     shop_id: uuid.UUID,
     data: SearchRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Record a search query — returns immediately, writes analytics in background."""
+    """Record a search query — writes analytics in background."""
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
@@ -326,11 +399,12 @@ async def record_search(
 
     async def _record():
         try:
-            await AnalyticsService(db).record_search(shop.id, data.term, data.result_count)
+            async with async_session_factory() as bg_db:
+                await AnalyticsService(bg_db).record_search(shop.id, data.term, data.result_count)
         except Exception:
             pass
 
-    asyncio.create_task(_record())
+    background_tasks.add_task(_record)
     return MessageResponse(message="Search recorded")
 
 
@@ -339,6 +413,8 @@ async def record_search(
 @router.get("/discounts", response_model=List[DiscountResponse])
 async def get_active_discounts_public(
     shop_id: uuid.UUID,
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     Authorization: Optional[str] = Header(None)
 ):
@@ -367,7 +443,7 @@ async def get_active_discounts_public(
             continue
         result.append(_discount_response(d))
 
-    return result
+    return result[offset : offset + limit]
 
 
 # ── Reviews ────────────────────────────────────────────────────────────────────
@@ -417,6 +493,15 @@ async def submit_review(
     await db.flush()
     await db.commit()
     await db.refresh(review)
+
+    # Send Notification
+    await NotificationService(db).create_notification(
+        shop_id=shop.id,
+        type="NEW_REVIEW",
+        title="New Food Review!",
+        message=f"Someone left a {data.rating}-star review for {item.name}.",
+        metadata={"item_id": str(item.id), "review_id": str(review.id)}
+    )
 
     return ReviewResponse(
         id=str(review.id),
@@ -499,3 +584,27 @@ async def get_public_item(
     avg_rating = round(float(avg_rating), 1) if avg_rating else None
 
     return _item_response(item, avg_rating=avg_rating, review_count=review_count)
+
+@shops_router.get("/by-slug/{slug}", response_model=ShopResponse)
+async def get_shop_by_slug(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get shop details by slug for public SEO page."""
+    from app.models.shop import Shop
+    from sqlalchemy.orm import selectinload
+    
+    result = await db.execute(
+        select(Shop)
+        .options(
+            selectinload(Shop.settings),
+            selectinload(Shop.theme)
+        )
+        .where(Shop.slug == slug, Shop.is_active == True)
+    )
+    shop = result.scalars().first()
+    
+    if not shop:
+        raise NotFoundException("Restaurant not found")
+        
+    return _shop_to_response(shop)

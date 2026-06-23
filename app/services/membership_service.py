@@ -83,3 +83,41 @@ class MembershipService:
         )
         self.db.add(event)
         await self.db.commit()
+
+    async def get_repeated_customers(self, shop_id: uuid.UUID, min_visits: int = 2) -> List[Dict[str, Any]]:
+        stmt = (
+            select(
+                Customer.id,
+                Customer.name,
+                Customer.mobile_number,
+                func.min(CustomerRetailerMembership.created_at).label("joined_at"),
+                func.count(func.distinct(func.date(MembershipEvent.event_time))).label("visit_count")
+            )
+            .join(MembershipEvent, MembershipEvent.customer_id == Customer.id)
+            .join(
+                CustomerRetailerMembership,
+                (CustomerRetailerMembership.customer_id == Customer.id) &
+                (CustomerRetailerMembership.shop_id == shop_id)
+            )
+            .where(
+                MembershipEvent.shop_id == shop_id,
+                MembershipEvent.event_type.in_(["member_matched", "otp_verified", "token_verified", "discount_unlocked"])
+            )
+            .group_by(Customer.id, Customer.name, Customer.mobile_number)
+            .having(func.count(func.distinct(func.date(MembershipEvent.event_time))) >= min_visits)
+            .order_by(func.count(func.distinct(func.date(MembershipEvent.event_time))).desc())
+        )
+        
+        result = await self.db.execute(stmt)
+        rows = result.all()
+        
+        return [
+            {
+                "id": row.id,
+                "name": row.name,
+                "mobile_number": row.mobile_number,
+                "joined_at": row.joined_at,
+                "visit_count": row.visit_count
+            }
+            for row in rows
+        ]
