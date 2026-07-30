@@ -5,11 +5,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
 from app.core.deps import get_current_user
-from app.schemas.analytics import AnalyticsResponse, OverviewStats, DailyReportResponse
+from app.schemas.analytics import AnalyticsResponse, OverviewStats, DailyReportResponse, RevenueAnalyticsSummary
 from app.services.analytics_service import AnalyticsService
 from app.models.user import User
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
+
+
+@router.get("/revenue", response_model=RevenueAnalyticsSummary)
+async def get_revenue_analytics(
+    days: int = 30,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get order revenue, top ordered items, daily breakdown, settlement invoices and growth ratio."""
+    service = AnalyticsService(db)
+    return await service.get_revenue_analytics(user.id, days=days, start_date=start_date, end_date=end_date)
 
 
 @router.get("/dashboard", response_model=AnalyticsResponse)

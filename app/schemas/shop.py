@@ -1,5 +1,6 @@
 """Shop schemas."""
 
+import uuid
 from typing import Optional
 from pydantic import BaseModel
 
@@ -50,6 +51,13 @@ class ShopSettingsUpdate(BaseModel):
     show_offers: Optional[bool] = None
     is_discoverable: Optional[bool] = None
     show_menus_in_discovery: Optional[bool] = None
+    delivery_enabled: Optional[bool] = None
+    takeaway_enabled: Optional[bool] = None
+    dinein_enabled: Optional[bool] = None
+    auto_accept_orders: Optional[bool] = None
+    cashfree_app_id: Optional[str] = None
+    cashfree_secret_key: Optional[str] = None
+    cashfree_sandbox: Optional[bool] = None
 
 
 class ThemeSettingsUpdate(BaseModel):
@@ -68,7 +76,7 @@ class ThemeSettingsUpdate(BaseModel):
 
 class ThemeSettingsResponse(BaseModel):
     """Theme settings response."""
-    id: str
+    id: uuid.UUID
     theme: str
     primary_color: str
     secondary_color: str
@@ -86,13 +94,20 @@ class ThemeSettingsResponse(BaseModel):
 
 class ShopSettingsResponse(BaseModel):
     """Shop settings response."""
-    id: str
+    id: uuid.UUID
     currency: str
     language: str
     show_prices: bool
     show_offers: bool
     is_discoverable: bool
     show_menus_in_discovery: bool
+    delivery_enabled: bool
+    takeaway_enabled: bool
+    dinein_enabled: bool
+    auto_accept_orders: bool
+    cashfree_app_id: str
+    cashfree_secret_key: str
+    cashfree_sandbox: bool
 
     class Config:
         from_attributes = True

@@ -67,6 +67,7 @@ async def verify_otp(
         ip_address=ip_address,
     )
 
+    await db.commit()
     return TokenResponse(**tokens)
 
 
@@ -78,7 +79,6 @@ async def refresh_token(
     """Refresh access token using refresh token."""
     auth_service = AuthService(db)
     result = await auth_service.refresh_session(data.refresh_token)
-
     if not result:
         raise BadRequestException("Invalid or expired refresh token")
 

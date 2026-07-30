@@ -9,8 +9,9 @@ engine = create_async_engine(
     settings.DATABASE_URL,
 
     pool_size=20,
-    max_overflow=10,
-    pool_pre_ping=True,
+    max_overflow=30,
+    pool_recycle=1800,
+    pool_pre_ping=True
 )
 
 async_session_factory = async_sessionmaker(
@@ -35,11 +36,17 @@ async def get_db() -> AsyncSession:
 async def init_db():
     """Initialize database (create tables)."""
     from app.database.base import Base
+    from sqlalchemy import text
     # Import all models to register them
     import app.models  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS credits_rewarded BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE contest_credits ALTER COLUMN credits TYPE DOUBLE PRECISION USING credits::double precision;"))
+        except Exception as e:
+            print(f"Auto-migration info: {e}")
 
 
 async def close_db():

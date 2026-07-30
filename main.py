@@ -26,10 +26,12 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Lifecycle events for the FastAPI application."""
     # Startup
-    logger.info("Starting up SmartMenu QR backend...")
+    logger.info("Starting up SmartMenu QR backend with contest credits migration...")
     await init_db()
     try:
         await init_redis()
+        await close_redis()
+
         logger.info("Redis connected.")
     except Exception as e:
         logger.warning(f"Redis unavailable — running without cache: {e}")
@@ -51,9 +53,14 @@ def create_app() -> FastAPI:
     )
 
     # Configure CORS
+
+    
+    
+    # ALLOWED_ORIGINS=[settings.FRONTEND_URL, "http://localhost:5173/", "http://127.0.0.1:8002","http://localhost:5174/","http://localhost:5174/landing/","https://menukit.debuggers.co.in/","https://menukit.debuggers.co.in/landing/"]
+    ALLOWED_ORIGINS=["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.FRONTEND_URL, "http://localhost:5173/", "http://127.0.0.1:8002","http://localhost:5174/","http://localhost:5174/landing/","https://menukit.debuggers.co.in/","https://menukit.debuggers.co.in/landing/"],
+        allow_origins=ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

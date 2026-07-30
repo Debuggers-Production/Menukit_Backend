@@ -18,6 +18,8 @@ from app.models.customer import Customer
 from app.models.membership import CustomerRetailerMembership
 from app.models.notification import Notification
 from app.models.subscription import Subscription, PaymentTransaction
+from app.models.contest import Contest, ContestParticipation, ContestCredit, ContestLike, ContestComment, ContestCommentLike
+from app.models.order import Order, OrderItem
 
 __all__ = [
     "User",
@@ -42,4 +44,12 @@ __all__ = [
     "Notification",
     "Subscription",
     "PaymentTransaction",
+    "Contest",
+    "ContestParticipation",
+    "ContestCredit",
+    "ContestLike",
+    "ContestComment",
+    "ContestCommentLike",
+    "Order",
+    "OrderItem",
 ]

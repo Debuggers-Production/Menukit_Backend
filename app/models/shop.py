@@ -51,3 +51,5 @@ class Shop(Base, UUIDMixin, TimestampMixin):
     memberships = relationship("CustomerRetailerMembership", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     subscription = relationship("Subscription", back_populates="shop", uselist=False, lazy="selectin", cascade="all, delete-orphan")
     payment_transactions = relationship("PaymentTransaction", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
+    orders = relationship("Order", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
+    contests = relationship("Contest", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")

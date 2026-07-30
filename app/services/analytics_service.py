@@ -196,17 +196,26 @@ class AnalyticsService:
     async def get_platform_stats(self) -> dict:
         """Get platform-wide statistics (admin only)."""
         from app.models.user import User
+        from app.models.category import Category
+        from app.models.menu_item import MenuItem
+        from app.models.customer import Customer
 
         users = await self.db.execute(select(func.count(User.id)))
         shops = await self.db.execute(select(func.count(Shop.id)))
         scans = await self.db.execute(select(func.count(QRScan.id)))
         views = await self.db.execute(select(func.count(MenuView.id)))
+        categories = await self.db.execute(select(func.count(Category.id)))
+        menu_items = await self.db.execute(select(func.count(MenuItem.id)))
+        customers = await self.db.execute(select(func.count(Customer.id)))
 
         return {
             "total_users": users.scalar() or 0,
             "total_restaurants": shops.scalar() or 0,
             "total_qr_scans": scans.scalar() or 0,
             "total_menu_views": views.scalar() or 0,
+            "total_categories": categories.scalar() or 0,
+            "total_menu_items": menu_items.scalar() or 0,
+            "total_customers": customers.scalar() or 0,
         }
 
     async def get_daily_report(self, user_id: uuid.UUID, target_date: str) -> dict:
@@ -324,3 +333,173 @@ class AnalyticsService:
             "top_searches": top_searches,
             "repeated_customers": repeated_customers_list
         }
+
+    async def get_revenue_analytics(
+        self, 
+        user_id: uuid.UUID, 
+        days: int = 30,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> dict:
+        """Get product-level revenue, top items, daily reports, commission settlement breakdown, and growth ratio."""
+        from app.models.order import Order, OrderItem
+
+        shop_id = await self._get_shop_id(user_id)
+        now = datetime.now(timezone.utc)
+
+        if start_date and end_date:
+            try:
+                since = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                until = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+                date_diff = max(1, (until - since).days)
+                prev_since = since - timedelta(days=date_diff)
+                prev_until = since
+            except ValueError:
+                since = now - timedelta(days=days)
+                until = now
+                prev_since = since - timedelta(days=days)
+                prev_until = since
+        else:
+            since = now - timedelta(days=days)
+            until = now
+            prev_since = since - timedelta(days=days)
+            prev_until = since
+
+        # 1. Total Orders & Gross Revenue in current period
+        orders_q = await self.db.execute(
+            select(Order)
+            .where(
+                Order.shop_id == shop_id,
+                Order.created_at >= since,
+                Order.created_at <= until,
+                Order.order_status.notin_(["rejected", "cancelled"])
+            )
+            .order_by(desc(Order.created_at))
+        )
+        orders = list(orders_q.scalars().all())
+
+        # 2. Total Gross Revenue in previous period for Growth Ratio calculation
+        prev_orders_q = await self.db.execute(
+            select(func.sum(Order.total_amount))
+            .where(
+                Order.shop_id == shop_id,
+                Order.created_at >= prev_since,
+                Order.created_at < prev_until,
+                Order.order_status.notin_(["rejected", "cancelled"])
+            )
+        )
+        prev_revenue = float(prev_orders_q.scalar() or 0.0)
+
+        total_gross = sum(float(o.total_amount or 0.0) for o in orders)
+        total_orders_count = len(orders)
+
+        # 5% commission rate for online, 2% platform fee for cash
+        recent_invoices = []
+        total_commission_paid = 0.0
+
+        for o in orders:
+            rate = 0.05 if o.payment_method == 'online' else 0.02
+            comm = float(o.total_amount or 0.0) * rate
+            settled = float(o.total_amount or 0.0) - comm
+            total_commission_paid += comm
+
+            inv_no = f"INV-{o.created_at.strftime('%Y%m%d')}-{str(o.id)[:6].upper()}"
+            recent_invoices.append({
+                "order_id": str(o.id),
+                "invoice_no": inv_no,
+                "payment_id": o.cashfree_order_id or o.payment_session_id or f"PAY-{str(o.id)[:8].upper()}",
+                "payment_method": o.payment_method or "cash",
+                "customer_name": o.customer_name or "Guest",
+                "customer_phone": o.customer_phone or "",
+                "total_order_amt": round(float(o.total_amount or 0.0), 2),
+                "commission_rate": round(rate * 100, 1),
+                "commission_amount": round(comm, 2),
+                "settled_amount": round(settled, 2),
+                "order_status": o.order_status,
+                "created_at": o.created_at.strftime("%b %d, %Y %I:%M %p")
+            })
+
+        total_settled_amount = round(total_gross - total_commission_paid, 2)
+
+        # 3. Growth Ratio
+        if prev_revenue > 0:
+            growth_ratio = round(((total_gross - prev_revenue) / prev_revenue) * 100, 1)
+        elif total_gross > 0:
+            growth_ratio = 100.0
+        else:
+            growth_ratio = 0.0
+
+        # 4. Daily Sales Breakdown
+        daily_res = await self.db.execute(
+            select(
+                func.date(Order.created_at).label("date"),
+                func.count(Order.id).label("count"),
+                func.sum(Order.total_amount).label("sum_amt")
+            )
+            .where(
+                Order.shop_id == shop_id,
+                Order.created_at >= since,
+                Order.created_at <= until,
+                Order.order_status.notin_(["rejected", "cancelled"])
+            )
+            .group_by(func.date(Order.created_at))
+            .order_by(func.date(Order.created_at))
+        )
+        daily_sales = []
+        for row in daily_res:
+            gross = float(row.sum_amt or 0.0)
+            comm = gross * 0.05
+            daily_sales.append({
+                "date": str(row.date),
+                "orders_count": row.count,
+                "gross_revenue": round(gross, 2),
+                "commission_amount": round(comm, 2),
+                "settled_amount": round(gross - comm, 2)
+            })
+
+        # 5. Top Ordered Food Items & Highest Revenue Food
+        top_items_res = await self.db.execute(
+            select(
+                OrderItem.name,
+                func.sum(OrderItem.quantity).label("total_qty"),
+                func.sum(OrderItem.price * OrderItem.quantity).label("total_rev")
+            )
+            .join(Order, Order.id == OrderItem.order_id)
+            .where(
+                Order.shop_id == shop_id,
+                Order.created_at >= since,
+                Order.created_at <= until,
+                Order.order_status.notin_(["rejected", "cancelled"])
+            )
+            .group_by(OrderItem.name)
+            .order_by(desc("total_rev"))
+            .limit(15)
+        )
+
+        top_ordered_items = []
+        for row in top_items_res:
+            top_ordered_items.append({
+                "name": row.name,
+                "total_quantity": int(row.total_qty or 0),
+                "total_revenue": round(float(row.total_rev or 0.0), 2)
+            })
+
+        highest_revenue_food = top_ordered_items[0] if top_ordered_items else None
+        
+        # Sort by quantity for most_ordered_food
+        by_quantity = sorted(top_ordered_items, key=lambda x: x["total_quantity"], reverse=True)
+        most_ordered_food = by_quantity[0] if by_quantity else None
+
+        return {
+            "total_gross_revenue": round(total_gross, 2),
+            "total_settled_amount": total_settled_amount,
+            "total_commission_paid": round(total_commission_paid, 2),
+            "total_orders_count": total_orders_count,
+            "highest_revenue_food": highest_revenue_food,
+            "most_ordered_food": most_ordered_food,
+            "growth_ratio": growth_ratio,
+            "top_ordered_items": top_ordered_items,
+            "daily_sales": daily_sales,
+            "recent_invoices": recent_invoices
+        }
+

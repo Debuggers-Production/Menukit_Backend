@@ -25,6 +25,7 @@ async def create_shop(
     """Create a new shop profile."""
     service = ShopService(db)
     shop = await service.create_shop(user.id, data.model_dump(exclude_none=True))
+    await db.commit()
     return _shop_to_response(shop)
 
 
@@ -52,6 +53,7 @@ async def update_my_shop(
     """Update the current user's shop."""
     service = ShopService(db)
     shop = await service.update_shop(user.id, data.model_dump(exclude_unset=True))
+    await db.commit()
     return _shop_to_response(shop)
 
 
@@ -64,6 +66,7 @@ async def update_theme(
     """Update shop theme settings."""
     service = ShopService(db)
     theme = await service.update_theme(user.id, data.model_dump(exclude_none=True))
+    await db.commit()
     return ThemeSettingsResponse(
         id=str(theme.id),
         theme=theme.theme,
@@ -88,15 +91,8 @@ async def update_settings(
     """Update shop configuration settings."""
     service = ShopService(db)
     settings = await service.update_settings(user.id, data.model_dump(exclude_none=True))
-    return ShopSettingsResponse(
-        id=str(settings.id),
-        currency=settings.currency,
-        language=settings.language,
-        show_prices=settings.show_prices,
-        show_offers=settings.show_offers,
-        is_discoverable=settings.is_discoverable,
-        show_menus_in_discovery=settings.show_menus_in_discovery,
-    )
+    await db.commit()
+    return ShopSettingsResponse.model_validate(settings)
 
 
 def _shop_to_response(shop) -> ShopResponse:
@@ -119,15 +115,7 @@ def _shop_to_response(shop) -> ShopResponse:
 
     settings_resp = None
     if shop.settings:
-        settings_resp = ShopSettingsResponse(
-            id=str(shop.settings.id),
-            currency=shop.settings.currency,
-            language=shop.settings.language,
-            show_prices=shop.settings.show_prices,
-            show_offers=shop.settings.show_offers,
-            is_discoverable=shop.settings.is_discoverable,
-            show_menus_in_discovery=shop.settings.show_menus_in_discovery,
-        )
+        settings_resp = ShopSettingsResponse.model_validate(shop.settings)
 
     return ShopResponse(
         id=str(shop.id),

@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     SEO_FRONTEND_URL:str="http://localhost:5174"
     API_V1_PREFIX: str = "/api/v1"
 
+    # Cashfree
+    CASHFREE_APP_ID: str = ""
+    CASHFREE_SECRET_KEY: str = ""
+
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:437734@localhost:5432/smartmenu_db"
 

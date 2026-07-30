@@ -6,12 +6,13 @@ from typing import List, Optional
 from pydantic import BaseModel
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, Request, Header, BackgroundTasks
+from fastapi import APIRouter, Depends, Request, Header, BackgroundTasks, WebSocket, WebSocketDisconnect,Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db, async_session_factory
 from fastapi import HTTPException
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from app.models.review import MenuItemReview
 from app.schemas.discount import DiscountResponse
 from app.schemas.review import ReviewCreate, ReviewResponse, ReviewSummary
@@ -20,6 +21,8 @@ from app.schemas.shop import ShopResponse
 from app.schemas.category import CategoryResponse
 from app.schemas.menu_item import MenuItemResponse
 from app.schemas.common import MessageResponse
+from app.schemas.qr_code import QRCodeResponse
+from app.schemas.order import OrderCreate, OrderResponse
 from app.services.shop_service import ShopService
 from app.services.menu_service import MenuService
 from app.services.analytics_service import AnalyticsService
@@ -608,3 +611,724 @@ async def get_shop_by_slug(
         raise NotFoundException("Restaurant not found")
         
     return _shop_to_response(shop)
+
+
+@router.get("/qr", response_model=QRCodeResponse)
+async def get_public_shop_qr(
+    shop_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get public QR code style details for a shop. Automatically generates a default one if not found."""
+    from app.models.qr_code import QRCode
+    from app.models.shop import Shop
+    
+    result = await db.execute(
+        select(QRCode).where(QRCode.shop_id == shop_id)
+    )
+    qr = result.scalar_one_or_none()
+    
+    if not qr:
+        # Verify the shop exists
+        shop_res = await db.execute(select(Shop).where(Shop.id == shop_id))
+        shop = shop_res.scalar_one_or_none()
+        if not shop:
+            raise HTTPException(status_code=404, detail="Shop not found")
+            
+        from app.core.config import get_settings
+        settings = get_settings()
+        
+        qr_url = f"{settings.FRONTEND_URL}/shop/{shop.id}"
+        
+        qr = QRCode(
+            shop_id=shop.id,
+            qr_url=qr_url,
+            qr_image_url=None,
+            qr_svg_data=None,
+        )
+        db.add(qr)
+        await db.commit()
+        await db.refresh(qr)
+        
+    return QRCodeResponse.model_validate(qr)
+
+
+@router.post("/orders", response_model=OrderResponse)
+async def create_public_order(
+    shop_id: uuid.UUID,
+    order_data: OrderCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Place a dine-in, takeaway, or delivery order."""
+    from app.services.order_service import OrderService
+    service = OrderService(db)
+    order = await service.create_order(shop_id, order_data)
+    await db.commit()
+    return OrderResponse.model_validate(order)
+
+
+@router.get("/orders/{order_id}", response_model=OrderResponse)
+async def get_public_order(
+    shop_id: uuid.UUID,
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get status tracking of an order."""
+    from app.services.order_service import OrderService
+    service = OrderService(db)
+    order = await service.get_order_by_id(order_id)
+    if order.shop_id != shop_id:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return OrderResponse.model_validate(order)
+
+
+@router.post("/orders/{order_id}/pay")
+async def pay_public_order(
+    shop_id: uuid.UUID,
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate or retrieve a Cashfree payment session ID for an existing order."""
+    from app.services.order_service import OrderService
+    service = OrderService(db)
+    order = await service.get_order_by_id(order_id)
+    if order.shop_id != shop_id:
+        raise HTTPException(status_code=404, detail="Order not found")
+        
+    if order.payment_status == "paid":
+        raise HTTPException(status_code=400, detail="Order has already been paid")
+        
+    order = await service.initiate_order_payment(order)
+    await db.commit()
+    return {
+        "payment_session_id": order.payment_session_id,
+        "cashfree_order_id": order.cashfree_order_id
+    }
+
+
+@router.post("/orders/{order_id}/verify", response_model=OrderResponse)
+async def verify_public_order_payment(
+    shop_id: uuid.UUID,
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify online payment status with Cashfree."""
+    from app.services.order_service import OrderService
+    service = OrderService(db)
+    order = await service.get_order_by_id(order_id)
+    if order.shop_id != shop_id:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    order = await service.verify_payment(order_id)
+    await db.commit()
+    return OrderResponse.model_validate(order)
+
+
+@router.get("/my-orders", response_model=List[OrderResponse])
+async def get_my_orders(
+    shop_id: uuid.UUID,
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all past orders placed by the customer in this shop using their customer token."""
+    from app.core.security import verify_customer_token
+    mobile_number = verify_customer_token(token)
+    if not mobile_number:
+        raise HTTPException(status_code=401, detail="Invalid customer token")
+        
+    from app.models.order import Order
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    
+    result = await db.execute(
+        select(Order)
+        .options(selectinload(Order.items))
+        .where(Order.shop_id == shop_id, Order.customer_phone == mobile_number)
+        .order_by(Order.created_at.desc())
+    )
+    orders = result.scalars().all()
+    return [OrderResponse.model_validate(o) for o in orders]
+
+
+@router.websocket("/ws/customer/{customer_phone}")
+async def customer_websocket_endpoint(websocket: WebSocket, customer_phone: str):
+    """Connect a customer to their live order updates stream."""
+    from app.services.websocket_manager import customer_manager
+    await customer_manager.connect(customer_phone, websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        customer_manager.disconnect(customer_phone, websocket)
+
+
+# -------------------------------------------------------------
+# INDIVIDUAL LIGHTWEIGHT CUSTOMER PROFILE & TAB ENDPOINTS
+# -------------------------------------------------------------
+
+@router.get("/customer-profile")
+async def get_customer_profile(
+    shop_id: str,
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """Fetch lightweight customer profile header, credits, membership, and total counts."""
+    from app.core.security import verify_customer_token
+    from app.models.customer import Customer
+    from app.models.shop import Shop
+    from app.models.membership import CustomerRetailerMembership
+    from app.models.discount import Discount
+    from app.models.order import Order
+    from app.models.contest import ContestParticipation
+
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+
+    mobile = verify_customer_token(token) if token else None
+
+    customer_info = {
+        "name": "Guest Customer",
+        "mobile_number": mobile or "",
+        "is_member": False,
+        "is_strict_member": False,
+        "credit_limit": 0,
+        "used_credit": 0,
+        "available_credit": 0,
+        "counts": {
+            "visited_shops": 0,
+            "orders": 0,
+            "rewards": 0,
+            "contests": 0
+        }
+    }
+
+    try:
+        shop_uuid = uuid.UUID(shop_id)
+        shop_result = await db.execute(select(Shop).where(Shop.id == shop_uuid))
+        shop_obj = shop_result.scalar_one_or_none()
+        shop_name = shop_obj.name if shop_obj else "Store Network"
+    except Exception:
+        shop_name = "Store Network"
+        shop_uuid = None
+
+    if mobile:
+        c_result = await db.execute(select(Customer).where(Customer.mobile_number == mobile))
+        customer_obj = c_result.scalar_one_or_none()
+
+        if customer_obj:
+            customer_info["name"] = customer_obj.name or "Customer"
+            customer_info["mobile_number"] = customer_obj.mobile_number
+
+            if shop_uuid:
+                m_result = await db.execute(
+                    select(CustomerRetailerMembership).where(
+                        CustomerRetailerMembership.customer_id == customer_obj.id,
+                        CustomerRetailerMembership.shop_id == shop_uuid
+                    )
+                )
+                membership = m_result.scalar_one_or_none()
+                if membership:
+                    customer_info["is_member"] = True
+                    customer_info["is_strict_member"] = membership.is_retailer_added
+
+            # Total Orders count & Credits calculation (includes rejected/cancelled orders)
+            orders_count_res = await db.execute(
+                select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0))
+                .where(Order.customer_phone == customer_obj.mobile_number)
+            )
+            total_orders_count, total_spent = orders_count_res.first() or (0, 0)
+            from app.models.contest import ContestCredit
+            cc_res = await db.execute(select(ContestCredit).where(ContestCredit.customer_id == customer_obj.id))
+            contest_credit_obj = cc_res.scalar_one_or_none()
+            contest_credits = float(contest_credit_obj.credits) if contest_credit_obj else 0.0
+            customer_info["contest_credits"] = round(contest_credits, 2)
+            customer_info["credit_limit"] = round(contest_credits, 2)
+            customer_info["available_credit"] = round(contest_credits, 2)
+            customer_info["counts"]["orders"] = total_orders_count
+
+            # Visited Shops Count
+            vshops_res = await db.execute(
+                select(func.count(func.distinct(Order.shop_id)))
+                .where(Order.customer_phone == customer_obj.mobile_number)
+            )
+            visited_shops_count = vshops_res.scalar() or (1 if shop_uuid else 0)
+            customer_info["counts"]["visited_shops"] = max(1 if shop_uuid else 0, visited_shops_count)
+
+            # Participated Contests Count
+            cp_count_res = await db.execute(
+                select(func.count(ContestParticipation.id))
+                .where(ContestParticipation.customer_id == customer_obj.id)
+            )
+            customer_info["counts"]["contests"] = cp_count_res.scalar() or 0
+
+            # Active Rewards Count
+            rewards_count_res = await db.execute(
+                select(func.count(Discount.id))
+                .where(Discount.is_active == True)
+            )
+            customer_info["counts"]["rewards"] = rewards_count_res.scalar() or 0
+
+    return {
+        "customer": customer_info,
+        "shop": {"id": shop_id, "name": shop_name}
+    }
+
+
+@router.get("/customer-counts")
+async def get_customer_summary_counts(
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """Fetch dedicated customer summary counts only (Visited Shops, Orders, Rewards, Contests)."""
+    from app.core.security import verify_customer_token
+    from app.models.customer import Customer
+    from app.models.discount import Discount
+    from app.models.order import Order
+    from app.models.contest import ContestParticipation
+
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+
+    mobile = verify_customer_token(token) if token else None
+
+    counts = {
+        "visited_shops": 0,
+        "orders": 0,
+        "rewards": 0,
+        "contests": 0
+    }
+
+    if mobile:
+        c_result = await db.execute(select(Customer).where(Customer.mobile_number == mobile))
+        customer_obj = c_result.scalar_one_or_none()
+
+        if customer_obj:
+            # 1. Total Orders Count (including rejected/cancelled/completed)
+            orders_res = await db.execute(
+                select(func.count(Order.id))
+                .where(Order.customer_phone == customer_obj.mobile_number)
+            )
+            counts["orders"] = orders_res.scalar() or 0
+
+            # 2. Visited Shops Count
+            vshops_res = await db.execute(
+                select(func.count(func.distinct(Order.shop_id)))
+                .where(Order.customer_phone == customer_obj.mobile_number)
+            )
+            counts["visited_shops"] = vshops_res.scalar() or 0
+
+            # 3. Participated Contests Count
+            cp_res = await db.execute(
+                select(func.count(ContestParticipation.id))
+                .where(ContestParticipation.customer_id == customer_obj.id)
+            )
+            counts["contests"] = cp_res.scalar() or 0
+
+            # 4. Active Rewards Count
+            rewards_res = await db.execute(
+                select(func.count(Discount.id))
+                .where(Discount.is_active == True)
+            )
+            counts["rewards"] = rewards_res.scalar() or 0
+
+    return {
+        "success": True,
+        "counts": counts
+    }
+
+
+@router.get("/customer-visited-shops")
+async def get_customer_visited_shops(
+    shop_id: str,
+    search: Optional[str] = Query(None),
+    min_orders: Optional[int] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(5, ge=1, le=100),
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.core.security import verify_customer_token
+    from app.models.shop import Shop
+    from app.models.order import Order
+    import math
+
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+    mobile = verify_customer_token(token) if token else None
+
+    visited_shops_map = {}
+    if mobile:
+        ord_result = await db.execute(
+            select(Order)
+            .options(selectinload(Order.shop))
+            .where(Order.customer_phone == mobile)
+        )
+        orders_obj = ord_result.scalars().all()
+        for o in orders_obj:
+            s_id = str(o.shop_id)
+            if s_id not in visited_shops_map:
+                visited_shops_map[s_id] = {
+                    "id": s_id,
+                    "name": o.shop.name if o.shop else "Menukit Store",
+                    "logo_url": getattr(o.shop, "logo_url", None) if o.shop else None,
+                    "total_orders": 0,
+                    "total_spent": 0.0,
+                    "status": "Active Store"
+                }
+            if str(o.order_status).lower() == "completed":
+                visited_shops_map[s_id]["total_orders"] += 1
+                visited_shops_map[s_id]["total_spent"] += float(o.total_amount)
+
+    visited_shops_list = list(visited_shops_map.values())
+    if not visited_shops_list and shop_id:
+        try:
+            shop_uuid = uuid.UUID(shop_id)
+            shop_result = await db.execute(select(Shop).where(Shop.id == shop_uuid))
+            shop_obj = shop_result.scalar_one_or_none()
+            if shop_obj:
+                visited_shops_list.append({
+                    "id": str(shop_obj.id),
+                    "name": shop_obj.name,
+                    "logo_url": getattr(shop_obj, "logo_url", None),
+                    "total_orders": 0,
+                    "total_spent": 0.0,
+                    "status": "Current Store"
+                })
+        except Exception:
+            pass
+
+    q = (search or "").strip().lower()
+    if q:
+        visited_shops_list = [s for s in visited_shops_list if q in s["name"].lower()]
+
+    if min_orders and min_orders > 0:
+        visited_shops_list = [s for s in visited_shops_list if s["total_orders"] >= min_orders]
+
+    if sort_by == "most_orders":
+        visited_shops_list.sort(key=lambda s: s["total_orders"], reverse=True)
+    elif sort_by == "highest_spent":
+        visited_shops_list.sort(key=lambda s: s["total_spent"], reverse=True)
+    elif sort_by == "name":
+        visited_shops_list.sort(key=lambda s: s["name"].lower())
+
+    total_items = len(visited_shops_list)
+    total_pages = math.ceil(total_items / limit) or 1
+    start_idx = (page - 1) * limit
+    paginated_items = visited_shops_list[start_idx : start_idx + limit]
+
+    return {
+        "items": paginated_items,
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total_items,
+            "total_pages": total_pages
+        }
+    }
+
+
+@router.get("/customer-orders")
+async def get_customer_orders(
+    shop_id: str,
+    search: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(5, ge=1, le=100),
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.core.security import verify_customer_token
+    from app.models.order import Order
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import or_, cast, String
+    import math
+
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+    mobile = verify_customer_token(token) if token else None
+
+    if not mobile:
+        return {"items": [], "pagination": {"page": 1, "limit": limit, "total": 0, "total_pages": 1}}
+
+    query = (
+        select(Order)
+        .options(selectinload(Order.items), selectinload(Order.shop))
+        .where(Order.customer_phone == mobile)
+    )
+
+    q = (search or "").strip()
+    if q:
+        query = query.where(
+            or_(
+                cast(Order.id, String).ilike(f"%{q}%"),
+                Order.order_status.ilike(f"%{q}%"),
+                Order.payment_status.ilike(f"%{q}%")
+            )
+        )
+
+    if status_filter and status_filter.lower() != "all":
+        sf = status_filter.lower()
+        if sf in ["rejected", "cancelled", "rejected_cancelled"]:
+            query = query.where(Order.order_status.in_(["rejected", "cancelled"]))
+        else:
+            query = query.where(Order.order_status.ilike(status_filter))
+
+    count_query = select(func.count()).select_from(query.subquery())
+    total_res = await db.execute(count_query)
+    total_items = total_res.scalar() or 0
+    total_pages = math.ceil(total_items / limit) or 1
+
+    if sort_by == "amount_high":
+        query = query.order_by(Order.total_amount.desc())
+    elif sort_by == "oldest":
+        query = query.order_by(Order.created_at.asc())
+    else:
+        query = query.order_by(Order.created_at.desc())
+
+    query = query.offset((page - 1) * limit).limit(limit)
+    orders_res = await db.execute(query)
+    orders_obj = orders_res.scalars().all()
+
+    orders_list = []
+    for o in orders_obj:
+        orders_list.append({
+            "id": str(o.id),
+            "shop_id": str(o.shop_id) if o.shop_id else shop_id,
+            "shop_name": o.shop.name if o.shop else "Store Network",
+            "order_status": o.order_status,
+            "payment_status": o.payment_status,
+            "payment_method": o.payment_method,
+            "total_amount": float(o.total_amount),
+            "created_at": o.created_at.isoformat() if o.created_at else "",
+            "items": [
+                {
+                    "name": getattr(item, "name", "Item"),
+                    "quantity": getattr(item, "quantity", 1),
+                    "price": float(getattr(item, "price", 0))
+                }
+                for item in o.items
+            ]
+        })
+
+    return {
+        "items": orders_list,
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total_items,
+            "total_pages": total_pages
+        }
+    }
+
+
+@router.get("/customer-rewards")
+async def get_customer_rewards(
+    shop_id: str,
+    search: Optional[str] = Query(None),
+    discount_type: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(5, ge=1, le=100),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.models.discount import Discount
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import or_
+    import math
+
+    query = (
+        select(Discount)
+        .options(selectinload(Discount.shop))
+        .where(Discount.is_active == True)
+    )
+
+    q = (search or "").strip()
+    if q:
+        query = query.where(
+            or_(
+                Discount.title.ilike(f"%{q}%"),
+                Discount.description.ilike(f"%{q}%")
+            )
+        )
+
+    if discount_type and discount_type.lower() != "all":
+        dt = discount_type.lower()
+        if dt in ["bogo", "combo", "bogo_combo"]:
+            query = query.where(Discount.discount_type.in_(["bogo", "combo"]))
+        else:
+            query = query.where(Discount.discount_type.ilike(discount_type))
+
+    count_query = select(func.count()).select_from(query.subquery())
+    total_res = await db.execute(count_query)
+    total_items = total_res.scalar() or 0
+    total_pages = math.ceil(total_items / limit) or 1
+
+    if sort_by == "oldest":
+        query = query.order_by(Discount.created_at.asc())
+    else:
+        query = query.order_by(Discount.created_at.desc())
+
+    query = query.offset((page - 1) * limit).limit(limit)
+    disc_res = await db.execute(query)
+    discounts = disc_res.scalars().all()
+
+    rewards_list = []
+    for d in discounts:
+        s_name = d.shop.name if d.shop else "Store Network"
+        desc = d.description or (f"Flat {d.discount_value}% OFF on your order" if d.discount_type == "percentage" else f"Flat ₹{d.discount_value} OFF")
+        rewards_list.append({
+            "id": str(d.id),
+            "shop_id": str(d.shop_id) if d.shop_id else None,
+            "title": d.title,
+            "description": desc,
+            "shopName": s_name,
+            "rewardType": "Store Offer",
+            "code": getattr(d, "code", None),
+            "status": "READY TO USE"
+        })
+
+    return {
+        "items": rewards_list,
+        "pagination": {
+            "page": page,
+            "limit": limit,
+            "total": total_items,
+            "total_pages": total_pages
+        }
+    }
+
+
+@router.get("/customer-contests")
+async def get_customer_contests(
+    shop_id: str,
+    type: str = Query("live"),  # 'participated' | 'live'
+    search: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(5, ge=1, le=100),
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.core.security import verify_customer_token
+    from app.models.customer import Customer
+    from app.models.contest import Contest, ContestParticipation
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import or_
+    import math
+
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+    mobile = verify_customer_token(token) if token else None
+
+    if type == "participated":
+        if not mobile:
+            return {"items": [], "pagination": {"page": 1, "limit": limit, "total": 0, "total_pages": 1}}
+
+        c_result = await db.execute(select(Customer).where(Customer.mobile_number == mobile))
+        customer_obj = c_result.scalar_one_or_none()
+        if not customer_obj:
+            return {"items": [], "pagination": {"page": 1, "limit": limit, "total": 0, "total_pages": 1}}
+
+        cp_query = (
+            select(ContestParticipation)
+            .options(selectinload(ContestParticipation.contest).selectinload(Contest.shop))
+            .where(ContestParticipation.customer_id == customer_obj.id)
+        )
+
+        q = (search or "").strip()
+        if q:
+            cp_query = cp_query.join(Contest).where(
+                or_(
+                    Contest.title.ilike(f"%{q}%"),
+                    Contest.description.ilike(f"%{q}%")
+                )
+            )
+
+        count_res = await db.execute(select(func.count()).select_from(cp_query.subquery()))
+        total_items = count_res.scalar() or 0
+        total_pages = math.ceil(total_items / limit) or 1
+
+        cp_query = cp_query.offset((page - 1) * limit).limit(limit)
+        cp_res = await db.execute(cp_query)
+        cp_list = cp_res.scalars().all()
+
+        participated_list = []
+        for idx, cp in enumerate(cp_list):
+            if cp.contest:
+                participated_list.append({
+                    "id": str(cp.contest.id),
+                    "shop_id": str(cp.contest.shop_id) if cp.contest.shop_id else None,
+                    "title": cp.contest.title,
+                    "shopName": cp.contest.shop.name if cp.contest.shop else "Store Network",
+                    "rank": (page - 1) * limit + idx + 1,
+                    "pointsScore": f"{getattr(cp, 'likes_count', 0) * 10} pts",
+                    "rewardWon": cp.contest.reward_value or "Special Prize",
+                    "status": "LIVE NOW" if cp.contest.status == "active" else "COMPLETED"
+                })
+
+        return {
+            "items": participated_list,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total_items,
+                "total_pages": total_pages
+            }
+        }
+    else:
+        # Live contests
+        query = (
+            select(Contest)
+            .options(selectinload(Contest.shop))
+            .where(Contest.status == "active")
+        )
+
+        q = (search or "").strip()
+        if q:
+            query = query.where(
+                or_(
+                    Contest.title.ilike(f"%{q}%"),
+                    Contest.description.ilike(f"%{q}%"),
+                    Contest.reward_value.ilike(f"%{q}%")
+                )
+            )
+
+        count_res = await db.execute(select(func.count()).select_from(query.subquery()))
+        total_items = count_res.scalar() or 0
+        total_pages = math.ceil(total_items / limit) or 1
+
+        query = query.order_by(Contest.created_at.desc()).offset((page - 1) * limit).limit(limit)
+        c_res = await db.execute(query)
+        live_contests = c_res.scalars().all()
+
+        live_list = [
+            {
+                "id": str(c.id),
+                "shop_id": str(c.shop_id) if c.shop_id else None,
+                "title": c.title,
+                "description": c.description,
+                "shopName": c.shop.name if c.shop else "Store Network",
+                "prize_description": c.reward_value or "Free Meal Voucher",
+                "ends_at": c.ends_at.isoformat() if c.ends_at else ""
+            }
+            for c in live_contests
+        ]
+
+        return {
+            "items": live_list,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total_items,
+                "total_pages": total_pages
+            }
+        }

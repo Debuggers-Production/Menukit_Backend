@@ -19,6 +19,7 @@ class MobileVerifyResponse(BaseModel):
     is_strict_member: bool = False
     customer_name: str | None = None
     access_token: str | None = None
+    delivery_address: str | None = None
 
 
 class OTPVerifyRequest(BaseModel):
@@ -33,6 +34,7 @@ class OTPVerifyResponse(BaseModel):
     is_strict_member: bool = False
     customer_name: str | None = None
     access_token: str | None = None
+    delivery_address: str | None = None
 
 
 class CustomerRegisterRequest(BaseModel):
@@ -48,6 +50,7 @@ class CustomerResponse(BaseModel):
     mobile_number: str
     created_at: datetime
     access_token: str | None = None
+    delivery_address: str | None = None
 
     class Config:
         from_attributes = True

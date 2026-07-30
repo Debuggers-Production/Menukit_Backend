@@ -26,6 +26,7 @@ async def create_category(
     """Create a new menu category."""
     service = MenuService(db)
     category = await service.create_category(user.id, data.model_dump())
+    await db.commit()
     return _category_response(category)
 
 
@@ -55,6 +56,7 @@ async def update_category(
     """Update a category."""
     service = MenuService(db)
     category = await service.update_category(user.id, uuid.UUID(category_id), data.model_dump(exclude_none=True))
+    await db.commit()
     return _category_response(category)
 
 
@@ -66,6 +68,7 @@ async def delete_all_categories(
     """Delete ALL categories and their items for the user's shop."""
     service = MenuService(db)
     await service.delete_all_categories(user.id)
+    await db.commit()
     return MessageResponse(message="All categories deleted successfully")
 
 
@@ -78,6 +81,7 @@ async def delete_category(
     """Delete a category and all its menu items."""
     service = MenuService(db)
     await service.delete_category(user.id, uuid.UUID(category_id))
+    await db.commit()
     return MessageResponse(message="Category deleted successfully")
 
 
@@ -90,6 +94,7 @@ async def reorder_categories(
     """Reorder categories."""
     service = MenuService(db)
     await service.reorder_categories(user.id, data.order)
+    await db.commit()
     return MessageResponse(message="Categories reordered successfully")
 
 

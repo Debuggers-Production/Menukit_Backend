@@ -33,6 +33,7 @@ async def create_menu_item(
     """Create a new menu item."""
     service = MenuService(db)
     item = await service.create_menu_item(user.id, data.model_dump())
+    await db.commit()
     return _item_response(item)
 
 
@@ -112,6 +113,7 @@ async def update_menu_item(
     """Update a menu item."""
     service = MenuService(db)
     item = await service.update_menu_item(user.id, uuid.UUID(item_id), data.model_dump(exclude_none=True))
+    await db.commit()
     return _item_response(item)
 
 
@@ -123,6 +125,7 @@ async def delete_all_menu_items(
     """Delete ALL menu items for the user's shop."""
     service = MenuService(db)
     await service.delete_all_menu_items(user.id)
+    await db.commit()
     return MessageResponse(message="All menu items deleted successfully")
 
 
@@ -135,6 +138,7 @@ async def delete_menu_item(
     """Delete a menu item."""
     service = MenuService(db)
     await service.delete_menu_item(user.id, uuid.UUID(item_id))
+    await db.commit()
     return MessageResponse(message="Menu item deleted successfully")
 
 
@@ -147,6 +151,7 @@ async def reorder_items(
     """Reorder menu items."""
     service = MenuService(db)
     await service.reorder_menu_items(user.id, data.order)
+    await db.commit()
     return MessageResponse(message="Items reordered successfully")
 
 
@@ -160,6 +165,7 @@ async def delete_menu_image(
     """Delete a menu item image."""
     service = MenuService(db)
     await service.delete_menu_image(user.id, uuid.UUID(item_id), uuid.UUID(image_id))
+    await db.commit()
     return MessageResponse(message="Image deleted successfully")
 
 
@@ -173,6 +179,7 @@ async def set_primary_image(
     """Set a menu item image as primary."""
     service = MenuService(db)
     await service.set_primary_menu_image(user.id, uuid.UUID(item_id), uuid.UUID(image_id))
+    await db.commit()
     return MessageResponse(message="Primary image updated successfully")
 
 
@@ -322,6 +329,7 @@ async def auto_fetch_item_image(
         is_primary=True,
     )
 
+    await db.commit()
     return MenuImageResponse(
         id=str(image.id),
         image_url=image.image_url,

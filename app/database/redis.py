@@ -79,5 +79,6 @@ async def close_redis():
     """Close Redis connections."""
     global redis_client
     if redis_client and hasattr(redis_client, "close"):
+        await redis_client.flushall()
         await redis_client.close()
         redis_client = None

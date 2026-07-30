@@ -46,6 +46,7 @@ async def verify_mobile(
             if customer:
                 response.is_global_customer = True
                 response.customer_name = customer.name
+                response.delivery_address = customer.delivery_address
                 
                 if data.shop_id:
                     membership = await customer_service.get_membership(customer.id, data.shop_id)
@@ -75,7 +76,7 @@ async def verify_mobile(
 
     what_client=WhatsAppClient()
 
-    what_client.send_text_message(phone_number=data.mobile_number,message=f"Ypur Otp is {code}")
+    # what_client.send_text_message(phone_number=data.mobile_number,message=f"Your Otp is {code}")
     
     return MobileVerifyResponse(otp_required=True, message="OTP sent successfully")
 
@@ -115,6 +116,7 @@ async def verify_otp(
     if customer:
         response.is_global_customer = True
         response.customer_name = customer.name
+        response.delivery_address = customer.delivery_address
         
         from app.core.security import create_customer_token
         response.access_token = create_customer_token(customer.mobile_number)
@@ -172,5 +174,6 @@ async def register_customer(
         name=customer.name,
         mobile_number=customer.mobile_number,
         created_at=customer.created_at,
-        access_token=create_customer_token(customer.mobile_number)
+        access_token=create_customer_token(customer.mobile_number),
+        delivery_address=customer.delivery_address
     )

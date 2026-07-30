@@ -29,7 +29,7 @@ class UploadService:
             self.minio_endpoint,
             access_key=settings.MINIO_ACCESS_KEY,
             secret_key=settings.MINIO_SECRET_KEY,
-            secure=True
+            secure=False
         )
 
         self._ensure_bucket_exists()

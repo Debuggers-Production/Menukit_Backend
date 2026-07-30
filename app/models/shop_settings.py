@@ -22,5 +22,14 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     is_discoverable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     show_menus_in_discovery: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # Ordering & Payment settings
+    delivery_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    takeaway_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    dinein_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    auto_accept_orders: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cashfree_app_id: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    cashfree_secret_key: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    cashfree_sandbox: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
     # Relationships
     shop = relationship("Shop", back_populates="settings")

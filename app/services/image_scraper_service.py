@@ -174,6 +174,10 @@ class ImageScraperService:
         logger.warning(f"[ImageScraper] ✗ All sources failed for '{item_name}'")
         return None
 
+    async def download_image_url(self, url: str) -> Optional[Tuple[bytes, str]]:
+        """Download an image URL directly with retries."""
+        return await self._download_with_retry(url)
+
     async def search_image_urls(
         self, item_name: str, limit: int = 4
     ) -> list[str]:

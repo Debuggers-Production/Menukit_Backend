@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
 from app.core.deps import get_current_user
-from app.schemas.qr_code import QRCodeResponse
+from app.schemas.qr_code import QRCodeResponse, QRCodeStyleUpdate
 from app.services.qr_service import QRService
 from app.models.user import User
 
@@ -31,4 +31,17 @@ async def get_qr_info(
     """Get the current QR code info for the user's shop."""
     service = QRService(db)
     qr = await service.get_qr(user.id)
+    return QRCodeResponse.model_validate(qr)
+
+
+@router.put("/style", response_model=QRCodeResponse)
+async def update_qr_style(
+    style_data: QRCodeStyleUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update style preferences for the QR code."""
+    service = QRService(db)
+    qr = await service.update_qr_style(user.id, style_data)
+    await db.commit()
     return QRCodeResponse.model_validate(qr)

@@ -1,11 +1,7 @@
 """QR code generation service."""
 
-import io
 import uuid
-import base64
 
-import qrcode
-import qrcode.image.svg
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,40 +20,6 @@ class QRService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    def _generate_qr_png(self, url: str) -> bytes:
-        """Generate QR code as PNG bytes."""
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_H,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(url)
-        qr.make(fit=True)
-
-        img = qr.make_image(fill_color="black", back_color="white")
-        buffer = io.BytesIO()
-        img.save(buffer, format="PNG")
-        return buffer.getvalue()
-
-    def _generate_qr_svg(self, url: str) -> str:
-        """Generate QR code as SVG string."""
-        factory = qrcode.image.svg.SvgPathImage
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_H,
-            box_size=10,
-            border=4,
-            image_factory=factory,
-        )
-        qr.add_data(url)
-        qr.make(fit=True)
-
-        img = qr.make_image()
-        buffer = io.BytesIO()
-        img.save(buffer)
-        return buffer.getvalue().decode("utf-8")
-
     async def generate_qr(self, user_id: uuid.UUID) -> QRCode:
         """Generate or regenerate QR code for user's shop."""
         result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
@@ -67,29 +29,21 @@ class QRService:
 
         qr_url = f"{settings.FRONTEND_URL}/shop/{shop.id}"
 
-        # Generate PNG and SVG
-        png_bytes = self._generate_qr_png(qr_url)
-        svg_data = self._generate_qr_svg(qr_url)
-
-        # Store PNG as base64 data URL
-        png_b64 = base64.b64encode(png_bytes).decode("utf-8")
-        qr_image_url = f"data:image/png;base64,{png_b64}"
-
         # Check if QR already exists
         result = await self.db.execute(select(QRCode).where(QRCode.shop_id == shop.id))
         existing_qr = result.scalar_one_or_none()
 
         if existing_qr:
             existing_qr.qr_url = qr_url
-            existing_qr.qr_image_url = qr_image_url
-            existing_qr.qr_svg_data = svg_data
+            existing_qr.qr_image_url = None
+            existing_qr.qr_svg_data = None
             qr_code = existing_qr
         else:
             qr_code = QRCode(
                 shop_id=shop.id,
                 qr_url=qr_url,
-                qr_image_url=qr_image_url,
-                qr_svg_data=svg_data,
+                qr_image_url=None,
+                qr_svg_data=None,
             )
             self.db.add(qr_code)
 
@@ -101,7 +55,8 @@ class QRService:
         )
         self.db.add(activity)
 
-        await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(qr_code)
         return qr_code
 
     async def get_qr(self, user_id: uuid.UUID) -> QRCode:
@@ -116,4 +71,27 @@ class QRService:
         if not qr:
             raise NotFoundException("QR code not found. Generate one first.")
 
+        return qr
+
+    async def update_qr_style(self, user_id: uuid.UUID, style_data) -> QRCode:
+        """Update style preferences for user's shop's QR code."""
+        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
+        shop = result.scalar_one_or_none()
+        if not shop:
+            raise NotFoundException("Shop not found")
+
+        result = await self.db.execute(select(QRCode).where(QRCode.shop_id == shop.id))
+        qr = result.scalar_one_or_none()
+        if not qr:
+            raise NotFoundException("QR code not found. Generate one first.")
+
+        qr.dot_type = style_data.dot_type
+        qr.corners_square_type = style_data.corners_square_type
+        qr.corners_dot_type = style_data.corners_dot_type
+        qr.qr_color = style_data.qr_color
+        qr.include_logo = style_data.include_logo
+
+        self.db.add(qr)
+        await self.db.commit()
+        await self.db.refresh(qr)
         return qr
