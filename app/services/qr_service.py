@@ -27,7 +27,7 @@ class QRService:
         if not shop:
             raise NotFoundException("Shop not found. Create a shop first.")
 
-        qr_url = f"{settings.FRONTEND_URL}/shop/{shop.id}"
+        qr_url = f"{settings.FRONTEND_URL}/shop/{shop.id}?type=qr"
 
         # Check if QR already exists
         result = await self.db.execute(select(QRCode).where(QRCode.shop_id == shop.id))

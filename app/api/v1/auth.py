@@ -31,10 +31,9 @@ async def request_otp(
 
     email_service = EmailService()
     sent = await email_service.send_otp_email(data.email, code)
-    sent = True
 
     if not sent:
-        raise BadRequestException("Failed to send OTP email. Please try again.")
+        raise BadRequestException("Failed to send OTP email. Please check email/SMTP configuration.")
 
     return MessageResponse(message="OTP sent successfully to your email")
 

@@ -1,0 +1,232 @@
+[2026-08-05 16:42:30,254] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "+918248692839",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/4feff815-d8cd-4e3b-ad0d-c8f633934784.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "drawing"
+          },
+          {
+            "type": "text",
+            "text": "Special Reward"
+          },
+          {
+            "type": "text",
+            "text": "menukit.debuggers.co.in"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-05 16:42:32,292] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"+918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSODkzNjVFN0NBM0MyODBFMzUyAA==","message_status":"accepted"}]}
+[2026-08-05 16:42:32,295] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "+919876543210",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/4feff815-d8cd-4e3b-ad0d-c8f633934784.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "drawing"
+          },
+          {
+            "type": "text",
+            "text": "Special Reward"
+          },
+          {
+            "type": "text",
+            "text": "menukit.debuggers.co.in"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-05 16:42:33,290] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"+919876543210","wa_id":"919876543210"}],"messages":[{"id":"wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSNkIwMDRFQzk2MTQ2OEU5MEI4AA==","message_status":"accepted"}]}
+[2026-08-05 16:48:02,228] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/4feff815-d8cd-4e3b-ad0d-c8f633934784.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "drawing"
+          },
+          {
+            "type": "text",
+            "text": "Special Reward"
+          },
+          {
+            "type": "text",
+            "text": "menukit.debuggers.co.in"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-05 16:48:03,718] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNjg5OUI1MkQzQjA4MzgxQ0YyAA==","message_status":"accepted"}]}
+[2026-08-05 16:48:03,722] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919876543210",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/4feff815-d8cd-4e3b-ad0d-c8f633934784.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "drawing"
+          },
+          {
+            "type": "text",
+            "text": "Special Reward"
+          },
+          {
+            "type": "text",
+            "text": "menukit.debuggers.co.in"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-05 16:48:05,668] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919876543210","wa_id":"919876543210"}],"messages":[{"id":"wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSRjg2NEVEN0U0N0U1MUUyOTY3AA==","message_status":"accepted"}]}

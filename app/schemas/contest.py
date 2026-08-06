@@ -92,7 +92,10 @@ class ContestPayRequest(BaseModel):
 
 
 class ContestVerifyRequest(BaseModel):
-    link_id: str
+    link_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+    razorpay_payment_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
     mobile_number: str
 
 

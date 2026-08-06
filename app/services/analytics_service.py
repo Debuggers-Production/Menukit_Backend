@@ -393,12 +393,14 @@ class AnalyticsService:
         total_gross = sum(float(o.total_amount or 0.0) for o in orders)
         total_orders_count = len(orders)
 
-        # 5% commission rate for online, 2% platform fee for cash
+        # 2% Payment Gateway charge for online payments, 0% for cash
         recent_invoices = []
         total_commission_paid = 0.0
 
         for o in orders:
-            rate = 0.05 if o.payment_method == 'online' else 0.02
+            pm = (o.payment_method or "cash").lower()
+            is_online = pm in ["online", "upi", "card", "pay_online", "razorpay", "cashfree"]
+            rate = 0.02 if is_online else 0.0
             comm = float(o.total_amount or 0.0) * rate
             settled = float(o.total_amount or 0.0) - comm
             total_commission_paid += comm
@@ -448,7 +450,12 @@ class AnalyticsService:
         daily_sales = []
         for row in daily_res:
             gross = float(row.sum_amt or 0.0)
-            comm = gross * 0.05
+            day_orders = [o for o in orders if o.created_at.date() == row.date]
+            comm = sum(
+                float(o.total_amount or 0.0) * 0.02
+                for o in day_orders
+                if (o.payment_method or "cash").lower() in ["online", "upi", "card", "pay_online", "razorpay", "cashfree"]
+            )
             daily_sales.append({
                 "date": str(row.date),
                 "orders_count": row.count,

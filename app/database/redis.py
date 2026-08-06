@@ -28,6 +28,9 @@ class MockRedis:
             
     async def flushdb(self):
         self.store = {}
+
+    async def flushall(self):
+        self.store = {}
         
     def pipeline(self):
         class Pipe:
@@ -78,7 +81,17 @@ async def get_redis():
 async def close_redis():
     """Close Redis connections."""
     global redis_client
-    if redis_client and hasattr(redis_client, "close"):
-        await redis_client.flushall()
-        await redis_client.close()
+    if redis_client:
+        try:
+            if hasattr(redis_client, "flushall"):
+                await redis_client.flushall()
+            elif hasattr(redis_client, "flushdb"):
+                await redis_client.flushdb()
+        except Exception:
+            pass
+        try:
+            if hasattr(redis_client, "close"):
+                await redis_client.close()
+        except Exception:
+            pass
         redis_client = None

@@ -49,3 +49,26 @@ async def get_current_admin() -> User:
     # Local dev bypass
     import uuid
     return User(id=uuid.uuid4(), email="local@admin.com", role="admin")
+
+
+async def require_active_subscription(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Ensure the user's shop has an active subscription or trial/grace period."""
+    from app.models.shop import Shop
+    from app.api.v1.subscription import get_shop_subscription_status
+    from sqlalchemy import select
+
+    stmt = select(Shop).where(Shop.user_id == current_user.id)
+    res = await db.execute(stmt)
+    shop = res.scalar_one_or_none()
+
+    if shop:
+        sub_info = await get_shop_subscription_status(shop, db)
+        if sub_info.get("is_expired"):
+            raise ForbiddenException(
+                "Subscription expired: " + sub_info.get("status_message", "Please renew to access features.")
+            )
+
+    return current_user

@@ -52,12 +52,18 @@ class ShopSettingsUpdate(BaseModel):
     is_discoverable: Optional[bool] = None
     show_menus_in_discovery: Optional[bool] = None
     delivery_enabled: Optional[bool] = None
+    base_delivery_charge: Optional[float] = None
+    base_delivery_distance: Optional[float] = None
+    extra_delivery_distance_step: Optional[float] = None
+    extra_delivery_charge_per_step: Optional[float] = None
     takeaway_enabled: Optional[bool] = None
     dinein_enabled: Optional[bool] = None
     auto_accept_orders: Optional[bool] = None
+    online_payments_enabled: Optional[bool] = None
     cashfree_app_id: Optional[str] = None
     cashfree_secret_key: Optional[str] = None
     cashfree_sandbox: Optional[bool] = None
+    upi_id: Optional[str] = None
 
 
 class ThemeSettingsUpdate(BaseModel):
@@ -102,12 +108,18 @@ class ShopSettingsResponse(BaseModel):
     is_discoverable: bool
     show_menus_in_discovery: bool
     delivery_enabled: bool
+    base_delivery_charge: float = 0.0
+    base_delivery_distance: float = 0.0
+    extra_delivery_distance_step: float = 1.0
+    extra_delivery_charge_per_step: float = 0.0
     takeaway_enabled: bool
     dinein_enabled: bool
     auto_accept_orders: bool
     cashfree_app_id: str
     cashfree_secret_key: str
     cashfree_sandbox: bool
+    upi_id: Optional[str] = None
+    online_payments_enabled: bool = True
 
     class Config:
         from_attributes = True

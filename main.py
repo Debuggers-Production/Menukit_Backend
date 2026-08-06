@@ -70,6 +70,57 @@ def create_app() -> FastAPI:
     # Include API router
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
+    import time
+    from fastapi import Request
+
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        start_time = time.time()
+        
+        # ANSI Escape Codes
+        RESET = "\033[0m"
+        BLUE = "\033[94m"
+        GREEN = "\033[92m"
+        YELLOW = "\033[93m"
+        RED = "\033[91m"
+        CYAN = "\033[96m"
+        MAGENTA = "\033[95m"
+
+        # Method Color Logic
+        if request.method == "GET":
+            method_color = CYAN
+        elif request.method == "POST":
+            method_color = GREEN
+        elif request.method == "PUT":
+            method_color = YELLOW
+        elif request.method == "DELETE":
+            method_color = RED
+        else:
+            method_color = MAGENTA
+        
+        # Log request start
+        logger.info(f"{BLUE}▶ Incoming:{RESET} {method_color}{request.method}{RESET} {request.url.path}")
+        
+        # Process request
+        response = await call_next(request)
+        
+        process_time = (time.time() - start_time) * 1000
+        formatted_process_time = f"{process_time:.2f}ms"
+        
+        # Color based on status code
+        if response.status_code < 300:
+            status_color = GREEN
+        elif response.status_code < 400:
+            status_color = YELLOW
+        else:
+            status_color = RED
+            
+        # Log request end with status code and time
+        logger.info(f"{MAGENTA}✔ Completed:{RESET} {method_color}{request.method}{RESET} {request.url.path} - {status_color}Status: {response.status_code}{RESET} - {YELLOW}Time: {formatted_process_time}{RESET}")
+        
+        return response
+
+
     # Serve uploaded files if using local storage
     if not settings.AZURE_STORAGE_CONNECTION_STRING:
         import os

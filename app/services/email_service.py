@@ -20,16 +20,17 @@ class EmailService:
 
     async def _send_console(self, email: str, otp_code: str) -> bool:
         """Log OTP to console (development mode)."""
-        logger.info("=" * 50)
-        logger.info(f"📧 OTP Email to: {email}")
-        logger.info(f"🔑 OTP Code: {otp_code}")
-        logger.info(f"⏰ Valid for {settings.OTP_EXPIRE_SECONDS // 60} minutes")
-        logger.info("=" * 50)
-        print(f"\n{'=' * 50}")
-        print(f"📧 OTP Email to: {email}")
-        print(f"🔑 OTP Code: {otp_code}")
-        print(f"⏰ Valid for {settings.OTP_EXPIRE_SECONDS // 60} minutes")
-        print(f"{'=' * 50}\n")
+        GREEN = "\033[92m"
+        CYAN = "\033[96m"
+        RESET = "\033[0m"
+        BOLD = "\033[1m"
+        
+        logger.info(f"📧 OTP Email to {email}: {otp_code}")
+        print(f"\n{CYAN}{'=' * 50}{RESET}")
+        print(f"{CYAN}📧 OTP Email to: {BOLD}{email}{RESET}")
+        print(f"{GREEN}🔑 OTP Code: {BOLD}{otp_code}{RESET}")
+        print(f"{CYAN}⏰ Valid for {settings.OTP_EXPIRE_SECONDS // 60} minutes{RESET}")
+        print(f"{CYAN}{'=' * 50}\n{RESET}")
         return True
 
     async def _send_smtp(self, email: str, otp_code: str) -> bool:
@@ -75,5 +76,15 @@ class EmailService:
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to send email: {e}")
+            # ANSI escape codes for colored terminal output
+            RED = "\033[91m"
+            YELLOW = "\033[93m"
+            RESET = "\033[0m"
+            BOLD = "\033[1m"
+            
+            logger.error(f"{RED}{BOLD}❌ Failed to send email: {e}{RESET}")
+            print(f"\n{RED}{'=' * 50}{RESET}")
+            print(f"{RED}{BOLD}❌ EMAIL SEND ERROR: {e}{RESET}")
+            print(f"{YELLOW}💡 Fallback Development OTP Code for {email}: {BOLD}{otp_code}{RESET}")
+            print(f"{RED}{'=' * 50}\n{RESET}")
             return False

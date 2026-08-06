@@ -20,9 +20,11 @@ class Subscription(Base, UUIDMixin, TimestampMixin):
     # Subscription status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_all_access: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_trial: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
     
     # JSON array of module string IDs (e.g., ["member-count", "search-data"])
     active_modules: Mapped[list | dict | None] = mapped_column(JSON, nullable=True, default=list)
+    module_expirations: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
 
     # Billing info
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -53,6 +55,7 @@ class PaymentTransaction(Base, UUIDMixin, TimestampMixin):
     # Metadata about what was purchased
     is_all_access: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     purchased_modules: Mapped[list | dict | None] = mapped_column(JSON, nullable=True)
+    billing_cycle: Mapped[str | None] = mapped_column(String(20), default="monthly", nullable=True)
 
     # Relationships
     shop = relationship("Shop", back_populates="payment_transactions")

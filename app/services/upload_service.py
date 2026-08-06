@@ -22,32 +22,79 @@ JPEG_QUALITY = 80
 
 class UploadService:
     def __init__(self):
-        self.minio_endpoint = settings.MINIO_ENDPOINT
+        self.minio_endpoint = settings.MINIO_ENDPOINT.replace("https://", "").replace("http://", "")
         self.bucket_name = settings.MINIO_BUCKET_NAME
+        self.secure = getattr(settings, "MINIO_SECURE", True)
+        self.minio_available = False
 
-        self.minio_client = Minio(
-            self.minio_endpoint,
-            access_key=settings.MINIO_ACCESS_KEY,
-            secret_key=settings.MINIO_SECRET_KEY,
-            secure=False
-        )
-
-        self._ensure_bucket_exists()
+        try:
+            self.minio_client = Minio(
+                self.minio_endpoint,
+                access_key=settings.MINIO_ACCESS_KEY,
+                secret_key=settings.MINIO_SECRET_KEY,
+                secure=self.secure
+            )
+            self._ensure_bucket_exists()
+            self.minio_available = True
+        except Exception as e:
+            logger.warning(f"MinIO unavailable or invalid credentials ({e}). Falling back to local disk storage.")
 
     def _ensure_bucket_exists(self):
         try:
             if not self.minio_client.bucket_exists(self.bucket_name):
                 self.minio_client.make_bucket(self.bucket_name)
 
+            import json
+            policy = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"AWS": ["*"]},
+                        "Action": ["s3:GetObject"],
+                        "Resource": [f"arn:aws:s3:::{self.bucket_name}/*"]
+                    }
+                ]
+            }
+            try:
+                self.minio_client.set_bucket_policy(self.bucket_name, json.dumps(policy))
+            except Exception as pe:
+                logger.warning(f"Could not set bucket policy: {pe}")
+
             logger.info(
-                f"MinIO bucket '{self.bucket_name}' ready"
+                f"MinIO bucket '{self.bucket_name}' ready with public read policy"
             )
 
-        except S3Error as e:
-            logger.exception(f"Failed to create bucket: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to verify/create MinIO bucket: {e}")
             raise
 
-    def _process_image(self, image_data: bytes) -> Tuple[bytes, bytes]:
+    def _upload_local(
+        self,
+        main_bytes: bytes,
+        main_path: str,
+    ) -> dict:
+        import os
+        from pathlib import Path
+
+        base_dir = Path(settings.UPLOAD_DIR)
+        main_file = base_dir / main_path
+        main_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(main_file, "wb") as f:
+            f.write(main_bytes)
+
+        image_url = f"http://localhost:8000/uploads/{main_path}"
+        logger.info(f"Saved locally: {main_file}")
+
+        return {
+            "image_url": image_url,
+            "thumbnail_url": image_url,
+            "filename": main_path,
+            "thumbnail_filename": main_path,
+        }
+
+    def _process_image(self, image_data: bytes) -> bytes:
         img = Image.open(BytesIO(image_data))
 
         if img.mode in ("RGBA", "P"):
@@ -71,28 +118,7 @@ class UploadService:
             optimize=True
         )
 
-        main_bytes = main_buffer.getvalue()
-
-        thumb_ratio = THUMBNAIL_WIDTH / img.width
-        thumb_height = int(img.height * thumb_ratio)
-
-        thumb = img.resize(
-            (THUMBNAIL_WIDTH, thumb_height),
-            Image.LANCZOS
-        )
-
-        thumb_buffer = BytesIO()
-
-        thumb.save(
-            thumb_buffer,
-            format="JPEG",
-            quality=70,
-            optimize=True
-        )
-
-        thumb_bytes = thumb_buffer.getvalue()
-
-        return main_bytes, thumb_bytes
+        return main_buffer.getvalue()
 
     async def upload_image(
         self,
@@ -109,33 +135,27 @@ class UploadService:
                 f"Image size exceeds {settings.MAX_IMAGE_SIZE_MB}MB limit"
             )
 
-        main_bytes, thumb_bytes = self._process_image(contents)
-
+        main_bytes = self._process_image(contents)
         file_id = str(uuid.uuid4())
-
         main_filename = f"{folder}/{file_id}.jpg"
-        thumb_filename = f"{folder}/{file_id}_thumb.jpg"
 
         return await self._upload_minio(
             main_bytes=main_bytes,
-            thumb_bytes=thumb_bytes,
             main_path=main_filename,
-            thumb_path=thumb_filename,
         )
 
     async def _upload_minio(
         self,
         main_bytes: bytes,
-        thumb_bytes: bytes,
         main_path: str,
-        thumb_path: str,
     ) -> dict:
+        if not getattr(self, "minio_available", False):
+            return self._upload_local(
+                main_bytes=main_bytes,
+                main_path=main_path,
+            )
 
         try:
-
-            logger.info(
-                f"Uploaded successfully: {main_path}"
-            )
             self.minio_client.put_object(
                 bucket_name=self.bucket_name,
                 object_name=main_path,
@@ -144,36 +164,27 @@ class UploadService:
                 content_type="image/jpeg",
             )
 
-            self.minio_client.put_object(
-                bucket_name=self.bucket_name,
-                object_name=thumb_path,
-                data=BytesIO(thumb_bytes),
-                length=len(thumb_bytes),
-                content_type="image/jpeg",
-            )
-
+            protocol = "https" if getattr(self, "secure", True) else "http"
             image_url = (
-                f"http://{self.minio_endpoint}/"
+                f"{protocol}://{self.minio_endpoint}/"
                 f"{self.bucket_name}/{main_path}"
             )
 
-            thumbnail_url = (
-                f"http://{self.minio_endpoint}/"
-                f"{self.bucket_name}/{thumb_path}"
-            )
+            logger.info(f"MinIO uploaded successfully: {main_path}")
 
             return {
                 "image_url": image_url,
-                "thumbnail_url": thumbnail_url,
+                "thumbnail_url": image_url,
                 "filename": main_path,
-                "thumbnail_filename": thumb_path,
+                "thumbnail_filename": main_path,
             }
 
         except Exception as e:
-            logger.exception(f"MinIO upload failed: {e}")
-            raise RuntimeError(
-                "Failed to upload image to MinIO"
-            ) from e
+            logger.warning(f"MinIO upload failed ({e}). Falling back to local disk storage.")
+            return self._upload_local(
+                main_bytes=main_bytes,
+                main_path=main_path,
+            )
 
     async def upload_image_from_bytes(
         self,
@@ -187,17 +198,13 @@ class UploadService:
                 f"Image size exceeds {settings.MAX_IMAGE_SIZE_MB}MB limit"
             )
 
-        main_bytes, thumb_bytes = self._process_image(image_bytes)
-
+        main_bytes = self._process_image(image_bytes)
         file_id = str(uuid.uuid4())
         main_filename = f"{folder}/{file_id}.jpg"
-        thumb_filename = f"{folder}/{file_id}_thumb.jpg"
 
         return await self._upload_minio(
             main_bytes=main_bytes,
-            thumb_bytes=thumb_bytes,
             main_path=main_filename,
-            thumb_path=thumb_filename,
         )
 
     async def delete_image(self, filename: str):

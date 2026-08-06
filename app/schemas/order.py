@@ -47,6 +47,7 @@ class OrderResponse(OrderBase):
     payment_status: str
     cashfree_order_id: Optional[str] = None
     payment_session_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     items: List[OrderItemResponse] = []

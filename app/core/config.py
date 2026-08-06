@@ -17,10 +17,6 @@ class Settings(BaseSettings):
     SEO_FRONTEND_URL:str="http://localhost:5174"
     API_V1_PREFIX: str = "/api/v1"
 
-    # Cashfree
-    CASHFREE_APP_ID: str = ""
-    CASHFREE_SECRET_KEY: str = ""
-
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:437734@localhost:5432/smartmenu_db"
 
@@ -59,6 +55,7 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = ""
     MINIO_SECRET_KEY: str = ""
     MINIO_BUCKET_NAME: str = ""
+    MINIO_SECURE: bool = True
 
     # Gemini AI
     GEMINI_API_KEY: str = "AIzaSyDGw-M11foUXuUX6MaGMJxcNC-3sOps1ZQ"
@@ -68,15 +65,22 @@ class Settings(BaseSettings):
     PIXABAY_API_KEY: str = "56123521-df85c9fe398583c4be8b772f1"
 
     # Whatsapp Configurations
-    WHATSAPP_ACCESS_TOKEN:str = ""
-    WHATSAPP_PHONE_NUMBER_ID:str = ""
+    WHATSAPP_ACCESS_TOKEN: str = ""
+    WHATSAPP_PHONE_NUMBER_ID: str = ""
+    WHATSAPP_VERIFY_TOKEN: str = "menukit_whatsapp_webhook_token_2026"
 
     # Razorpay
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
     
-    # Subscription Mock Mode (set to true to test UI without real payments)
-    MOCK_PAYMENT_MODE: bool = True
+    # Subscription Trial & Grace Period Configs
+    FREE_TRIAL_DAYS: int = 30
+    GRACE_PERIOD_DAYS: int = 7
+    # Mock Subscription State for Testing: "none" | "ending_soon" | "grace_period" | "expired"
+    MOCK_SUBSCRIPTION_STATE: str = "none"
+    
+    # Subscription Mock Mode (set to false for real Cashfree payment redirect)
+    MOCK_PAYMENT_MODE: bool = False
 
     class Config:
         env_file = ".env"

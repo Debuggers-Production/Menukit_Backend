@@ -22,6 +22,8 @@ class MenuItemVariant(BaseModel):
     name: str
     price: str
     offer_price: Optional[str] = None
+    online_price: Optional[str] = None
+    online_offer_price: Optional[str] = None
 
 
 class MenuItemAddon(BaseModel):
@@ -37,6 +39,8 @@ class MenuItemCreate(BaseModel):
     description: Optional[str] = None
     price: Decimal
     offer_price: Optional[Decimal] = None
+    online_price: Optional[Decimal] = None
+    online_offer_price: Optional[Decimal] = None
     food_types: List[str] = ["veg"]  # veg | non-veg | egg | drink
     allow_ice_preference: bool = False
     is_bestseller: bool = False
@@ -58,6 +62,8 @@ class MenuItemUpdate(BaseModel):
     description: Optional[str] = None
     price: Optional[Decimal] = None
     offer_price: Optional[Decimal] = None
+    online_price: Optional[Decimal] = None
+    online_offer_price: Optional[Decimal] = None
     food_types: Optional[List[str]] = None
     allow_ice_preference: Optional[bool] = None
     is_bestseller: Optional[bool] = None
@@ -85,6 +91,8 @@ class MenuItemResponse(BaseModel):
     description: Optional[str] = None
     price: str
     offer_price: Optional[str] = None
+    online_price: Optional[str] = None
+    online_offer_price: Optional[str] = None
     food_types: List[str]
     allow_ice_preference: bool
     is_bestseller: bool

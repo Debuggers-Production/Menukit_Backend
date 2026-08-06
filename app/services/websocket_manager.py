@@ -50,26 +50,26 @@ class CustomerConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = {}
 
-    async def connect(self, customer_phone: str, websocket: WebSocket):
+    async def connect(self, customer_id: str, websocket: WebSocket):
         await websocket.accept()
-        if customer_phone not in self.active_connections:
-            self.active_connections[customer_phone] = set()
-        self.active_connections[customer_phone].add(websocket)
-        logger.info(f"Customer WebSocket connected: {customer_phone}")
+        if customer_id not in self.active_connections:
+            self.active_connections[customer_id] = set()
+        self.active_connections[customer_id].add(websocket)
+        logger.info(f"Customer WebSocket connected for ID: {customer_id}")
 
-    def disconnect(self, customer_phone: str, websocket: WebSocket):
-        if customer_phone in self.active_connections:
-            if websocket in self.active_connections[customer_phone]:
-                self.active_connections[customer_phone].remove(websocket)
-            if not self.active_connections[customer_phone]:
-                del self.active_connections[customer_phone]
-        logger.info(f"Customer WebSocket disconnected: {customer_phone}")
+    def disconnect(self, customer_id: str, websocket: WebSocket):
+        if customer_id in self.active_connections:
+            if websocket in self.active_connections[customer_id]:
+                self.active_connections[customer_id].remove(websocket)
+            if not self.active_connections[customer_id]:
+                del self.active_connections[customer_id]
+        logger.info(f"Customer WebSocket disconnected for ID: {customer_id}")
 
-    async def broadcast_to_customer(self, customer_phone: str, message: dict):
-        if customer_phone in self.active_connections:
+    async def broadcast_to_customer(self, customer_id: str, message: dict):
+        if customer_id in self.active_connections:
             message_text = json.dumps(message)
             dead_connections = set()
-            for connection in self.active_connections[customer_phone]:
+            for connection in self.active_connections[customer_id]:
                 try:
                     await connection.send_text(message_text)
                 except Exception as e:
@@ -77,6 +77,6 @@ class CustomerConnectionManager:
                     dead_connections.add(connection)
             
             for dead_conn in dead_connections:
-                self.disconnect(customer_phone, dead_conn)
+                self.disconnect(customer_id, dead_conn)
 
 customer_manager = CustomerConnectionManager()

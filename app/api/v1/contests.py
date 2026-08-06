@@ -1,6 +1,7 @@
 """Contest API endpoints."""
 
 import uuid
+from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -310,54 +311,68 @@ async def buy_credits(
     data: ContestPayRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """Generates a Cashfree payment link to pay 5 INR for 2 credits."""
+    """Generates a Razorpay order for contest entry credits with 3% PG fee + 18% GST."""
     from app.core.config import get_settings
     settings = get_settings()
 
-    CASHFREE_APP_ID = settings.CASHFREE_APP_ID or "TEST107401654fad43cacb2c409c0c8b56104701"
-    CASHFREE_SECRET_KEY = settings.CASHFREE_SECRET_KEY or "cfsk_ma_test_f06895ecb53ad98160bac82c1aa110fd_737883de"
-    CASHFREE_BASE_URL = "https://sandbox.cashfree.com/pg" if "TEST" in CASHFREE_APP_ID else "https://api.cashfree.com/pg"
+    base_amount = 5.00
+    pg_fee = round(base_amount * 0.03, 2)       # 0.15
+    gst_on_fee = round(pg_fee * 0.18, 2)       # 0.03
+    final_total = round(base_amount + pg_fee + gst_on_fee, 2)  # 5.18
+    amount_in_paise = int(round(final_total * 100))          # 518
 
-    link_id = f"link_{uuid.uuid4().hex[:12]}"
-    frontend_url = settings.FRONTEND_URL
-    return_url = f"{frontend_url}/shop/{data.shop_id}/contest?payment_success=true&link_id={link_id}&mobile_number={data.mobile_number}"
-
-    headers = {
-        "x-client-id": CASHFREE_APP_ID,
-        "x-client-secret": CASHFREE_SECRET_KEY,
-        "x-api-version": "2023-08-01",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
-
-    clean_phone = "".join(filter(str.isdigit, data.mobile_number))
-    if len(clean_phone) > 10:
-        clean_phone = clean_phone[-10:]
-
-    payload = {
-        "link_id": link_id,
-        "link_amount": 5.00,
-        "link_currency": "INR",
-        "customer_details": {
-            "customer_phone": clean_phone,
-            "customer_id": f"cust_{clean_phone}"
-        },
-        "link_meta": {
-            "return_url": return_url
-        },
-        "link_purpose": "Contest Credits Entry Fee"
-    }
-
-    import httpx
-    async with httpx.AsyncClient() as client:
+    # Razorpay Client setup
+    razorpay_client = None
+    if settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET:
         try:
-            response = await client.post(f"{CASHFREE_BASE_URL}/links", json=payload, headers=headers)
-            if response.status_code != 200:
-                raise HTTPException(status_code=400, detail=f"Cashfree failed: {response.text}")
-            res_data = response.json()
-            return {"link_url": res_data["link_url"], "link_id": link_id}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Cashfree request error: {str(e)}")
+            import razorpay
+            razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+        except ImportError:
+            razorpay_client = None
+
+    # 1. Mock / Fallback Mode
+    if settings.MOCK_PAYMENT_MODE:
+        mock_order_id = f"order_mock_contest_{uuid.uuid4().hex[:12]}"
+        return {
+            "order_id": mock_order_id,
+            "base_amount": base_amount,
+            "pg_fee": pg_fee,
+            "gst_on_fee": gst_on_fee,
+            "final_total": final_total,
+            "amount": amount_in_paise,
+            "currency": "INR",
+            "mock_mode": True,
+            "key": settings.RAZORPAY_KEY_ID or "rzp_test_mock"
+        }
+
+    try:
+        order_data = {
+            "amount": amount_in_paise,
+            "currency": "INR",
+            "receipt": f"contest_rcpt_{data.shop_id[:8]}_{int(datetime.now().timestamp())}",
+            "notes": {
+                "mobile_number": data.mobile_number,
+                "shop_id": data.shop_id,
+                "base_amount": str(base_amount),
+                "pg_fee": str(pg_fee),
+                "gst_on_fee": str(gst_on_fee)
+            }
+        }
+        order = razorpay_client.order.create(data=order_data)
+        return {
+            "order_id": order['id'],
+            "base_amount": base_amount,
+            "pg_fee": pg_fee,
+            "gst_on_fee": gst_on_fee,
+            "final_total": final_total,
+            "amount": order['amount'],
+            "currency": order['currency'],
+            "mock_mode": False,
+            "key": settings.RAZORPAY_KEY_ID
+        }
+    except Exception as e:
+        print(f"Razorpay contest order creation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Razorpay order creation error: {str(e)}")
 
 
 @router.post("/pay/verify", response_model=ContestCreditResponse)
@@ -366,15 +381,15 @@ async def verify_credits_payment(
     db: AsyncSession = Depends(get_db),
     redis = Depends(get_redis)
 ):
-    """Verifies the status of a Cashfree payment link and adds credits if PAID."""
+    """Verifies Razorpay payment for contest credits and awards credits."""
     from app.core.config import get_settings
     settings = get_settings()
 
-    CASHFREE_APP_ID = settings.CASHFREE_APP_ID or "TEST107401654fad43cacb2c409c0c8b56104701"
-    CASHFREE_SECRET_KEY = settings.CASHFREE_SECRET_KEY or "cfsk_ma_test_f06895ecb53ad98160bac82c1aa110fd_737883de"
-    CASHFREE_BASE_URL = "https://sandbox.cashfree.com/pg" if "TEST" in CASHFREE_APP_ID else "https://api.cashfree.com/pg"
+    target_id = data.razorpay_order_id or data.link_id
+    if not target_id:
+        raise HTTPException(status_code=400, detail="Missing razorpay_order_id or link_id")
 
-    # Clean the input phone number from URL encoding issue (space instead of +)
+    # Clean mobile number
     mobile = data.mobile_number.strip()
     if " " in mobile:
         mobile = mobile.replace(" ", "+")
@@ -384,7 +399,7 @@ async def verify_credits_payment(
         elif len(mobile) == 10:
             mobile = "+91" + mobile
 
-    cache_key = f"contest_pay_link:{data.link_id}"
+    cache_key = f"contest_pay_link:{target_id}"
     already_processed = await redis.get(cache_key)
     if already_processed:
         from app.models.customer import Customer
@@ -398,35 +413,43 @@ async def verify_credits_payment(
         credits_val = credit.credits if credit else 0
         return ContestCreditResponse(customer_id=str(customer.id), credits=credits_val)
 
-    headers = {
-        "x-client-id": CASHFREE_APP_ID,
-        "x-client-secret": CASHFREE_SECRET_KEY,
-        "x-api-version": "2023-08-01",
-        "Accept": "application/json"
-    }
+    is_valid = False
+    if settings.MOCK_PAYMENT_MODE and (target_id.startswith("order_mock_") or target_id.startswith("link_")):
+        is_valid = True
+    else:
+        razorpay_client = None
+        if settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET:
+            try:
+                import razorpay
+                razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+            except ImportError:
+                razorpay_client = None
 
-    import httpx
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(f"{CASHFREE_BASE_URL}/links/{data.link_id}", headers=headers)
-            if response.status_code != 200:
-                raise HTTPException(status_code=400, detail="Failed to retrieve link status from Cashfree")
-            res_data = response.json()
-            link_status = res_data.get("link_status")
+        if not razorpay_client:
+            print("Razorpay client not configured")
+            is_valid = False
+        else:
+            try:
+                params_dict = {
+                    'razorpay_order_id': data.razorpay_order_id or target_id,
+                    'razorpay_payment_id': data.razorpay_payment_id or "pay_mock",
+                    'razorpay_signature': data.razorpay_signature or "sig_mock"
+                }
+                razorpay_client.utility.verify_payment_signature(params_dict)
+                is_valid = True
+            except Exception as e:
+                print(f"Razorpay contest signature verification failed: {e}")
+                is_valid = False
 
-            if link_status != "PAID":
-                raise HTTPException(status_code=400, detail=f"Link has not been paid. Current status: {link_status}")
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Invalid Razorpay payment signature")
 
-            service = ContestService(db)
-            credit = await service.add_credits(mobile)
+    service = ContestService(db)
+    credit = await service.add_credits(mobile)
 
-            await redis.setex(cache_key, 604800, "processed")
+    await redis.setex(cache_key, 604800, "processed")
 
-            return ContestCreditResponse(customer_id=str(credit.customer_id), credits=credit.credits)
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Verification error: {str(e)}")
+    return ContestCreditResponse(customer_id=str(credit.customer_id), credits=credit.credits)
 
 
 @router.get("/credits", response_model=float)

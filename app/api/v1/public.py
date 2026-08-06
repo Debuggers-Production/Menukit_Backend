@@ -255,12 +255,13 @@ async def get_public_shop(
     shop_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get shop details for public menu."""
+    """Get shop details for public menu with subscription enforcement."""
     service = ShopService(db)
     shop = await service.get_shop_by_id(shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
-    return _shop_to_response(shop)
+    from app.api.v1.shops import format_shop_response_with_subscription_checks
+    return await format_shop_response_with_subscription_checks(shop, db)
 
 
 @router.get("/menu", response_model=List[PublicCategoryResponse])
@@ -637,7 +638,7 @@ async def get_public_shop_qr(
         from app.core.config import get_settings
         settings = get_settings()
         
-        qr_url = f"{settings.FRONTEND_URL}/shop/{shop.id}"
+        qr_url = f"{settings.FRONTEND_URL}/shop/{shop.id}?type=qr"
         
         qr = QRCode(
             shop_id=shop.id,
@@ -658,7 +659,16 @@ async def create_public_order(
     order_data: OrderCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Place a dine-in, takeaway, or delivery order."""
+    """Place a dine-in, takeaway, or delivery order with subscription feature checks."""
+    from app.services.subscription_helper import get_shop_subscription_permissions
+    perms = await get_shop_subscription_permissions(shop_id, db)
+    
+    if (order_data.order_type in ["takeaway", "delivery"] or order_data.payment_method != "cash") and not perms["online_orders"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Online ordering (Takeaway & Delivery) is disabled for this shop due to an inactive or expired subscription."
+        )
+
     from app.services.order_service import OrderService
     service = OrderService(db)
     order = await service.create_order(shop_id, order_data)
@@ -687,39 +697,168 @@ async def pay_public_order(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate or retrieve a Cashfree payment session ID for an existing order."""
-    from app.services.order_service import OrderService
-    service = OrderService(db)
-    order = await service.get_order_by_id(order_id)
-    if order.shop_id != shop_id:
+    """
+    Create a Razorpay order for the given order.
+    Fee breakdown:
+      - 1% Platform Fee (Menukit)
+      - 3% Payment Gateway Fee
+      - 18% GST on Payment Gateway Fee
+    Returns full breakdown + Razorpay key + order id.
+    """
+    from app.core.config import get_settings
+    from app.models.order import Order
+
+    settings = get_settings()
+
+    result = await db.execute(
+        select(Order).where(Order.id == order_id, Order.shop_id == shop_id)
+    )
+    order = result.scalar_one_or_none()
+    if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-        
+
     if order.payment_status == "paid":
         raise HTTPException(status_code=400, detail="Order has already been paid")
-        
-    order = await service.initiate_order_payment(order)
-    await db.commit()
-    return {
-        "payment_session_id": order.payment_session_id,
-        "cashfree_order_id": order.cashfree_order_id
-    }
+
+    base_total = float(order.total_amount)
+    platform_fee = round(base_total * 0.01, 2)
+    pg_fee = round(base_total * 0.03, 2)
+    gst_on_fee = round(pg_fee * 0.18, 2)
+    grand_total = round(base_total + platform_fee + pg_fee + gst_on_fee, 2)
+    amount_in_paise = int(round(grand_total * 100))
+
+    # Mock mode
+    if settings.MOCK_PAYMENT_MODE:
+        mock_order_id = f"order_mock_{order_id.hex[:12]}"
+        order.razorpay_order_id = mock_order_id
+        await db.commit()
+        return {
+            "razorpay_order_id": mock_order_id,
+            "razorpay_key": settings.RAZORPAY_KEY_ID or "rzp_test_mock",
+            "base_total": base_total,
+            "platform_fee": platform_fee,
+            "pg_fee": pg_fee,
+            "gst_on_fee": gst_on_fee,
+            "grand_total": grand_total,
+            "amount": amount_in_paise,
+            "currency": "INR",
+            "mock_mode": True,
+        }
+
+    try:
+        import razorpay
+        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+        rzp_order = client.order.create(data={
+            "amount": amount_in_paise,
+            "currency": "INR",
+            "receipt": f"order_{str(order_id)[:8]}_{int(datetime.now(timezone.utc).timestamp())}",
+            "notes": {
+                "order_id": str(order_id),
+                "shop_id": str(shop_id),
+                "base_total": str(base_total),
+                "platform_fee": str(platform_fee),
+                "pg_fee": str(pg_fee),
+                "gst_on_fee": str(gst_on_fee),
+            }
+        })
+
+        order.razorpay_order_id = rzp_order["id"]
+        await db.commit()
+
+        return {
+            "razorpay_order_id": rzp_order["id"],
+            "razorpay_key": settings.RAZORPAY_KEY_ID,
+            "base_total": base_total,
+            "platform_fee": platform_fee,
+            "pg_fee": pg_fee,
+            "gst_on_fee": gst_on_fee,
+            "grand_total": grand_total,
+            "amount": rzp_order["amount"],
+            "currency": rzp_order["currency"],
+            "mock_mode": False,
+        }
+    except Exception as e:
+        print(f"Razorpay order creation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Payment gateway error: {str(e)}")
 
 
 @router.post("/orders/{order_id}/verify", response_model=OrderResponse)
 async def verify_public_order_payment(
     shop_id: uuid.UUID,
     order_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Verify online payment status with Cashfree."""
-    from app.services.order_service import OrderService
-    service = OrderService(db)
-    order = await service.get_order_by_id(order_id)
-    if order.shop_id != shop_id:
+    """
+    Verify Razorpay payment signature and mark order as paid.
+    Accepts JSON body: { razorpay_order_id, razorpay_payment_id, razorpay_signature }
+    """
+    from app.core.config import get_settings
+    from app.models.order import Order
+
+    settings = get_settings()
+    body = await request.json()
+
+    razorpay_order_id = body.get("razorpay_order_id", "")
+    razorpay_payment_id = body.get("razorpay_payment_id", "")
+    razorpay_signature = body.get("razorpay_signature", "")
+
+    result = await db.execute(
+        select(Order).where(Order.id == order_id, Order.shop_id == shop_id)
+    )
+    order = result.scalar_one_or_none()
+    if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
-    order = await service.verify_payment(order_id)
+
+    if order.payment_status == "paid":
+        return OrderResponse.model_validate(order)
+
+    # Mock / test mode — accept any payment ID starting with mock prefix
+    is_valid = False
+    if settings.MOCK_PAYMENT_MODE and (
+        razorpay_order_id.startswith("order_mock_") or 
+        razorpay_payment_id.startswith("pay_mock_")
+    ):
+        is_valid = True
+    else:
+        try:
+            import razorpay
+            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+            params_dict = {
+                'razorpay_order_id': razorpay_order_id,
+                'razorpay_payment_id': razorpay_payment_id,
+                'razorpay_signature': razorpay_signature
+            }
+            client.utility.verify_payment_signature(params_dict)
+            is_valid = True
+        except Exception as e:
+            print(f"Razorpay signature verification error: {e}")
+            is_valid = False
+
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Payment verification failed. Invalid signature.")
+
+    order.payment_status = "paid"
+    order.razorpay_order_id = razorpay_order_id
+
+    # Award 0.15 Contest Credits if order total >= ₹100
+    from app.services.order_service import OrderService
+    order_service = OrderService(db)
+    await order_service._award_contest_credits_if_eligible(order)
+
+    # Create notification for merchant now that payment is confirmed
+    from app.services.notification_service import NotificationService
+    notif_service = NotificationService(db)
+    await notif_service.create_notification(
+        shop_id=shop_id,
+        type="NEW_ORDER",
+        title="New Paid Order Received",
+        message=f"New paid order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})",
+        metadata={"order_id": str(order.id)}
+    )
+
     await db.commit()
+    await db.refresh(order)
     return OrderResponse.model_validate(order)
 
 
@@ -749,18 +888,18 @@ async def get_my_orders(
     return [OrderResponse.model_validate(o) for o in orders]
 
 
-@router.websocket("/ws/customer/{customer_phone}")
-async def customer_websocket_endpoint(websocket: WebSocket, customer_phone: str):
-    """Connect a customer to their live order updates stream."""
+@router.websocket("/ws/customer/{customer_id}")
+async def customer_websocket_endpoint(websocket: WebSocket, customer_id: str):
+    """Connect a customer to their live order updates stream using secure customer user ID."""
     from app.services.websocket_manager import customer_manager
-    await customer_manager.connect(customer_phone, websocket)
+    await customer_manager.connect(customer_id, websocket)
     try:
         while True:
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
-        customer_manager.disconnect(customer_phone, websocket)
+        customer_manager.disconnect(customer_id, websocket)
 
 
 # -------------------------------------------------------------

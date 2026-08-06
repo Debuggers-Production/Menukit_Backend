@@ -260,6 +260,14 @@ class MenuService:
         if not menu_item:
             raise ValueError("Menu item not found")
 
+        # Check if exact image URL already exists for this item
+        existing_result = await self.db.execute(
+            select(MenuImage).where(MenuImage.menu_item_id == item_id, MenuImage.image_url == image_url)
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            return existing
+
         # Check image limit
         from sqlalchemy import func
         count_result = await self.db.execute(

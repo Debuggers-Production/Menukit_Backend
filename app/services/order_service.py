@@ -13,6 +13,19 @@ from app.models.shop_settings import ShopSettings
 from app.schemas.order import OrderCreate
 
 
+def get_customer_user_id(phone: str) -> str:
+    clean = "".join(filter(str.isdigit, phone))
+    if len(clean) > 10:
+        clean = clean[-10:]
+    hash1 = 5381
+    hash2 = 0
+    for char in clean:
+        code = ord(char)
+        hash1 = ((hash1 * 33) ^ code) & 0xFFFFFFFF
+        hash2 = (((hash2 << 5) - hash2) + code) & 0xFFFFFFFF
+    return f"usr_{hash1:08x}{hash2:08x}"
+
+
 class OrderService:
     """Handles ordering logic and Cashfree Payment Gateway integration."""
 
@@ -46,8 +59,13 @@ class OrderService:
         # 1. Validate that all menu items exist in the database
         from app.models.menu_item import MenuItem
         menu_item_ids = [it.menu_item_id for it in data.items]
+        from app.models.category import Category
         result = await self.db.execute(
-            select(MenuItem).where(MenuItem.id.in_(menu_item_ids))
+            select(MenuItem).join(Category).where(
+                MenuItem.id.in_(menu_item_ids),
+                MenuItem.is_available == True,
+                Category.is_active == True
+            )
         )
         existing_items = result.scalars().all()
         existing_ids = {item.id for item in existing_items}
@@ -108,22 +126,24 @@ class OrderService:
         )
         self.db.add(order)
 
-        # 4. Integrate Cashfree if online payment chosen
-        if data.payment_method == "online":
-            order = await self.initiate_order_payment(order)
-
-        # Create notification for merchant
-        from app.services.notification_service import NotificationService
-        notif_service = NotificationService(self.db)
-        await notif_service.create_notification(
-            shop_id=shop.id,
-            type="NEW_ORDER",
-            title="New Order Received",
-            message=f"New order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})",
-            metadata={"order_id": str(order.id)}
-        )
+        # Create notification for merchant (for non-online payment methods like cash/upi)
+        if data.payment_method != "online":
+            from app.services.notification_service import NotificationService
+            notif_service = NotificationService(self.db)
+            await notif_service.create_notification(
+                shop_id=shop.id,
+                type="NEW_ORDER",
+                title="New Order Received",
+                message=f"New order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})",
+                metadata={"order_id": str(order.id)}
+            )
 
         await self.db.flush()
+        
+        # Automatically award 0.15 contest credits if order total >= ₹100
+        if float(order.total_amount) >= 100.0:
+            await self._award_contest_credits_if_eligible(order)
+
         return order
 
     async def initiate_order_payment(self, order: Order) -> Order:
@@ -264,6 +284,10 @@ class OrderService:
         if clean_phone != order.customer_phone:
             await customer_manager.broadcast_to_customer(clean_phone, ws_msg)
 
+        # Broadcast to hashed customer user ID
+        user_id = get_customer_user_id(clean_phone)
+        await customer_manager.broadcast_to_customer(user_id, ws_msg)
+
         return order
 
     async def get_order_by_id(self, order_id: uuid.UUID) -> Order:
@@ -368,27 +392,6 @@ class OrderService:
         if status.lower() == "completed":
             await self._award_contest_credits_if_eligible(order)
 
-    async def _award_contest_credits_if_eligible(self, order: Order):
-        """Award 0.15 contest credits if completed order total >= ₹100."""
-        if not order or getattr(order, "credits_rewarded", False):
-            return
-        if float(order.total_amount) >= 100.0 and order.customer_phone:
-            from app.models.customer import Customer
-            from app.models.contest import ContestCredit
-            
-            clean_phone = order.customer_phone.strip()
-            c_res = await self.db.execute(select(Customer).where(Customer.mobile_number == clean_phone))
-            customer = c_res.scalar_one_or_none()
-            if customer:
-                cc_res = await self.db.execute(select(ContestCredit).where(ContestCredit.customer_id == customer.id))
-                credit = cc_res.scalar_one_or_none()
-                if not credit:
-                    credit = ContestCredit(customer_id=customer.id, credits=0.15)
-                    self.db.add(credit)
-                else:
-                    credit.credits = round(float(credit.credits) + 0.15, 2)
-                order.credits_rewarded = True
-        
         # Trigger notification log
         from app.models.activity_log import ActivityLog
         log = ActivityLog(
@@ -427,4 +430,43 @@ class OrderService:
         if clean_phone != order.customer_phone:
             await customer_manager.broadcast_to_customer(clean_phone, ws_msg)
 
+        # Broadcast to hashed customer user ID
+        user_id = get_customer_user_id(clean_phone)
+        await customer_manager.broadcast_to_customer(user_id, ws_msg)
+
         return order
+    async def _award_contest_credits_if_eligible(self, order: Order):
+        """Award 0.15 contest credits if order total >= ₹100."""
+        if not order or getattr(order, "credits_rewarded", False):
+            return
+        if float(order.total_amount or 0.0) >= 100.0 and order.customer_phone:
+            from app.models.customer import Customer
+            from app.models.contest import ContestCredit
+            
+            clean_phone = "".join(filter(str.isdigit, order.customer_phone))
+            if len(clean_phone) > 10:
+                clean_phone = clean_phone[-10:]
+            c_res = await self.db.execute(select(Customer).where(Customer.mobile_number.like(f"%{clean_phone}")))
+            customer = c_res.scalars().first()
+
+            # Auto-create Customer record if not created yet
+            if not customer:
+                customer = Customer(
+                    shop_id=order.shop_id,
+                    name=order.customer_name or "Guest",
+                    mobile_number=order.customer_phone,
+                    is_auto_registered=True
+                )
+                self.db.add(customer)
+                await self.db.flush()
+
+            if customer:
+                cc_res = await self.db.execute(select(ContestCredit).where(ContestCredit.customer_id == customer.id))
+                credit = cc_res.scalar_one_or_none()
+                if not credit:
+                    credit = ContestCredit(customer_id=customer.id, credits=0.15)
+                    self.db.add(credit)
+                else:
+                    credit.credits = round(float(credit.credits) + 0.15, 2)
+                order.credits_rewarded = True
+        

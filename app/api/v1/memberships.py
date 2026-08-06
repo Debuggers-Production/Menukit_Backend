@@ -21,6 +21,17 @@ from typing import List
 router = APIRouter(prefix="/memberships", tags=["Memberships"])
 
 
+async def check_memberships_subscription(shop_id: uuid.UUID, db: AsyncSession):
+    """Backend subscription verification for membership data endpoints."""
+    from app.services.subscription_helper import get_shop_subscription_permissions
+    perms = await get_shop_subscription_permissions(shop_id, db)
+    if perms["is_expired"] or not (perms["member_count"] or perms["member_details"]):
+        raise HTTPException(
+            status_code=403,
+            detail="Subscription required: Member data features are locked due to an inactive or expired subscription. Please renew your plan."
+        )
+
+
 @router.post("/retailer/{shop_id}/add")
 async def add_member(
     shop_id: uuid.UUID,
@@ -34,6 +45,8 @@ async def add_member(
     shop = await shop_service.get_shop_by_user(user.id)
     if not shop or shop.id != shop_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this shop")
+
+    await check_memberships_subscription(shop_id, db)
 
     membership_service = MembershipService(db)
     membership = await membership_service.add_member(shop_id, data.name, data.mobile_number)
@@ -52,6 +65,8 @@ async def get_membership_analytics(
     shop = await shop_service.get_shop_by_user(user.id)
     if not shop or shop.id != shop_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this shop")
+
+    await check_memberships_subscription(shop_id, db)
 
     membership_service = MembershipService(db)
     analytics = await membership_service.get_analytics(shop_id)
@@ -80,6 +95,8 @@ async def get_retailer_members(
     shop = await shop_service.get_shop_by_user(user.id)
     if not shop or shop.id != shop_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this shop")
+
+    await check_memberships_subscription(shop_id, db)
 
     stmt = select(CustomerRetailerMembership).options(
         joinedload(CustomerRetailerMembership.customer)
@@ -114,6 +131,8 @@ async def get_auto_registered_members(
     if not shop or shop.id != shop_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this shop")
 
+    await check_memberships_subscription(shop_id, db)
+
     stmt = select(CustomerRetailerMembership).options(
         joinedload(CustomerRetailerMembership.customer)
     ).where(
@@ -147,6 +166,8 @@ async def get_repeated_customers(
     shop = await shop_service.get_shop_by_user(user.id)
     if not shop or shop.id != shop_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this shop")
+
+    await check_memberships_subscription(shop_id, db)
 
     membership_service = MembershipService(db)
     customers = await membership_service.get_repeated_customers(shop_id, min_visits)

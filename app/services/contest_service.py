@@ -19,30 +19,41 @@ class ContestService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def _notify_all_registered_customers_new_contest(self, shop_name: str, contest_title: str, reward_value: str, shop_id: uuid.UUID):
-        """Send WhatsApp message to all registered customers about a new contest."""
+    async def _notify_all_registered_customers_new_contest(
+        self,
+        mobiles: List[str],
+        shop_name: str,
+        contest_title: str,
+        reward_value: str,
+        contest_type: str,
+        shop_id: uuid.UUID,
+        image_url: Optional[str] = None
+    ):
+        """Send WhatsApp template 'contest_created_template' to all registered customers about a new contest."""
         try:
-            res = await self.db.execute(select(Customer.mobile_number))
-            mobiles = res.scalars().all()
             if not mobiles:
                 return
 
             wa = WhatsAppClient()
-            msg = (
-                f"🎨 *NEW CONTEST ALERT at {shop_name}!* 🏆\n\n"
-                f"Contest: *{contest_title}*\n"
-                f"Reward: *{reward_value}*\n\n"
-                f"Show your creativity and win exciting rewards! Join now:\n"
-                f"https://menukit.debuggers.co.in/shop/{shop_id}/contest"
-            )
+
+            # Dynamic button URL suffix — appended to base URL in the Meta template
+            contest_url_suffix = f"shop/{shop_id}/contest"
 
             for phone in mobiles:
                 try:
-                    wa.send_text_message(phone_number=phone, message=msg)
+                    wa.send_contest_created_template(
+                        phone_number=phone,
+                        shop_name=shop_name,
+                        contest_type=contest_type,
+                        reward_value=reward_value or "Special Reward",
+                        contest_url_suffix=contest_url_suffix,
+                        header_image_url=image_url,
+                    )
                 except Exception as e:
-                    print(f"Failed to send contest WhatsApp to {phone}: {e}")
+                    print(f"Failed to send contest template WhatsApp to {phone}: {e}")
         except Exception as err:
-            print(f"Error broadcasting new contest WhatsApp: {err}")
+            print(f"Error broadcasting contest_created_template WhatsApp: {err}")
+
 
     async def _notify_contest_winner(self, customer_id: uuid.UUID, contest_title: str, reward_value: str, shop_name: str):
         """Send WhatsApp intimation message to the contest winner."""
@@ -127,18 +138,27 @@ class ContestService:
             ends_at=ends_at,
             **data
         )
+        # Fetch customer phones for broadcast prior to session commit
+        mobiles_res = await self.db.execute(select(Customer.mobile_number))
+        mobiles = list(mobiles_res.scalars().all())
+
         self.db.add(contest)
         await self.db.flush()
         await self.db.commit()
         await self.db.refresh(contest)
 
-        # Broadcast WhatsApp notification asynchronously to all registered customers
+        image_url = (shop.banner_url or shop.logo_url) if (shop and (shop.banner_url or shop.logo_url)) else None
+
+        # Broadcast WhatsApp template notification asynchronously to all registered customers
         asyncio.create_task(
             self._notify_all_registered_customers_new_contest(
+                mobiles=mobiles,
                 shop_name=shop.name or "Merchant",
                 contest_title=contest.title,
                 reward_value=contest.reward_value or "Special Reward",
-                shop_id=shop.id
+                contest_type=contest.contest_type or "drawing",
+                shop_id=shop.id,
+                image_url=image_url,
             )
         )
 

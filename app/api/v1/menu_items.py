@@ -112,7 +112,7 @@ async def update_menu_item(
 ):
     """Update a menu item."""
     service = MenuService(db)
-    item = await service.update_menu_item(user.id, uuid.UUID(item_id), data.model_dump(exclude_none=True))
+    item = await service.update_menu_item(user.id, uuid.UUID(item_id), data.model_dump(exclude_unset=True))
     await db.commit()
     return _item_response(item)
 
@@ -233,6 +233,19 @@ async def save_item_image_url(
     item = await menu_service.get_menu_item(uuid.UUID(item_id))
     if not item or item.shop_id != shop.id:
         raise HTTPException(status_code=404, detail="Menu item not found")
+
+    # Prevent re-downloading/saving duplicate image URL
+    if hasattr(item, "images") and item.images:
+        for img in item.images:
+            if img.image_url == payload.url:
+                return MenuImageResponse(
+                    id=str(img.id),
+                    image_url=img.image_url,
+                    thumbnail_url=img.thumbnail_url,
+                    is_primary=img.is_primary,
+                    display_order=img.display_order,
+                    created_at=img.created_at,
+                )
 
     try:
         scraper = ImageScraperService()
@@ -370,6 +383,17 @@ def _item_response(item, avg_rating: float = None, review_count: int = 0) -> Men
     final_avg = avg_rating if avg_rating is not None else getattr(item, '_avg_rating', None)
     final_count = review_count if review_count else getattr(item, '_review_count', 0)
 
+    # Process variants for online price defaults
+    formatted_variants = []
+    if item.variants:
+        for v in item.variants:
+            v_dict = dict(v) if isinstance(v, dict) else v
+            if not v_dict.get('online_price') and v_dict.get('price'):
+                v_dict['online_price'] = v_dict.get('price')
+            if not v_dict.get('online_offer_price') and v_dict.get('offer_price'):
+                v_dict['online_offer_price'] = v_dict.get('offer_price')
+            formatted_variants.append(v_dict)
+
     return MenuItemResponse(
         id=str(item.id),
         category_id=str(item.category_id),
@@ -377,6 +401,8 @@ def _item_response(item, avg_rating: float = None, review_count: int = 0) -> Men
         description=item.description,
         price=str(item.price),
         offer_price=str(item.offer_price) if item.offer_price else None,
+        online_price=str(item.online_price) if getattr(item, 'online_price', None) is not None else str(item.price),
+        online_offer_price=str(item.online_offer_price) if getattr(item, 'online_offer_price', None) is not None else (str(item.offer_price) if item.offer_price else None),
         food_types=item.food_types,
         allow_ice_preference=item.allow_ice_preference,
         is_bestseller=item.is_bestseller,
@@ -386,7 +412,7 @@ def _item_response(item, avg_rating: float = None, review_count: int = 0) -> Men
         image_url=image_url,
         thumbnail_url=thumbnail_url,
         images=images_list,
-        variants=item.variants,
+        variants=formatted_variants if formatted_variants else item.variants,
         addons=item.addons,
         available_days=item.available_days,
         available_time_presets=item.available_time_presets,
