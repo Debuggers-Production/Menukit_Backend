@@ -29,6 +29,7 @@ class Subscription(Base, UUIDMixin, TimestampMixin):
     # Billing info
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     razorpay_subscription_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_expiry_notification_date: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Relationships
     shop = relationship("Shop", back_populates="subscription")
@@ -46,6 +47,7 @@ class PaymentTransaction(Base, UUIDMixin, TimestampMixin):
     razorpay_order_id: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     razorpay_payment_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     razorpay_signature: Mapped[str | None] = mapped_column(Text, nullable=True)
+    invoice_number: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     
     amount: Mapped[float] = mapped_column(Float, nullable=False) # In INR
     currency: Mapped[str] = mapped_column(String(10), default="INR", nullable=False)

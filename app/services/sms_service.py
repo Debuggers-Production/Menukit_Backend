@@ -38,7 +38,7 @@ class SMSService:
                 response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
-                if data.get("responseCode") == 200:
+                if (data.get("status") in (200, "200") or data.get("responseCode") in (200, "200")) and data.get("token"):
                     return data.get("token")
                 else:
                     logger.error(f"Failed to get Message Central token: {data}")
@@ -47,16 +47,22 @@ class SMSService:
                 logger.error(f"Error fetching auth token: {str(e)}")
                 return None
 
-    async def send_otp(self, mobile_number: str, country_code: str = "91") -> Optional[str]:
+    async def send_otp(self, mobile_number: str, country_code: str = "91", otp_length: int = 6) -> Optional[str]:
         """
         Send OTP to mobile number.
         Returns verificationId if successful, None otherwise.
         """
-        # Clean mobile number
-        mobile_number = mobile_number.replace("+", "").replace(" ", "").strip()
-        
-        # Clean country code
-        country_code = country_code.replace("+", "").strip()
+        # Parse and sanitize phone number format (matching Dauth service)
+        clean_phone = "".join(c for c in str(mobile_number) if c.isdigit())
+        if clean_phone.startswith("91") and len(clean_phone) == 12:
+            country_code = "91"
+            mobile_number = clean_phone[2:]
+        elif len(clean_phone) > 10:
+            country_code = clean_phone[:-10]
+            mobile_number = clean_phone[-10:]
+        else:
+            mobile_number = clean_phone
+            country_code = country_code.replace("+", "").strip() or "91"
         
         if self.mock_mode:
             logger.info(f"📱 MOCK: Sent SMS OTP to {mobile_number}")
@@ -69,9 +75,11 @@ class SMSService:
 
         url = f"{self.base_url}/verification/v3/send"
         params = {
+            "customerId": self.customer_id,
             "countryCode": country_code,
             "flowType": "SMS",
-            "mobileNumber": mobile_number
+            "mobileNumber": mobile_number,
+            "otpLength": otp_length
         }
         headers = {
             "authToken": token
@@ -79,11 +87,11 @@ class SMSService:
 
         async with httpx.AsyncClient() as client:
             try:
-                # Based on docs, it's a POST request with query parameters
+                # Based on docs & Dauth service, send POST request with query parameters including customerId
                 response = await client.post(url, params=params, headers=headers)
                 response.raise_for_status()
                 data = response.json()
-                if data.get("responseCode") == 200 and data.get("data"):
+                if (data.get("responseCode") in (200, "200") or data.get("status") in (200, "200")) and data.get("data"):
                     # The API docs show 'verficationId' (typo) in the JSON response, handle both
                     return data["data"].get("verificationId") or data["data"].get("verficationId")
                 else:
@@ -129,7 +137,7 @@ class SMSService:
                      response = await client.post(url, params=params, headers=headers)
                      data = response.json()
                 
-                if data.get("responseCode") == 200 and data.get("data", {}).get("verificationStatus") == "VERIFICATION_COMPLETED":
+                if (data.get("responseCode") in (200, "200") or data.get("status") in (200, "200")) and data.get("data", {}).get("verificationStatus") == "VERIFICATION_COMPLETED":
                     return True
                 else:
                     logger.warning(f"SMS OTP verification failed: {data}")

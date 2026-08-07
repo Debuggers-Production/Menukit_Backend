@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Email
-    EMAIL_BACKEND: str = "smtp"  # console | smtp
+    MOC_EMAIL: bool = False
+    EMAIL_BACKEND: str = "smtp"  # console | mock | smtp
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 465
     SMTP_USER: str = "siva967763@gmail.com"

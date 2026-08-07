@@ -1,6 +1,7 @@
 """Customer API endpoints."""
 
 import uuid
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as redis
@@ -19,6 +20,7 @@ from app.services.whatsapp_service import WhatsAppClient
 from app.services.notification_service import NotificationService
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/verify-mobile", response_model=MobileVerifyResponse)
@@ -71,12 +73,15 @@ async def verify_mobile(
             detail="Failed to send OTP via SMS. Please try again later."
         )
     
-    # Store the verificationId in Redis linked to the mobile number
+    # Store the verificationId in Redis linked to the mobile number (and clean number fallback)
     redis_key = f"m_v_id:{data.mobile_number}"
+    clean_num = "".join(c for c in str(data.mobile_number) if c.isdigit())
     await redis_client.setex(redis_key, 300, verification_id) # Valid for 5 mins
+    if clean_num and clean_num != data.mobile_number:
+        await redis_client.setex(f"m_v_id:{clean_num}", 300, verification_id)
 
     # Fallback/Debug print
-    print(f"DEBUG: OTP Request sent for {data.mobile_number} | Verification ID: {verification_id}")
+    logger.info(f"📱 OTP Request sent for {data.mobile_number} | Verification ID: {verification_id}")
 
     return MobileVerifyResponse(otp_required=True, message="OTP sent successfully")
 
@@ -91,21 +96,31 @@ async def verify_otp(
     redis_key = f"m_v_id:{data.mobile_number}"
     verification_id_bytes = await redis_client.get(redis_key)
     
-    # Support for magic OTP in dev
+    # Try sanitized phone key if not found with raw input
+    if not verification_id_bytes:
+        clean_num = "".join(c for c in str(data.mobile_number) if c.isdigit())
+        if clean_num:
+            verification_id_bytes = await redis_client.get(f"m_v_id:{clean_num}")
+
     is_valid = False
-    if data.code == "123456":
+    if sms_service.mock_mode and data.code == "123456":
+        logger.info(f"🔑 Dev bypass OTP used for {data.mobile_number} (Mock Mode Active)")
         is_valid = True
     elif verification_id_bytes:
-        verification_id = verification_id_bytes.decode('utf-8')
+        verification_id = verification_id_bytes.decode('utf-8') if isinstance(verification_id_bytes, bytes) else str(verification_id_bytes)
         is_valid = await sms_service.verify_otp(verification_id, data.code)
-    
+    else:
+        logger.error(f"❌ OTP verification failed for {data.mobile_number}: Verification ID expired or not found in Redis (Key: {redis_key})")
+
     if not is_valid:
+        if verification_id_bytes:
+            logger.error(f"❌ OTP verification failed for {data.mobile_number}: Code '{data.code}' rejected by Message Central")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OTP code."
         )
     
-    if is_valid and data.code != "123456":
+    if is_valid and verification_id_bytes:
         # Clear from redis after successful verification
         await redis_client.delete(redis_key)
 

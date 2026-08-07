@@ -219,6 +219,13 @@ async def verify_payment(
     transaction.razorpay_payment_id = request.razorpay_payment_id
     transaction.razorpay_signature = request.razorpay_signature
     
+    # Generate Invoice Number
+    from app.services.invoice_service import InvoiceService
+    from app.services.email_service import EmailService
+    
+    inv_number = InvoiceService.generate_invoice_number(str(transaction.id))
+    transaction.invoice_number = inv_number
+
     # Update or Create Subscription
     stmt = select(Subscription).where(Subscription.shop_id == transaction.shop_id)
     result = await db.execute(stmt)
@@ -228,33 +235,10 @@ async def verify_payment(
         subscription = Subscription(shop_id=transaction.shop_id)
         db.add(subscription)
         
-    subscription.is_active = True
-    
-    existing_mods = list(subscription.active_modules or [])
-    if getattr(subscription, "is_trial", False):
-        # If shop was previously on initial free trial, start paid module list fresh
-        existing_mods = []
-        
-    purchased_mods = list(transaction.purchased_modules or [])
-    
-    # ACCUMULATE & MERGE MODULES SO PREVIOUS SUBSCRIPTIONS ARE NOT REMOVED
-    if transaction.is_all_access:
-        subscription.is_all_access = True
-        subscription.active_modules = ALL_MARKETPLACE_MODULES
-    else:
-        if not getattr(subscription, "is_all_access", False):
-            subscription.is_all_access = False
-            
-        # Merge existing active modules and newly purchased modules without duplicates
-        merged_modules = list(dict.fromkeys(existing_mods + purchased_mods))
-        subscription.active_modules = merged_modules
-        
-    subscription.is_trial = False
-    
     now = datetime.now(timezone.utc)
     duration_days = 365 if getattr(transaction, "billing_cycle", "monthly") == "yearly" else 30
     
-    # Granular per-module expiration calculation
+    # 1. Gather current expirations for ALL modules
     raw_expirations = dict(getattr(subscription, "module_expirations", {}) or {})
     module_expirations = {}
     for k, v in raw_expirations.items():
@@ -276,33 +260,48 @@ async def verify_payment(
     if existing_period_end and existing_period_end.tzinfo is None:
         existing_period_end = existing_period_end.replace(tzinfo=timezone.utc)
 
-    # Ensure all currently active modules preserve their existing expiration in the dictionary
-    all_current_active = list(subscription.active_modules or [])
-    if getattr(subscription, "is_all_access", False):
-        all_current_active = ALL_MARKETPLACE_MODULES
-        
-    was_trial = getattr(subscription, "is_trial", False)
+    # 2. Ensure all previously active modules have a baseline expiration
+    all_current_active = ALL_MARKETPLACE_MODULES if getattr(subscription, "is_all_access", False) else list(subscription.active_modules or [])
+    
     for mod in all_current_active:
         if mod not in module_expirations:
-            if existing_period_end and existing_period_end > now and not was_trial:
+            if existing_period_end:
                 module_expirations[mod] = existing_period_end
             else:
-                module_expirations[mod] = now + timedelta(days=duration_days)
+                module_expirations[mod] = now
 
-    # Modules to update expiration for in this transaction
+    # 3. Update expirations for purchased modules
     modules_to_update = ALL_MARKETPLACE_MODULES if transaction.is_all_access else (transaction.purchased_modules or [])
     
     for mod in modules_to_update:
         prev_exp = module_expirations.get(mod)
-        if not prev_exp and existing_period_end and existing_period_end > now and not was_trial:
-            prev_exp = existing_period_end
-
-        if prev_exp and prev_exp > now and not was_trial:
-            # Module was ALREADY active -> Sequential extension (add +30 days to existing expiration)
+        if prev_exp and prev_exp > now:
+            # Add to existing remaining days
             module_expirations[mod] = prev_exp + timedelta(days=duration_days)
         else:
-            # Brand NEW module or trial module -> 30 days from today!
+            # Start fresh from today
             module_expirations[mod] = now + timedelta(days=duration_days)
+
+    # 4. Rebuild active_modules based on expiration > now
+    active_modules = []
+    for mod, exp in module_expirations.items():
+        if exp > now:
+            active_modules.append(mod)
+            
+    # Remove duplicates
+    active_modules = list(dict.fromkeys(active_modules))
+    
+    subscription.active_modules = active_modules
+    subscription.is_active = len(active_modules) > 0
+    
+    if transaction.is_all_access:
+        # If they explicitly bought all-access in this transaction
+        subscription.is_all_access = True
+    else:
+        # Check if they currently have all modules active
+        subscription.is_all_access = set(ALL_MARKETPLACE_MODULES).issubset(set(active_modules))
+
+    subscription.is_trial = False
 
     # Save serialized ISO strings
     subscription.module_expirations = {
@@ -317,9 +316,29 @@ async def verify_payment(
             
     await db.commit()
     
+    # Send Invoice Email
+    try:
+        stmt = select(Shop).where(Shop.id == transaction.shop_id)
+        shop_res = await db.execute(stmt)
+        shop_obj = shop_res.scalar_one_or_none()
+        shop_name = shop_obj.name if shop_obj else "SmartMenu Store"
+
+        invoice_data = InvoiceService.build_invoice_data(
+            transaction=transaction,
+            user_email=current_user.email,
+            shop_name=shop_name,
+            invoice_number=inv_number
+        )
+        email_svc = EmailService()
+        await email_svc.send_subscription_invoice_email(current_user.email, invoice_data)
+    except Exception as e:
+        print(f"Failed to dispatch invoice email: {e}")
+
     return {
         "status": "success",
-        "message": "Subscription activated successfully"
+        "message": "Subscription activated successfully",
+        "invoice_number": inv_number,
+        "transaction_id": str(transaction.id)
     }
 
 
@@ -424,9 +443,8 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
     # Format per-module expiration details for granular frontend display
     raw_exp = dict(getattr(subscription, "module_expirations", {}) or {})
     formatted_module_expirations = {}
-    active_mods_list = subscription.active_modules if subscription.active_modules else ALL_MARKETPLACE_MODULES
     
-    # Calculate fallback expiration date for active modules not explicitly listed in raw_exp
+    # Re-evaluate which modules are actually active based on granular expiration
     tracked_dts = []
     for v in raw_exp.values():
         if isinstance(v, str):
@@ -445,7 +463,11 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
 
     fallback_dt = min(tracked_dts) if tracked_dts else period_end
 
-    for mod in active_mods_list:
+    dynamic_active_modules = []
+    
+    db_active_mods = subscription.active_modules if subscription.active_modules else ALL_MARKETPLACE_MODULES
+    
+    for mod in db_active_mods:
         mod_exp_str = raw_exp.get(mod)
         mod_exp_dt = None
         if mod_exp_str:
@@ -460,15 +482,28 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
             mod_exp_dt = mod_exp_dt.replace(tzinfo=timezone.utc)
             
         mod_days_left = max(0, (mod_exp_dt - now).days) if mod_exp_dt else days_left
+        
+        # Consider grace period. If global is_active is True due to grace period, we shouldn't necessarily
+        # lock modules individually, but we should check if this specific module has grace period.
+        grace_dt = mod_exp_dt + timedelta(days=settings.GRACE_PERIOD_DAYS) if mod_exp_dt else grace_end
+        mod_grace_days_left = max(0, (grace_dt - now).days)
+        
+        is_mod_active = mod_days_left > 0 or mod_grace_days_left > 0
+        
+        if is_mod_active and is_active:
+            dynamic_active_modules.append(mod)
+            
         formatted_module_expirations[mod] = {
             "expires_at": mod_exp_dt.isoformat() if mod_exp_dt else None,
             "days_left": mod_days_left
         }
 
+    is_dynamic_all_access = set(ALL_MARKETPLACE_MODULES).issubset(set(dynamic_active_modules))
+
     return {
         "is_active": is_active,
-        "is_all_access": subscription.is_all_access if is_active else False,
-        "active_modules": (subscription.active_modules if subscription.active_modules else ALL_MARKETPLACE_MODULES) if is_active else [],
+        "is_all_access": is_dynamic_all_access if is_active else False,
+        "active_modules": dynamic_active_modules if is_active else [],
         "module_expirations": formatted_module_expirations if is_active else {},
         "current_period_end": subscription.current_period_end,
         "is_trial": is_trial,
@@ -496,3 +531,151 @@ async def get_current_subscription(
         raise HTTPException(status_code=404, detail="Shop not found")
         
     return await get_shop_subscription_status(shop, db)
+
+
+@router.get("/history")
+async def get_billing_history(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Fetch past successful subscription payment transactions for current user's shop."""
+    stmt = select(Shop).where(Shop.user_id == current_user.id)
+    result = await db.execute(stmt)
+    shop = result.scalar_one_or_none()
+    
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+
+    stmt = select(PaymentTransaction).where(
+        PaymentTransaction.shop_id == shop.id,
+        PaymentTransaction.status == "success"
+    ).order_by(PaymentTransaction.created_at.desc())
+    
+    res = await db.execute(stmt)
+    transactions = res.scalars().all()
+
+    from app.services.invoice_service import InvoiceService
+
+    history = []
+    for tx in transactions:
+        inv_num = getattr(tx, "invoice_number", None) or InvoiceService.generate_invoice_number(str(tx.id))
+        history.append({
+            "id": str(tx.id),
+            "invoice_number": inv_num,
+            "amount": tx.amount,
+            "currency": tx.currency,
+            "paid_at": tx.updated_at.isoformat() if tx.updated_at else tx.created_at.isoformat(),
+            "is_all_access": tx.is_all_access,
+            "purchased_modules": tx.purchased_modules or [],
+            "billing_cycle": tx.billing_cycle or "monthly",
+            "razorpay_payment_id": tx.razorpay_payment_id
+        })
+
+    return {"history": history}
+
+
+@router.get("/invoices/{transaction_id}")
+async def get_invoice_html(
+    transaction_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Returns printable HTML invoice for a specific transaction."""
+    from fastapi.responses import HTMLResponse
+    from app.services.invoice_service import InvoiceService
+
+    try:
+        tx_uuid = uuid.UUID(transaction_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid transaction ID format")
+
+    stmt = select(PaymentTransaction).where(PaymentTransaction.id == tx_uuid)
+    result = await db.execute(stmt)
+    tx = result.scalar_one_or_none()
+
+    if not tx:
+        raise HTTPException(status_code=404, detail="Payment transaction not found")
+
+    # Verify authorization: current_user must own the shop of this transaction
+    stmt = select(Shop).where(Shop.id == tx.shop_id, Shop.user_id == current_user.id)
+    res = await db.execute(stmt)
+    shop = res.scalar_one_or_none()
+
+    if not shop and current_user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="Not authorized to view this invoice")
+
+    shop_name = shop.name if shop else "SmartMenu Store"
+    inv_data = InvoiceService.build_invoice_data(
+        transaction=tx,
+        user_email=current_user.email,
+        shop_name=shop_name
+    )
+
+    html_content = InvoiceService.render_invoice_html(inv_data)
+    return HTMLResponse(content=html_content)
+
+
+@router.post("/check-expirations")
+async def check_and_notify_expirations(
+    db: AsyncSession = Depends(get_db)
+):
+    """System background routine to check expiring and expired subscriptions and dispatch email alerts."""
+    from app.services.email_service import EmailService
+
+    now = datetime.now(timezone.utc)
+    today_str = now.strftime("%Y-%m-%d")
+
+    # Query all active or recently ended subscriptions
+    stmt = select(Subscription, Shop, User).join(
+        Shop, Subscription.shop_id == Shop.id
+    ).join(
+        User, Shop.user_id == User.id
+    )
+
+    results = await db.execute(stmt)
+    rows = results.all()
+
+    email_svc = EmailService()
+    notifications_sent = 0
+
+    for sub, shop, user in rows:
+        if sub.last_expiry_notification_date == today_str:
+            continue # Already notified today
+
+        raw_expirations = dict(getattr(sub, "module_expirations", {}) or {})
+        expiring_soon_mods = []
+        expired_mods = []
+        min_days_left = 999
+
+        for mod, exp_val in raw_expirations.items():
+            if not exp_val:
+                continue
+            try:
+                dt = datetime.fromisoformat(exp_val.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                days_left = (dt - now).days
+
+                if 0 <= days_left <= 3:
+                    expiring_soon_mods.append(mod)
+                    min_days_left = min(min_days_left, days_left)
+                elif days_left < 0 and days_left > -7: # Expired within last week
+                    expired_mods.append(mod)
+            except Exception:
+                pass
+
+        if expiring_soon_mods:
+            await email_svc.send_subscription_expiring_email(
+                user.email, shop.name, max(0, min_days_left), expiring_soon_mods
+            )
+            sub.last_expiry_notification_date = today_str
+            notifications_sent += 1
+        elif expired_mods:
+            await email_svc.send_subscription_expired_email(
+                user.email, shop.name, expired_mods
+            )
+            sub.last_expiry_notification_date = today_str
+            notifications_sent += 1
+
+    await db.commit()
+    return {"status": "success", "notifications_sent": notifications_sent}

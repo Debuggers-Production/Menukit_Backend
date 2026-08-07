@@ -71,7 +71,25 @@ def create_app() -> FastAPI:
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
     import time
-    from fastapi import Request
+    from fastapi import HTTPException, Request
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse
+    from fastapi.exception_handlers import (
+        http_exception_handler as default_http_exception_handler,
+        request_validation_exception_handler as default_validation_exception_handler,
+    )
+
+    @app.exception_handler(HTTPException)
+    async def custom_http_exception_handler(request: Request, exc: HTTPException):
+        request.state.error_detail = str(exc.detail)
+        logger.error(f"\033[91m❌ HTTP {exc.status_code} Error on {request.method} {request.url.path}:\033[0m {exc.detail}")
+        return await default_http_exception_handler(request, exc)
+
+    @app.exception_handler(RequestValidationError)
+    async def custom_validation_exception_handler(request: Request, exc: RequestValidationError):
+        request.state.error_detail = str(exc.errors())
+        logger.error(f"\033[91m❌ Validation Error on {request.method} {request.url.path}:\033[0m {exc.errors()}")
+        return await default_validation_exception_handler(request, exc)
 
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
@@ -115,8 +133,12 @@ def create_app() -> FastAPI:
         else:
             status_color = RED
             
+        error_msg = ""
+        if response.status_code >= 400 and hasattr(request.state, "error_detail"):
+            error_msg = f" - {RED}Error: {request.state.error_detail}{RESET}"
+            
         # Log request end with status code and time
-        logger.info(f"{MAGENTA}✔ Completed:{RESET} {method_color}{request.method}{RESET} {request.url.path} - {status_color}Status: {response.status_code}{RESET} - {YELLOW}Time: {formatted_process_time}{RESET}")
+        logger.info(f"{MAGENTA}✔ Completed:{RESET} {method_color}{request.method}{RESET} {request.url.path} - {status_color}Status: {response.status_code}{RESET} - {YELLOW}Time: {formatted_process_time}{RESET}{error_msg}")
         
         return response
 

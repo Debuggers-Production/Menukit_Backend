@@ -17,10 +17,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column('shop_settings', sa.Column('base_delivery_charge', sa.Float(), nullable=False, server_default='0.0'))
-    op.add_column('shop_settings', sa.Column('base_delivery_distance', sa.Float(), nullable=False, server_default='0.0'))
-    op.add_column('shop_settings', sa.Column('extra_delivery_distance_step', sa.Float(), nullable=False, server_default='1.0'))
-    op.add_column('shop_settings', sa.Column('extra_delivery_charge_per_step', sa.Float(), nullable=False, server_default='0.0'))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [col['name'] for col in inspector.get_columns('shop_settings')]
+
+    if 'base_delivery_charge' not in columns:
+        op.add_column('shop_settings', sa.Column('base_delivery_charge', sa.Float(), nullable=False, server_default='0.0'))
+    if 'base_delivery_distance' not in columns:
+        op.add_column('shop_settings', sa.Column('base_delivery_distance', sa.Float(), nullable=False, server_default='0.0'))
+    if 'extra_delivery_distance_step' not in columns:
+        op.add_column('shop_settings', sa.Column('extra_delivery_distance_step', sa.Float(), nullable=False, server_default='1.0'))
+    if 'extra_delivery_charge_per_step' not in columns:
+        op.add_column('shop_settings', sa.Column('extra_delivery_charge_per_step', sa.Float(), nullable=False, server_default='0.0'))
 
 
 def downgrade() -> None:
