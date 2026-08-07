@@ -13,6 +13,7 @@ from app.schemas.customer import (
 )
 from app.services.customer_service import CustomerService
 from app.services.otp_service import OTPService
+from app.services.sms_service import sms_service
 from app.services.membership_service import MembershipService
 from app.services.whatsapp_service import WhatsAppClient
 from app.services.notification_service import NotificationService
@@ -62,22 +63,21 @@ async def verify_mobile(
             
             return response
 
-    # 2. Token invalid or missing, proceed with OTP generation
-    otp_service = OTPService(redis_client)
-    code = await otp_service.create_otp(data.mobile_number)
-    if not code:
+    # 2. Token invalid or missing, proceed with SMS OTP generation via Message Central
+    verification_id = await sms_service.send_otp(data.mobile_number, country_code=data.country_code)
+    if not verification_id:
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many OTP requests. Please try again later."
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send OTP via SMS. Please try again later."
         )
     
-    # In a real app, send the OTP via SMS gateway here.
-    print(f"DEBUG: OTP for {data.mobile_number} is {code}")
+    # Store the verificationId in Redis linked to the mobile number
+    redis_key = f"m_v_id:{data.mobile_number}"
+    await redis_client.setex(redis_key, 300, verification_id) # Valid for 5 mins
 
-    what_client=WhatsAppClient()
+    # Fallback/Debug print
+    print(f"DEBUG: OTP Request sent for {data.mobile_number} | Verification ID: {verification_id}")
 
-    # what_client.send_text_message(phone_number=data.mobile_number,message=f"Your Otp is {code}")
-    
     return MobileVerifyResponse(otp_required=True, message="OTP sent successfully")
 
 
@@ -88,17 +88,26 @@ async def verify_otp(
     redis_client: redis.Redis = Depends(get_redis)
 ):
     """Verify OTP and return customer/membership status."""
-    otp_service = OTPService(redis_client)
+    redis_key = f"m_v_id:{data.mobile_number}"
+    verification_id_bytes = await redis_client.get(redis_key)
     
-    # We allow a magic OTP "000000" for quick local testing if desired,
-    # but strictly checking Redis here.
-    is_valid = await otp_service.verify_otp(data.mobile_number, data.code)
-    # Mock fallback for local dev if not found in Redis (optional)
-    if not is_valid and data.code != "123456": # Magic code for dev
+    # Support for magic OTP in dev
+    is_valid = False
+    if data.code == "123456":
+        is_valid = True
+    elif verification_id_bytes:
+        verification_id = verification_id_bytes.decode('utf-8')
+        is_valid = await sms_service.verify_otp(verification_id, data.code)
+    
+    if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OTP code."
         )
+    
+    if is_valid and data.code != "123456":
+        # Clear from redis after successful verification
+        await redis_client.delete(redis_key)
 
     customer_service = CustomerService(db)
     membership_service = MembershipService(db)

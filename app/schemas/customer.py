@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, constr
 
 
 class MobileVerifyRequest(BaseModel):
+    country_code: str = "91"
     mobile_number: constr(min_length=10, max_length=15, pattern=r'^\+?[0-9]+$') # type: ignore
     token: str | None = None
     shop_id: uuid.UUID | None = None
@@ -23,6 +24,7 @@ class MobileVerifyResponse(BaseModel):
 
 
 class OTPVerifyRequest(BaseModel):
+    country_code: str = "91"
     mobile_number: constr(min_length=10, max_length=15, pattern=r'^\+?[0-9]+$') # type: ignore
     code: constr(min_length=6, max_length=6) # type: ignore
     shop_id: uuid.UUID | None = None

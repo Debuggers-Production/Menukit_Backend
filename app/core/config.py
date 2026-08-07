@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     OTP_EXPIRE_SECONDS: int = 300  # 5 minutes
     OTP_MAX_ATTEMPTS: int = 3
     OTP_RATE_LIMIT_SECONDS: int = 900  # 15 minutes
+    
+    # SMS OTP
+    MOC_OTP: bool = True
+    MESSAGE_CENTRAL_PASSWORD: str = ""
+    MESSAGE_CENTRAL_CUSTOMER_ID: str = ""
 
 
     MINIO_ENDPOINT: str = ""
