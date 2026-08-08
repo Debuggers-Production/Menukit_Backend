@@ -100,7 +100,7 @@ class WhatsAppClient:
         contest_type: str,
         reward_value: str,
         contest_url_suffix: str,
-        header_image_url: str = "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop",
+        header_image_url: str = "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90",
     ) -> dict:
         """
         Sends the 'contest_created_template' WhatsApp template message.
@@ -119,9 +119,12 @@ class WhatsAppClient:
           {{1}} (button suffix) = contest_url_suffix (e.g. "shop/81b1.../contest")
         """
         frontend_url = get_settings().FRONTEND_URL or "https://menukit.debuggerstechnologies.com"
-        url_domain = frontend_url.replace("http://", "").replace("https://", "").rstrip("/")
-        image_link = header_image_url or "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop"
+        full_contest_url = f"{frontend_url.rstrip('/')}/{contest_url_suffix.lstrip('/')}"
+        image_link = header_image_url or "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+        # image_link = "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
         clean_phone = "".join(filter(str.isdigit, phone_number))
+        
+        formatted_contest_type = f"{str(contest_type).capitalize()} Contest"
 
         payload = {
             "messaging_product": "whatsapp",
@@ -149,9 +152,9 @@ class WhatsAppClient:
                         "type": "body",
                         "parameters": [
                             {"type": "text", "text": shop_name},
-                            {"type": "text", "text": contest_type},
+                            {"type": "text", "text": formatted_contest_type},
                             {"type": "text", "text": reward_value},
-                            {"type": "text", "text": url_domain},
+                            {"type": "text", "text": full_contest_url},
                         ],
                     },
                     {
@@ -161,12 +164,52 @@ class WhatsAppClient:
                         "index": "0",
                         "parameters": [
                             {
-                                # This appends to the base URL defined in template
                                 "type": "text",
                                 "text": contest_url_suffix,
                             }
                         ],
                     },
+                ],
+            },
+        }
+        return self._post(payload)
+
+    def send_customer_credit_refund_template(
+        self,
+        phone_number: str,
+        customer_name: str,
+        contest_title: str,
+        shop_name: str,
+        cancel_reason: str,
+        contest_description: str,
+        reward_value: str,
+    ) -> dict:
+        """
+        Sends the 'customer_credid_refund_template' WhatsApp template message.
+        """
+        clean_phone = "".join(filter(str.isdigit, phone_number))
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": clean_phone,
+            "type": "template",
+            "template": {
+                "name": "customer_credid_refund_template",
+                "language": {
+                    "code": "en",
+                },
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": customer_name},
+                            {"type": "text", "text": contest_title},
+                            {"type": "text", "text": shop_name},
+                            {"type": "text", "text": cancel_reason},
+                            {"type": "text", "text": contest_description},
+                            {"type": "text", "text": reward_value},
+                        ],
+                    }
                 ],
             },
         }

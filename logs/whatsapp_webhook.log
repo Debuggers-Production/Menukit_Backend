@@ -415,3 +415,396 @@
   }
 }
 [2026-08-08 10:38:43,574] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRjE2QUEyNTJEQUZEMDBCRkFFAA==","message_status":"accepted"}]}
+[2026-08-08 13:01:07,630] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "customer_credid_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "titgygygyi"
+          },
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "Cancelled by manager"
+          },
+          {
+            "type": "text",
+            "text": "ouyygyugigh"
+          },
+          {
+            "type": "text",
+            "text": "20%"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-08 13:01:09,361] INFO - 📥 WhatsApp Meta API Response (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (customer_credid_refund_template) does not exist in en"},"fbtrace_id":"AHctF_a5ENLndTOuzgWMfvV"}}
+[2026-08-08 13:01:09,362] ERROR - WhatsApp API Error (404): 404 Client Error: Not Found for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (customer_credid_refund_template) does not exist in en"},"fbtrace_id":"AHctF_a5ENLndTOuzgWMfvV"}}
+[2026-08-08 13:04:01,786] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/4feff815-d8cd-4e3b-ad0d-c8f633934784.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "Drawing Contest"
+          },
+          {
+            "type": "text",
+            "text": "Price Drop: Mutton Biriyani dropped to \u20b9100"
+          },
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-08 13:04:03,567] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMEI4RkM0QkYyMDQ0Q0M3NjY1AA==","message_status":"accepted"}]}
+[2026-08-08 13:04:03,572] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/4feff815-d8cd-4e3b-ad0d-c8f633934784.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "Drawing Contest"
+          },
+          {
+            "type": "text",
+            "text": "Price Drop: Mutton Biriyani dropped to \u20b9100"
+          },
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-08 13:04:05,552] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919677639292","wa_id":"919677639292"}],"messages":[{"id":"wamid.HBgMOTE5Njc3NjM5MjkyFQIAERgSMjI0MjQyMzAyRDU5NjM1NTZCAA==","message_status":"accepted"}]}
+[2026-08-08 13:06:31,165] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "Drawing Contest"
+          },
+          {
+            "type": "text",
+            "text": "Price Drop: Mutton Biriyani dropped to \u20b9100"
+          },
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-08 13:06:33,179] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRDY1RkQ1MTVEQjU4OURGNDNEAA==","message_status":"accepted"}]}
+[2026-08-08 13:06:33,183] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "Drawing Contest"
+          },
+          {
+            "type": "text",
+            "text": "Price Drop: Mutton Biriyani dropped to \u20b9100"
+          },
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-08 13:06:34,996] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919677639292","wa_id":"919677639292"}],"messages":[{"id":"wamid.HBgMOTE5Njc3NjM5MjkyFQIAERgSRDI3N0Y5NDcxRkZENUZEQzAyAA==","message_status":"accepted"}]}
+[2026-08-08 13:09:58,907] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "Drawing Contest"
+          },
+          {
+            "type": "text",
+            "text": "Price Drop: Mutton Biriyani dropped to \u20b9100"
+          },
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-08 13:10:01,114] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRkY5RkQ3QTNGNzRCQkI0RTk1AA==","message_status":"accepted"}]}
+[2026-08-08 13:10:01,116] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "Drawing Contest"
+          },
+          {
+            "type": "text",
+            "text": "Price Drop: Mutton Biriyani dropped to \u20b9100"
+          },
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "http://localhost:5173/shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-08 13:10:03,136] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919677639292","wa_id":"919677639292"}],"messages":[{"id":"wamid.HBgMOTE5Njc3NjM5MjkyFQIAERgSNDg0NkNCRjdBRUI1RjQzQTExAA==","message_status":"accepted"}]}

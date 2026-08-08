@@ -74,24 +74,24 @@ class ContestService:
         except Exception as err:
             print(f"Error sending winner WhatsApp intimation: {err}")
 
-    async def _notify_contest_cancelled(self, phones: list[str], contest_title: str, shop_name: str, cancel_reason: str):
+    async def _notify_contest_cancelled(self, participants: list[tuple[str, str]], contest_title: str, shop_name: str, cancel_reason: str, contest_description: str, reward_value: str):
         """Send WhatsApp intimation message to participants when a contest is cancelled."""
         try:
-            if not phones:
+            if not participants:
                 return
 
             wa = WhatsAppClient()
-            msg = (
-                f"ℹ️ *CONTEST CANCELLED NOTICE* - *{shop_name}*\n\n"
-                f"Contest: *{contest_title}*\n"
-                f"Reason: *{cancel_reason}*\n\n"
-                f"🔄 *Credit Refund*: 1 Contest Credit has been automatically refunded back to your account balance!\n"
-                f"Thank you for participating. Check out active contests anytime!"
-            )
-
-            for phone in set(phones):
+            for phone, name in participants:
                 try:
-                    wa.send_text_message(phone_number=phone, message=msg)
+                    wa.send_customer_credit_refund_template(
+                        phone_number=phone,
+                        customer_name=name or "Valued Customer",
+                        contest_title=contest_title,
+                        shop_name=shop_name,
+                        cancel_reason=cancel_reason,
+                        contest_description=contest_description or "Win exciting prizes",
+                        reward_value=reward_value or "Rewards"
+                    )
                 except Exception as e:
                     print(f"Failed to send cancellation WhatsApp to {phone}: {e}")
         except Exception as err:
@@ -283,13 +283,27 @@ class ContestService:
                 contest.cancel_reason = "Minimum targets not reached (Credits refunded)"
                 await self.refund_contest_credits(contest.id)
                 
+                part_res = await self.db.execute(
+                    select(Customer.mobile_number, Customer.name)
+                    .join(ContestParticipation, ContestParticipation.customer_id == Customer.id)
+                    .where(ContestParticipation.contest_id == contest.id)
+                )
+                participants = []
+                seen = set()
+                for phone, name in part_res.all():
+                    if phone and phone not in seen:
+                        seen.add(phone)
+                        participants.append((phone, name))
+
                 # Notify participants via WhatsApp that contest was cancelled and credits were refunded
                 asyncio.create_task(
                     self._notify_contest_cancelled(
-                        contest_id=contest.id,
+                        participants=participants,
                         contest_title=contest.title,
                         shop_name="Merchant Store",
-                        cancel_reason=contest.cancel_reason
+                        cancel_reason=contest.cancel_reason,
+                        contest_description=contest.description or "Exciting Contest",
+                        reward_value=contest.reward_value or "Rewards"
                     )
                 )
             
@@ -309,11 +323,16 @@ class ContestService:
 
         # Query participant phone numbers before session commit
         part_res = await self.db.execute(
-            select(Customer.mobile_number)
+            select(Customer.mobile_number, Customer.name)
             .join(ContestParticipation, ContestParticipation.customer_id == Customer.id)
             .where(ContestParticipation.contest_id == contest_id)
         )
-        phones = list(set([p for p in part_res.scalars().all() if p]))
+        participants = []
+        seen = set()
+        for phone, name in part_res.all():
+            if phone and phone not in seen:
+                seen.add(phone)
+                participants.append((phone, name))
 
         contest.status = "cancelled"
         contest.cancel_reason = reason
@@ -324,10 +343,12 @@ class ContestService:
         # Send WhatsApp intimation to all participants that contest was cancelled and credits refunded
         asyncio.create_task(
             self._notify_contest_cancelled(
-                phones=phones,
+                participants=participants,
                 contest_title=contest.title,
                 shop_name=shop_name,
-                cancel_reason=reason
+                cancel_reason=reason,
+                contest_description=contest.description or "Exciting Contest",
+                reward_value=contest.reward_value or "Rewards"
             )
         )
 
