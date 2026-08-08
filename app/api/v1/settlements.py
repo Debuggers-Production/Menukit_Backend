@@ -117,12 +117,9 @@ async def get_settlements_summary(
     for o in all_orders:
         gross = float(o.total_amount or 0.0)
         
-        # Breakdown: 1% Platform Fee, 2% PG Fee, 0% GST on PG Fee
-        platform_fee = round(gross * 0.01, 2)
+        # Breakdown: 2% Payment Gateway Fee
         pg_fee = round(gross * 0.02, 2)
-        gst_on_fee = 0.00
-        
-        total_fee = round(platform_fee + pg_fee + gst_on_fee, 2)
+        total_fee = pg_fee
         net = round(gross - total_fee, 2)
 
         created_dt = o.created_at if o.created_at.tzinfo else o.created_at.replace(tzinfo=timezone.utc)
