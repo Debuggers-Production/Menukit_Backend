@@ -34,6 +34,8 @@ async def create_menu_item(
     service = MenuService(db)
     item = await service.create_menu_item(user.id, data.model_dump())
     await db.commit()
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(item.shop_id)
     return _item_response(item)
 
 
@@ -114,6 +116,8 @@ async def update_menu_item(
     service = MenuService(db)
     item = await service.update_menu_item(user.id, uuid.UUID(item_id), data.model_dump(exclude_unset=True))
     await db.commit()
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(item.shop_id)
     return _item_response(item)
 
 
@@ -123,9 +127,14 @@ async def delete_all_menu_items(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete ALL menu items for the user's shop."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
     service = MenuService(db)
     await service.delete_all_menu_items(user.id)
     await db.commit()
+    if shop:
+        from app.database.redis import invalidate_shop_cache
+        await invalidate_shop_cache(shop.id)
     return MessageResponse(message="All menu items deleted successfully")
 
 
@@ -136,9 +145,14 @@ async def delete_menu_item(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a menu item."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
     service = MenuService(db)
     await service.delete_menu_item(user.id, uuid.UUID(item_id))
     await db.commit()
+    if shop:
+        from app.database.redis import invalidate_shop_cache
+        await invalidate_shop_cache(shop.id)
     return MessageResponse(message="Menu item deleted successfully")
 
 
@@ -149,9 +163,14 @@ async def reorder_items(
     db: AsyncSession = Depends(get_db),
 ):
     """Reorder menu items."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
     service = MenuService(db)
     await service.reorder_menu_items(user.id, data.order)
     await db.commit()
+    if shop:
+        from app.database.redis import invalidate_shop_cache
+        await invalidate_shop_cache(shop.id)
     return MessageResponse(message="Items reordered successfully")
 
 

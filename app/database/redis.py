@@ -22,15 +22,41 @@ class MockRedis:
     async def setex(self, key, time, value):
         self.store[key] = str(value)
         
-    async def delete(self, key):
-        if key in self.store:
-            del self.store[key]
-            
+    async def keys(self, pattern="*"):
+        import fnmatch
+        return [k for k in self.store.keys() if fnmatch.fnmatch(k, pattern)]
+
+    async def delete(self, *keys):
+        for key in keys:
+            if isinstance(key, (list, tuple, set)):
+                for k in key:
+                    self.store.pop(k, None)
+            else:
+                self.store.pop(key, None)
+
     async def flushdb(self):
         self.store = {}
 
     async def flushall(self):
         self.store = {}
+
+
+async def invalidate_shop_cache(shop_id: str, r_client=None):
+    """Helper to invalidate all cached menu and shop info keys for a given shop."""
+    try:
+        if r_client is None:
+            r_client = await get_redis()
+        
+        pattern = f"public:*:{str(shop_id)}:*"
+        if hasattr(r_client, "keys"):
+            matched_keys = await r_client.keys(pattern)
+            if matched_keys:
+                if isinstance(matched_keys, list):
+                    await r_client.delete(*matched_keys)
+                else:
+                    await r_client.delete(matched_keys)
+    except Exception as e:
+        logger.warning(f"Failed to invalidate shop cache for {shop_id}: {e}")
         
     def pipeline(self):
         class Pipe:

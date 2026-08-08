@@ -301,7 +301,7 @@ async def buy_credits(
     base_amount = 5.00
     pg_fee = round(base_amount * 0.03, 2)       # 0.15
     gst_on_fee = round(pg_fee * 0.18, 2)       # 0.03
-    final_total = round(base_amount + pg_fee + gst_on_fee, 2)  # 5.18
+    final_total = round(base_amount + pg_fee + gst_on_fee, 2)
     amount_in_paise = int(round(final_total * 100))          # 518
 
     # Razorpay Client setup

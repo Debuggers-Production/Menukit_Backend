@@ -57,8 +57,13 @@ async def websocket_endpoint(websocket: WebSocket, shop_id: str, db: AsyncSessio
         service = NotificationService(db)
         unread = await service.get_unread_notifications(uuid.UUID(shop_id))
         if unread:
+            import json
+            payload = {
+                "type": "UNREAD_HISTORY",
+                "data": [u.model_dump(mode='json') for u in unread]
+            }
             await manager.send_personal_message(
-                message='{"type": "UNREAD_HISTORY", "data": ' + str([u.model_dump(mode='json') for u in unread]).replace("'", '"') + '}',
+                message=json.dumps(payload, default=str),
                 websocket=websocket
             )
             

@@ -117,10 +117,10 @@ async def get_settlements_summary(
     for o in all_orders:
         gross = float(o.total_amount or 0.0)
         
-        # Breakdown: 1% Platform Fee, 3% PG Fee, 18% GST on PG Fee
+        # Breakdown: 1% Platform Fee, 2% PG Fee, 0% GST on PG Fee
         platform_fee = round(gross * 0.01, 2)
-        pg_fee = round(gross * 0.03, 2)
-        gst_on_fee = round(pg_fee * 0.18, 2)
+        pg_fee = round(gross * 0.02, 2)
+        gst_on_fee = 0.00
         
         total_fee = round(platform_fee + pg_fee + gst_on_fee, 2)
         net = round(gross - total_fee, 2)

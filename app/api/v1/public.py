@@ -255,13 +255,34 @@ async def get_public_shop(
     shop_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get shop details for public menu with subscription enforcement."""
+    """Get shop details for public menu with subscription enforcement (Cached)."""
+    import json
+    from app.database.redis import get_redis
+    r_client = await get_redis()
+    cache_key = f"public:shop:{str(shop_id)}"
+    
+    try:
+        cached_data = await r_client.get(cache_key)
+        if cached_data:
+            return json.loads(cached_data)
+    except Exception:
+        pass
+
     service = ShopService(db)
     shop = await service.get_shop_by_id(shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
     from app.api.v1.shops import format_shop_response_with_subscription_checks
-    return await format_shop_response_with_subscription_checks(shop, db)
+    resp = await format_shop_response_with_subscription_checks(shop, db)
+    
+    try:
+        # Convert pydantic response model to dict/json for redis cache
+        data_dict = resp.model_dump() if hasattr(resp, "model_dump") else resp
+        await r_client.setex(cache_key, 300, json.dumps(data_dict, default=str))
+    except Exception:
+        pass
+        
+    return resp
 
 
 @router.get("/menu", response_model=List[PublicCategoryResponse])
@@ -271,10 +292,22 @@ async def get_public_menu(
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get full menu organized by categories.
+    """Get full menu organized by categories (Cached).
 
-    Optimized: 2 queries total instead of N+1 (one per category).
+    Optimized: Served directly from Redis cache if present.
     """
+    import json
+    from app.database.redis import get_redis
+    r_client = await get_redis()
+    cache_key = f"public:menu:{str(shop_id)}:{limit}:{offset}"
+    
+    try:
+        cached_menu = await r_client.get(cache_key)
+        if cached_menu:
+            return json.loads(cached_menu)
+    except Exception:
+        pass
+
     from app.models.category import Category
     from app.models.menu_item import MenuItem
     from sqlalchemy.orm import selectinload
@@ -324,6 +357,11 @@ async def get_public_menu(
         cat_dict = cat_resp.model_dump()
         cat_dict["items"] = [_item_response(i).model_dump() for i in items_by_cat.get(cat.id, [])]
         result.append(cat_dict)
+
+    try:
+        await r_client.setex(cache_key, 300, json.dumps(result, default=str))
+    except Exception:
+        pass
 
     return result
 

@@ -27,6 +27,8 @@ async def create_category(
     service = MenuService(db)
     category = await service.create_category(user.id, data.model_dump())
     await db.commit()
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(category.shop_id)
     return _category_response(category)
 
 
@@ -57,6 +59,8 @@ async def update_category(
     service = MenuService(db)
     category = await service.update_category(user.id, uuid.UUID(category_id), data.model_dump(exclude_none=True))
     await db.commit()
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(category.shop_id)
     return _category_response(category)
 
 
@@ -66,9 +70,14 @@ async def delete_all_categories(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete ALL categories and their items for the user's shop."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
     service = MenuService(db)
     await service.delete_all_categories(user.id)
     await db.commit()
+    if shop:
+        from app.database.redis import invalidate_shop_cache
+        await invalidate_shop_cache(shop.id)
     return MessageResponse(message="All categories deleted successfully")
 
 
@@ -79,9 +88,14 @@ async def delete_category(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a category and all its menu items."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
     service = MenuService(db)
     await service.delete_category(user.id, uuid.UUID(category_id))
     await db.commit()
+    if shop:
+        from app.database.redis import invalidate_shop_cache
+        await invalidate_shop_cache(shop.id)
     return MessageResponse(message="Category deleted successfully")
 
 
@@ -92,9 +106,14 @@ async def reorder_categories(
     db: AsyncSession = Depends(get_db),
 ):
     """Reorder categories."""
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_user(user.id)
     service = MenuService(db)
     await service.reorder_categories(user.id, data.order)
     await db.commit()
+    if shop:
+        from app.database.redis import invalidate_shop_cache
+        await invalidate_shop_cache(shop.id)
     return MessageResponse(message="Categories reordered successfully")
 
 
