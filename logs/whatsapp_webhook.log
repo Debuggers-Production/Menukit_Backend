@@ -230,3 +230,188 @@
   }
 }
 [2026-08-05 16:48:05,668] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919876543210","wa_id":"919876543210"}],"messages":[{"id":"wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSRjg2NEVEN0U0N0U1MUUyOTY3AA==","message_status":"accepted"}]}
+[2026-08-08 10:34:05,846] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "+918248692839",
+  "type": "text",
+  "text": {
+    "preview_url": false,
+    "body": "\u2139\ufe0f *CONTEST CANCELLED NOTICE* - *Siva Store*\n\nContest: *hgvggvgvg*\nReason: *Cancelled by manager*\n\n\ud83d\udd04 *Credit Refund*: 1 Contest Credit has been automatically refunded back to your account balance!\nThank you for participating. Check out active contests anytime!"
+  }
+}
+[2026-08-08 10:34:12,062] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"+918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMzBGNUY0QkRBQzYyRjYzOEI1AA=="}]}
+[2026-08-08 10:35:08,110] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/4feff815-d8cd-4e3b-ad0d-c8f633934784.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "drawing"
+          },
+          {
+            "type": "text",
+            "text": "20% OFF on All Items"
+          },
+          {
+            "type": "text",
+            "text": "localhost:5173"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-08 10:35:09,969] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRTlCNDZGNjEyM0FGNUU3MUMxAA==","message_status":"accepted"}]}
+[2026-08-08 10:35:10,009] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919876543210",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/4feff815-d8cd-4e3b-ad0d-c8f633934784.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "drawing"
+          },
+          {
+            "type": "text",
+            "text": "20% OFF on All Items"
+          },
+          {
+            "type": "text",
+            "text": "localhost:5173"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-08 10:35:11,607] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919876543210","wa_id":"919876543210"}],"messages":[{"id":"wamid.HBgMOTE5ODc2NTQzMjEwFQIAERgSRDg2RTIyOTZGNEM2OUI2MTYxAA==","message_status":"accepted"}]}
+[2026-08-08 10:38:41,292] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "contest_created_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/4feff815-d8cd-4e3b-ad0d-c8f633934784.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Store"
+          },
+          {
+            "type": "text",
+            "text": "drawing"
+          },
+          {
+            "type": "text",
+            "text": "20% OFF on All Items"
+          },
+          {
+            "type": "text",
+            "text": "localhost:5173"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/81b1a7cc-8bfe-428b-86dc-dbfe1a2b5fee/contest"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-08 10:38:43,574] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRjE2QUEyNTJEQUZEMDBCRkFFAA==","message_status":"accepted"}]}

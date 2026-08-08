@@ -74,16 +74,10 @@ class ContestService:
         except Exception as err:
             print(f"Error sending winner WhatsApp intimation: {err}")
 
-    async def _notify_contest_cancelled(self, contest_id: uuid.UUID, contest_title: str, shop_name: str, cancel_reason: str):
+    async def _notify_contest_cancelled(self, phones: list[str], contest_title: str, shop_name: str, cancel_reason: str):
         """Send WhatsApp intimation message to participants when a contest is cancelled."""
         try:
-            part_result = await self.db.execute(
-                select(ContestParticipation)
-                .where(ContestParticipation.contest_id == contest_id)
-                .options(selectinload(ContestParticipation.customer))
-            )
-            participations = list(part_result.scalars().all())
-            if not participations:
+            if not phones:
                 return
 
             wa = WhatsAppClient()
@@ -95,14 +89,11 @@ class ContestService:
                 f"Thank you for participating. Check out active contests anytime!"
             )
 
-            notified_phones = set()
-            for p in participations:
-                if p.customer and p.customer.mobile_number and p.customer.mobile_number not in notified_phones:
-                    notified_phones.add(p.customer.mobile_number)
-                    try:
-                        wa.send_text_message(phone_number=p.customer.mobile_number, message=msg)
-                    except Exception as e:
-                        print(f"Failed to send cancellation WhatsApp to {p.customer.mobile_number}: {e}")
+            for phone in set(phones):
+                try:
+                    wa.send_text_message(phone_number=phone, message=msg)
+                except Exception as e:
+                    print(f"Failed to send cancellation WhatsApp to {phone}: {e}")
         except Exception as err:
             print(f"Error sending contest cancellation WhatsApp: {err}")
 
@@ -147,6 +138,48 @@ class ContestService:
         await self.db.commit()
         await self.db.refresh(contest)
 
+        # Construct detailed reward description string for WhatsApp template
+        target_item_names = []
+        if contest.applies_to == "items" and contest.target_ids:
+            try:
+                from app.models.menu import MenuItem
+                target_uuids = [uuid.UUID(str(tid)) for tid in contest.target_ids if tid]
+                if target_uuids:
+                    items_res = await self.db.execute(
+                        select(MenuItem.name).where(MenuItem.id.in_(target_uuids))
+                    )
+                    target_item_names = list(items_res.scalars().all())
+            except Exception as e:
+                logger.warning(f"Failed to fetch item names for contest reward: {e}")
+
+        items_suffix = f" on {', '.join(target_item_names[:2])}" if target_item_names else ""
+        raw_val = (contest.reward_value or "").strip()
+        reward_type = contest.reward_type or "discount"
+
+        if reward_type == "discount":
+            if raw_val and not raw_val.endswith("%") and not raw_val.startswith("₹"):
+                raw_val = f"{raw_val}%"
+            if items_suffix:
+                detailed_reward = f"{raw_val} OFF{items_suffix}"
+            elif contest.applies_to == "all":
+                detailed_reward = f"{raw_val} OFF on All Items"
+            else:
+                detailed_reward = f"{raw_val} OFF"
+        elif reward_type == "free_food":
+            if items_suffix:
+                detailed_reward = f"Free Food Item{items_suffix}"
+            elif raw_val:
+                detailed_reward = f"Free Food: {raw_val}"
+            else:
+                detailed_reward = "Free Food Item"
+        elif reward_type == "instant_cashback":
+            cb_val = f"₹{raw_val}" if raw_val and not raw_val.startswith("₹") else (raw_val or "Cashback")
+            detailed_reward = f"Instant Cashback: {cb_val}"
+        elif reward_type == "offer":
+            detailed_reward = f"Special Offer{items_suffix}" if items_suffix else f"Special Offer: {raw_val or 'Exclusive Deal'}"
+        else:
+            detailed_reward = f"{raw_val}{items_suffix}" if raw_val else "Exciting Reward"
+
         image_url = (shop.banner_url or shop.logo_url) if (shop and (shop.banner_url or shop.logo_url)) else None
 
         # Broadcast WhatsApp template notification asynchronously to all registered customers
@@ -155,7 +188,7 @@ class ContestService:
                 mobiles=mobiles,
                 shop_name=shop.name or "Merchant",
                 contest_title=contest.title,
-                reward_value=contest.reward_value or "Special Reward",
+                reward_value=detailed_reward,
                 contest_type=contest.contest_type or "drawing",
                 shop_id=shop.id,
                 image_url=image_url,
@@ -187,7 +220,10 @@ class ContestService:
         now = datetime.now(timezone.utc)
         if contest.status == "active" and contest.ends_at < now:
             part_result = await self.db.execute(
-                select(ContestParticipation).where(ContestParticipation.contest_id == contest.id)
+                select(ContestParticipation).where(
+                    ContestParticipation.contest_id == contest.id,
+                    ContestParticipation.is_submitted == True
+                )
             )
             participations = list(part_result.scalars().all())
             part_count = len(participations)
@@ -271,16 +307,26 @@ class ContestService:
         if not contest:
             raise NotFoundException("Contest not found.")
 
+        # Query participant phone numbers before session commit
+        part_res = await self.db.execute(
+            select(Customer.mobile_number)
+            .join(ContestParticipation, ContestParticipation.customer_id == Customer.id)
+            .where(ContestParticipation.contest_id == contest_id)
+        )
+        phones = list(set([p for p in part_res.scalars().all() if p]))
+
         contest.status = "cancelled"
         contest.cancel_reason = reason
         await self.refund_contest_credits(contest.id)
 
+        shop_name = contest.shop.name if contest.shop else "Merchant Store"
+
         # Send WhatsApp intimation to all participants that contest was cancelled and credits refunded
         asyncio.create_task(
             self._notify_contest_cancelled(
-                contest_id=contest.id,
+                phones=phones,
                 contest_title=contest.title,
-                shop_name=contest.shop.name if contest.shop else "Merchant Store",
+                shop_name=shop_name,
                 cancel_reason=reason
             )
         )

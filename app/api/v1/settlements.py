@@ -93,7 +93,6 @@ async def get_settlements_summary(
         since = now - timedelta(days=days)
         until = now
 
-    from sqlalchemy import or_
     orders_q = await db.execute(
         select(Order)
         .where(
@@ -101,10 +100,8 @@ async def get_settlements_summary(
             Order.created_at >= since,
             Order.created_at <= until,
             Order.order_status.notin_(["rejected", "cancelled"]),
-            or_(
-                Order.payment_method.in_(["online", "card", "upi", "pay_online", "razorpay", "cashfree"]),
-                Order.payment_status == "paid"
-            )
+            Order.payment_method == "online",
+            Order.payment_status == "paid"
         )
         .order_by(desc(Order.created_at))
     )
@@ -170,12 +167,13 @@ async def get_settlements_summary(
             estimated_payout_date=est_payout_dt.strftime("%b %d, %Y")
         ))
 
-    # Calculate contest settlements
+    # Calculate contest settlements (only count successfully submitted entries)
     contest_q = await db.execute(
         select(func.count(ContestParticipation.id))
         .join(Contest, Contest.id == ContestParticipation.contest_id)
         .where(
             Contest.shop_id == shop.id,
+            ContestParticipation.is_submitted == True,
             ContestParticipation.created_at >= since,
             ContestParticipation.created_at <= until
         )

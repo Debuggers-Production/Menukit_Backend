@@ -29,6 +29,13 @@ async def request_otp(
     if code is None:
         raise RateLimitException("Too many OTP requests. Please try again later.")
 
+    from app.core.config import get_settings
+    settings = get_settings()
+    clean_email = data.email.strip().lower()
+    if getattr(settings, "ALLOW_TEST_EMAIL", False) and clean_email == getattr(settings, "TEST_EMAIL", "").strip().lower():
+        print(f"🔑 [TEST EMAIL OTP BYPASS] Using test OTP '{settings.TEST_EMAIL_OTP}' for test email '{clean_email}'")
+        return MessageResponse(message="OTP sent successfully to your email")
+
     email_service = EmailService()
     sent = await email_service.send_otp_email(data.email, code)
 

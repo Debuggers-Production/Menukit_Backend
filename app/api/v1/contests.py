@@ -118,26 +118,9 @@ async def cancel_contest(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Mark a contest as cancelled with reason."""
-    from app.models.contest import Contest, ContestParticipation
-    result = await db.execute(select(Contest).where(Contest.id == contest_id))
-    contest = result.scalar_one_or_none()
-    if not contest:
-        raise HTTPException(status_code=404, detail="Contest not found")
-
-    # Check if participants already joined
-    part_result = await db.execute(select(ContestParticipation).where(ContestParticipation.contest_id == contest_id))
-    participations = part_result.scalars().all()
-    if len(participations) > 0:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot cancel contest because {len(participations)} participant(s) have reserved entry or joined."
-        )
-    
-    contest.status = "cancelled"
-    contest.cancel_reason = "Cancelled by manager"
-    await db.commit()
-    await db.refresh(contest)
+    """Mark a contest as cancelled, refund participant credits, and notify participants."""
+    service = ContestService(db)
+    contest = await service.cancel_contest_by_merchant(contest_id, reason="Cancelled by manager")
     return _contest_response(contest)
 
 @router.delete("/{contest_id}")

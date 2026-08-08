@@ -841,6 +841,12 @@ async def verify_public_order_payment(
     order.payment_status = "paid"
     order.razorpay_order_id = razorpay_order_id
 
+    # Fetch shop settings to determine auto accept status
+    from app.models.shop_settings import ShopSettings
+    settings_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+    shop_settings = settings_res.scalar_one_or_none()
+    order.order_status = "accepted" if (shop_settings and shop_settings.auto_accept_orders) else "pending"
+
     # Award 0.15 Contest Credits if order total >= ₹100
     from app.services.order_service import OrderService
     order_service = OrderService(db)
@@ -857,9 +863,43 @@ async def verify_public_order_payment(
         metadata={"order_id": str(order.id)}
     )
 
+    # Broadcast websocket event to merchant dashboard
+    from app.services.websocket_manager import manager
+    ws_msg = {
+        "event": "NEW_ORDER",
+        "type": "NEW_ORDER",
+        "data": OrderResponse.model_validate(order).model_dump(mode="json"),
+        "title": "New Paid Order Received",
+        "message": f"New paid order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})"
+    }
+    await manager.broadcast_to_shop(str(shop_id), ws_msg)
+
     await db.commit()
     await db.refresh(order)
     return OrderResponse.model_validate(order)
+
+
+@router.post("/orders/{order_id}/cancel")
+async def cancel_unpaid_public_order(
+    shop_id: uuid.UUID,
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel unpaid order when customer dismisses payment screen or payment fails."""
+    from app.models.order import Order
+    result = await db.execute(
+        select(Order).where(Order.id == order_id, Order.shop_id == shop_id)
+    )
+    order = result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.payment_status != "paid":
+        order.order_status = "cancelled"
+        order.payment_status = "cancelled"
+        await db.commit()
+
+    return {"status": "success", "message": "Order cancelled"}
 
 
 @router.get("/my-orders", response_model=List[OrderResponse])
@@ -875,13 +915,18 @@ async def get_my_orders(
         raise HTTPException(status_code=401, detail="Invalid customer token")
         
     from app.models.order import Order
-    from sqlalchemy import select
+    from sqlalchemy import select, not_, and_
     from sqlalchemy.orm import selectinload
     
     result = await db.execute(
         select(Order)
         .options(selectinload(Order.items))
-        .where(Order.shop_id == shop_id, Order.customer_phone == mobile_number)
+        .where(
+            Order.shop_id == shop_id,
+            Order.customer_phone == mobile_number,
+            Order.order_status != "payment_pending",
+            not_(and_(Order.payment_method == "online", Order.payment_status != "paid"))
+        )
         .order_by(Order.created_at.desc())
     )
     orders = result.scalars().all()
@@ -995,10 +1040,13 @@ async def get_customer_profile(
             visited_shops_count = vshops_res.scalar() or (1 if shop_uuid else 0)
             customer_info["counts"]["visited_shops"] = max(1 if shop_uuid else 0, visited_shops_count)
 
-            # Participated Contests Count
+            # Participated Contests Count (only count submitted entries)
             cp_count_res = await db.execute(
                 select(func.count(ContestParticipation.id))
-                .where(ContestParticipation.customer_id == customer_obj.id)
+                .where(
+                    ContestParticipation.customer_id == customer_obj.id,
+                    ContestParticipation.is_submitted == True
+                )
             )
             customer_info["counts"]["contests"] = cp_count_res.scalar() or 0
 
@@ -1059,10 +1107,13 @@ async def get_customer_summary_counts(
             )
             counts["visited_shops"] = vshops_res.scalar() or 0
 
-            # 3. Participated Contests Count
+            # 3. Participated Contests Count (only count submitted entries)
             cp_res = await db.execute(
                 select(func.count(ContestParticipation.id))
-                .where(ContestParticipation.customer_id == customer_obj.id)
+                .where(
+                    ContestParticipation.customer_id == customer_obj.id,
+                    ContestParticipation.is_submitted == True
+                )
             )
             counts["contests"] = cp_res.scalar() or 0
 
@@ -1380,7 +1431,10 @@ async def get_customer_contests(
         cp_query = (
             select(ContestParticipation)
             .options(selectinload(ContestParticipation.contest).selectinload(Contest.shop))
-            .where(ContestParticipation.customer_id == customer_obj.id)
+            .where(
+                ContestParticipation.customer_id == customer_obj.id,
+                ContestParticipation.is_submitted == True
+            )
         )
 
         q = (search or "").strip()

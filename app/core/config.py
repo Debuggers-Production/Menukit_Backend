@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     # Subscription Mock Mode (set to false for real Cashfree payment redirect)
     MOCK_PAYMENT_MODE: bool = False
 
+    # Test Email OTP Settings
+    ALLOW_TEST_EMAIL: bool = True
+    TEST_EMAIL: str = "test@debuggerstechnologies.com"
+    TEST_EMAIL_OTP: str = "023576"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

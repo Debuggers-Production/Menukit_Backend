@@ -44,6 +44,14 @@ class OTPService:
 
         Returns the OTP code, or None if rate limited.
         """
+        # Test email bypass check
+        clean_email = email.strip().lower()
+        if getattr(settings, "ALLOW_TEST_EMAIL", False) and clean_email == getattr(settings, "TEST_EMAIL", "").strip().lower():
+            code = getattr(settings, "TEST_EMAIL_OTP", "023576")
+            key = f"{self.prefix}{email}"
+            await self.redis.setex(key, settings.OTP_EXPIRE_SECONDS, code)
+            return code
+
         if not await self._check_rate_limit(email):
             return None
 
@@ -58,6 +66,14 @@ class OTPService:
 
     async def verify_otp(self, email: str, code: str) -> bool:
         """Verify an OTP code for the given email."""
+        clean_email = email.strip().lower()
+        test_email = getattr(settings, "TEST_EMAIL", "").strip().lower()
+        test_otp = getattr(settings, "TEST_EMAIL_OTP", "023576")
+
+        if getattr(settings, "ALLOW_TEST_EMAIL", False) and clean_email == test_email:
+            if code.strip() == test_otp:
+                return True
+
         key = f"{self.prefix}{email}"
         stored_code = await self.redis.get(key)
 

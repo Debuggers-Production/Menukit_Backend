@@ -115,10 +115,11 @@ class WhatsAppClient:
           {{4}} = url_domain      (e.g. "menukit.debuggers.co.in")
 
         Dynamic CTA button:
-          Base URL: https://menukit.debuggers.co.in/
+          Base URL: https://menukit.debuggerstechnologies.com
           {{1}} (button suffix) = contest_url_suffix (e.g. "shop/81b1.../contest")
         """
-        url_domain = "menukit.debuggers.co.in"
+        frontend_url = get_settings().FRONTEND_URL or "https://menukit.debuggerstechnologies.com"
+        url_domain = frontend_url.replace("http://", "").replace("https://", "").rstrip("/")
         image_link = header_image_url or "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&auto=format&fit=crop"
         clean_phone = "".join(filter(str.isdigit, phone_number))
 
@@ -169,4 +170,4 @@ class WhatsAppClient:
                 ],
             },
         }
-        return self._post(payload)
+        return self._post(payload)

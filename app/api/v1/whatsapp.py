@@ -54,9 +54,11 @@ async def handle_whatsapp_webhook(request: Request):
     Logs incoming message statuses (sent, delivered, read, failed) and inbound messages.
     """
     try:
+        import json
         body = await request.json()
-        logger.info(f"📩 Incoming WhatsApp Webhook Payload: {body}")
-        print("📩 [WhatsApp Webhook Log]:", body)
+        formatted_body = json.dumps(body, indent=2)
+        logger.info(f"📩 Incoming WhatsApp Webhook Payload:\n{formatted_body}")
+        print(f"📩 [WhatsApp Webhook Log]:\n{formatted_body}")
 
         # Parse Meta WhatsApp Payload structure
         entries = body.get("entry", [])
@@ -87,7 +89,21 @@ async def handle_whatsapp_webhook(request: Request):
                     sender_id = msg.get("from")
                     msg_type = msg.get("type")
                     msg_id = msg.get("id")
-                    log_msg = f"💬 [WhatsApp Inbound Message] From: {sender_id} | Type: {msg_type} | ID: {msg_id}"
+                    
+                    content_preview = ""
+                    if msg_type == "text":
+                        content_preview = msg.get("text", {}).get("body", "")
+                    elif msg_type == "interactive":
+                        interactive = msg.get("interactive", {})
+                        int_type = interactive.get("type")
+                        if int_type == "button_reply":
+                            content_preview = interactive.get("button_reply", {}).get("title", "")
+                        elif int_type == "list_reply":
+                            content_preview = interactive.get("list_reply", {}).get("title", "")
+                        else:
+                            content_preview = f"Interactive: {int_type}"
+                    
+                    log_msg = f"💬 [WhatsApp Inbound Message] From: {sender_id} | Type: {msg_type} | Content: {content_preview} | ID: {msg_id}"
                     logger.info(log_msg)
                     print(log_msg)
 

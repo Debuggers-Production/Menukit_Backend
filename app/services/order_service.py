@@ -54,7 +54,10 @@ class OrderService:
             raise HTTPException(status_code=400, detail="Dine-in option is not available")
 
         # 3. Determine status
-        initial_status = "accepted" if settings.auto_accept_orders else "pending"
+        if data.payment_method == "online":
+            initial_status = "payment_pending"
+        else:
+            initial_status = "accepted" if settings.auto_accept_orders else "pending"
 
         # 1. Validate that all menu items exist in the database
         from app.models.menu_item import MenuItem
@@ -140,8 +143,8 @@ class OrderService:
 
         await self.db.flush()
         
-        # Automatically award 0.15 contest credits if order total >= ₹100
-        if float(order.total_amount) >= 100.0:
+        # Automatically award 0.15 contest credits if order total >= ₹100 for non-online orders
+        if data.payment_method != "online" and float(order.total_amount) >= 100.0:
             await self._award_contest_credits_if_eligible(order)
 
         return order
@@ -301,11 +304,16 @@ class OrderService:
         return order
 
     async def get_shop_orders(self, shop_id: uuid.UUID) -> list[Order]:
-        """Fetch all orders placed in a shop, sorted by creation date."""
+        """Fetch all orders placed in a shop, sorted by creation date (excluding unpaid online orders)."""
+        from sqlalchemy import not_, and_
         result = await self.db.execute(
             select(Order)
             .options(selectinload(Order.items))
-            .where(Order.shop_id == shop_id)
+            .where(
+                Order.shop_id == shop_id,
+                Order.order_status != "payment_pending",
+                not_(and_(Order.payment_method == "online", Order.payment_status != "paid"))
+            )
             .order_by(Order.created_at.desc())
         )
         return list(result.scalars().all())
