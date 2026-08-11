@@ -4,6 +4,10 @@ import uuid
 import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
