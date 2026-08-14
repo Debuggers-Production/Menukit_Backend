@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     # Razorpay
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
+    RAZORPAY_WEBHOOK_SECRET: Optional[str] = None
     
     # Subscription Trial & Grace Period Configs
     FREE_TRIAL_DAYS: int = 30

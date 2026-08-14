@@ -1,7 +1,8 @@
 """Order model."""
 
+from datetime import datetime
 import uuid
-from sqlalchemy import String, ForeignKey, Numeric, Boolean, Index
+from sqlalchemy import String, ForeignKey, Numeric, Boolean, Index, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base, UUIDMixin, TimestampMixin
@@ -31,6 +32,12 @@ class Order(Base, UUIDMixin, TimestampMixin):
     payment_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     credits_rewarded: Mapped[bool | None] = mapped_column(Boolean, default=False, nullable=True)
     razorpay_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    
+    # Settlement fields
+    settlement_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    razorpay_settlement_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    razorpay_transfer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Relationships
     shop = relationship("Shop", back_populates="orders")

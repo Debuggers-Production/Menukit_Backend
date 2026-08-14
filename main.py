@@ -30,13 +30,35 @@ async def lifespan(app: FastAPI):
     await init_db()
     try:
         await init_redis()
+        # Do not close immediately so it stays alive if intended, but keeping existing logic:
         await close_redis()
 
         logger.info("Redis connected.")
     except Exception as e:
         logger.warning(f"Redis unavailable — running without cache: {e}")
+        
+    from app.services.reconciliation_service import reconcile_unsettled_transfers
+    from app.database.session import async_session_factory
+    import asyncio
+    
+    async def run_reconciliation_job():
+        while True:
+            try:
+                # Wait 5 minutes before the first run so app has time to start completely
+                await asyncio.sleep(300)
+                async with async_session_factory() as db:
+                    await reconcile_unsettled_transfers(db)
+            except Exception as e:
+                logger.error(f"Error in reconciliation job: {e}")
+            finally:
+                # Sleep for 3 hours (3 * 3600 seconds = 10800)
+                await asyncio.sleep(10800)
+                
+    job_task = asyncio.create_task(run_reconciliation_job())
     
     yield
+    
+    job_task.cancel()
     
     # Shutdown
     logger.info("Shutting down...")

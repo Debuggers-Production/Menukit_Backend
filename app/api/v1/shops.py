@@ -9,6 +9,8 @@ from app.schemas.shop import (
     ShopCreate, ShopUpdate, ShopResponse,
     ShopSettingsUpdate, ShopSettingsResponse,
     ThemeSettingsUpdate, ThemeSettingsResponse,
+    RazorpayBankAccountUpdateRequest,
+    RazorpayLinkedAccountCreateRequest,
 )
 from app.services.shop_service import ShopService
 from app.models.user import User
@@ -104,6 +106,44 @@ async def update_settings(
     settings = await service.update_settings(user.id, data.model_dump(exclude_none=True))
     await db.commit()
     return ShopSettingsResponse.model_validate(settings)
+
+
+@router.patch("/me/razorpay/bank-account")
+async def update_razorpay_bank_account(
+    data: RazorpayBankAccountUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update Razorpay Route linked account bank details."""
+    service = ShopService(db)
+    result = await service.update_razorpay_bank_account(user.id, data)
+    await db.commit()
+    return result
+
+
+@router.post("/me/razorpay/linked-account")
+async def create_razorpay_linked_account(
+    data: RazorpayLinkedAccountCreateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new Razorpay Route linked account with bank details."""
+    service = ShopService(db)
+    result = await service.create_razorpay_linked_account(user.id, data)
+    await db.commit()
+    return result
+
+
+@router.get("/me/razorpay/status")
+async def get_razorpay_account_status(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch current Razorpay Route verification status."""
+    service = ShopService(db)
+    result = await service.get_razorpay_account_status(user.id)
+    await db.commit()
+    return result
 
 
 async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) -> ShopResponse:

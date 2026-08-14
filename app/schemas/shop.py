@@ -2,7 +2,7 @@
 
 import uuid
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ShopCreate(BaseModel):
@@ -64,6 +64,9 @@ class ShopSettingsUpdate(BaseModel):
     cashfree_secret_key: Optional[str] = None
     cashfree_sandbox: Optional[bool] = None
     upi_id: Optional[str] = None
+    beneficiary_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
 
 
 class ThemeSettingsUpdate(BaseModel):
@@ -119,8 +122,13 @@ class ShopSettingsResponse(BaseModel):
     cashfree_secret_key: str
     cashfree_sandbox: bool
     upi_id: Optional[str] = None
+    beneficiary_name: Optional[str] = None
+    bank_account_last4: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    razorpay_account_id: Optional[str] = None
+    razorpay_product_id: Optional[str] = None
+    razorpay_route_status: Optional[str] = None
     online_payments_enabled: bool = True
-
     class Config:
         from_attributes = True
 
@@ -149,8 +157,35 @@ class ShopResponse(BaseModel):
     google_review_link: Optional[str] = None
     review_widget_code: Optional[str] = None
     settings: Optional[ShopSettingsResponse] = None
-    theme: Optional[ThemeSettingsResponse] = None
-    created_at: str
-
     class Config:
         from_attributes = True
+
+class RazorpayBankAccountUpdateRequest(BaseModel):
+    account_number: str = Field(..., min_length=9, max_length=18)
+    ifsc_code: str = Field(..., pattern=r"^[A-Z]{4}0[A-Z0-9]{6}$")
+    beneficiary_name: str
+
+
+class RazorpayAddress(BaseModel):
+    street: str
+    city: str
+    state: str
+    postal_code: str
+    country: str = "IN"
+
+
+class RazorpayBankAccount(BaseModel):
+    account_number: str = Field(..., min_length=9, max_length=18)
+    ifsc_code: str = Field(..., pattern=r"^[A-Z]{4}0[A-Z0-9]{6}$")
+    beneficiary_name: str
+
+
+class RazorpayLinkedAccountCreateRequest(BaseModel):
+    business_type: str = "individual"
+    owner_name: str
+    owner_email: str
+    owner_phone: str
+    pan: Optional[str] = None
+    business_address: RazorpayAddress
+    bank_account: RazorpayBankAccount
+

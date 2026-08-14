@@ -44,7 +44,7 @@ class SettlementSummaryResponse(BaseModel):
     total_transactions_count: int
     settled_count: int
     pending_count: int
-    payout_upi_id: Optional[str] = None
+    bank_account_last4: Optional[str] = None
     settlement_policy_notice: str
     contest_participants_count: int = 0
     contest_settlement_amount: float = 0.0
@@ -71,14 +71,14 @@ async def get_settlements_summary(
             total_transactions_count=0,
             settled_count=0,
             pending_count=0,
-            payout_upi_id=None,
+            bank_account_last4=None,
             settlement_policy_notice="Online payment amounts will be settled within 7 working days to your registered bank account or UPI ID.",
             settlements=[]
         )
 
     settings_q = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop.id))
     settings = settings_q.scalars().first()
-    payout_upi = settings.upi_id if settings else None
+    payout_bank = shop.settings.bank_account_last4 if shop.settings else None
 
     now = datetime.now(timezone.utc)
 
@@ -117,16 +117,17 @@ async def get_settlements_summary(
     for o in all_orders:
         gross = float(o.total_amount or 0.0)
         
-        # Breakdown: 2% Payment Gateway Fee
-        pg_fee = round(gross * 0.02, 2)
-        total_fee = pg_fee
+        # Breakdown: 1% Gateway Route Fee
+        gateway_fee = round(gross * 0.01, 2)
+        total_fee = gateway_fee
         net = round(gross - total_fee, 2)
 
         created_dt = o.created_at if o.created_at.tzinfo else o.created_at.replace(tzinfo=timezone.utc)
         est_payout_dt = created_dt + timedelta(days=7)
-        is_settled = now >= est_payout_dt
-
-        settlement_status = "settled" if is_settled else "pending"
+        
+        # Use real database settlement status if available, fallback to 7 days logic
+        settlement_status = o.settlement_status or ("settled" if now >= est_payout_dt else "pending")
+        is_settled = settlement_status == "settled"
 
         if status_filter and status_filter != "all":
             if status_filter == "settled" and not is_settled:
@@ -185,8 +186,8 @@ async def get_settlements_summary(
         total_transactions_count=len(settlements_list),
         settled_count=settled_count,
         pending_count=pending_count,
-        payout_upi_id=payout_upi,
-        settlement_policy_notice="Online payment amounts will be settled within 7 working days to your registered bank account or UPI ID.",
+        bank_account_last4=payout_bank,
+        settlement_policy_notice="Online payment amounts will be settled within 7 working days to your registered bank account.",
         contest_participants_count=contest_participants_count,
         contest_settlement_amount=contest_settlement_amount,
         settlements=settlements_list

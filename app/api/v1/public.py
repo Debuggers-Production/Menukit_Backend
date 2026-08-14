@@ -745,6 +745,7 @@ async def pay_public_order(
     """
     from app.core.config import get_settings
     from app.models.order import Order
+    from app.models.shop_settings import ShopSettings
 
     settings = get_settings()
 
@@ -755,11 +756,14 @@ async def pay_public_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    settings_result = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+    shop_settings = settings_result.scalar_one_or_none()
+
     if order.payment_status == "paid":
         raise HTTPException(status_code=400, detail="Order has already been paid")
 
     base_total = float(order.total_amount)
-    platform_fee = round(base_total * 0.01, 2)
+    platform_fee = round(base_total * 0.02, 2)
     pg_fee = round(base_total * 0.03, 2)
     gst_on_fee = round(pg_fee * 0.18, 2)
     grand_total = round(base_total + platform_fee + pg_fee + gst_on_fee, 2)
@@ -786,7 +790,7 @@ async def pay_public_order(
     try:
         import razorpay
         client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-        rzp_order = client.order.create(data={
+        order_data = {
             "amount": amount_in_paise,
             "currency": "INR",
             "receipt": f"order_{str(order_id)[:8]}_{int(datetime.now(timezone.utc).timestamp())}",
@@ -798,7 +802,36 @@ async def pay_public_order(
                 "pg_fee": str(pg_fee),
                 "gst_on_fee": str(gst_on_fee),
             }
-        })
+        }
+        
+        if shop_settings and shop_settings.razorpay_account_id:
+            # Platform deducts an additional 1% gateway/route fee from the vendor's base amount
+            platform_route_fee = round(base_total * 0.01, 2)
+            vendor_net_amount = base_total - platform_route_fee
+            vendor_amount_paise = int(round(vendor_net_amount * 100))
+            order_data["transfers"] = [
+                {
+                    "account": shop_settings.razorpay_account_id,
+                    "amount": vendor_amount_paise,
+                    "currency": "INR",
+                    "notes": {
+                        "type": "vendor_payout",
+                        "order_id": str(order_id)
+                    },
+                    "on_hold": 0
+                }
+            ]
+
+        try:
+            rzp_order = client.order.create(data=order_data)
+        except Exception as rzp_e:
+            print(f"DEBUG: Razorpay order creation with transfers failed: {rzp_e}")
+            if "transfers" in order_data:
+                print("DEBUG: Retrying order creation WITHOUT transfers array. Platform owner will need to settle this manually until sub-account is activated.")
+                del order_data["transfers"]
+                rzp_order = client.order.create(data=order_data)
+            else:
+                raise rzp_e
 
         order.razorpay_order_id = rzp_order["id"]
         await db.commit()
@@ -878,6 +911,7 @@ async def verify_public_order_payment(
 
     order.payment_status = "paid"
     order.razorpay_order_id = razorpay_order_id
+    order.payment_session_id = razorpay_payment_id
 
     # Fetch shop settings to determine auto accept status
     from app.models.shop_settings import ShopSettings

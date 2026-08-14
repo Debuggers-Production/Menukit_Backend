@@ -35,6 +35,13 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     cashfree_secret_key: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     cashfree_sandbox: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     upi_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    beneficiary_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    encrypted_bank_account: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    bank_account_last4: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    ifsc_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    razorpay_account_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    razorpay_product_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    razorpay_route_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     online_payments_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships

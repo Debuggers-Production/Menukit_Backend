@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     auth, shops, categories, menu_items,
     upload, qr, analytics, public, admin, discounts, bulk_upload,
-    customers, memberships, notifications, subscription, seo, order, contests, settlements, whatsapp
+    customers, memberships, notifications, subscription, seo, order, contests, settlements, whatsapp, razorpay_webhook
 )
 
 api_router = APIRouter()
@@ -31,3 +31,4 @@ api_router.include_router(order.router)
 api_router.include_router(contests.router)
 api_router.include_router(settlements.router)
 api_router.include_router(whatsapp.router)
+api_router.include_router(razorpay_webhook.router)
