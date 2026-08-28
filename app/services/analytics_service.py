@@ -22,13 +22,7 @@ class AnalyticsService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def _get_shop_id(self, user_id: uuid.UUID) -> uuid.UUID:
-        """Get shop ID for the authenticated user."""
-        result = await self.db.execute(select(Shop.id).where(Shop.user_id == user_id))
-        shop_id = result.scalar_one_or_none()
-        if not shop_id:
-            raise NotFoundException("Shop not found")
-        return shop_id
+
 
     # ── Tracking ──────────────────────────────────────────────
 
@@ -54,8 +48,8 @@ class AnalyticsService:
     ):
         """Record a menu page/item view."""
         if ip:
-            # Check if this IP viewed this specific item/category in the last 24 hours
-            since = datetime.now(timezone.utc) - timedelta(hours=24)
+            # Check if this IP viewed this specific item/category in the last 5 minutes
+            since = datetime.now(timezone.utc) - timedelta(minutes=5)
             query = select(MenuView.id).where(
                 MenuView.shop_id == shop_id, 
                 MenuView.ip_address == ip, 
@@ -86,16 +80,26 @@ class AnalyticsService:
 
     # ── Dashboard Stats ───────────────────────────────────────
 
-    async def get_overview(self, user_id: uuid.UUID) -> dict:
+    async def get_overview(self, shop_id: uuid.UUID) -> dict:
         """Get dashboard overview statistics (parallel queries via asyncio.gather)."""
-        shop_id = await self._get_shop_id(user_id)
+        from app.models.shop import Shop
+        # Resolve catalog_id for menu stats
+        catalog_result = await self.db.execute(
+            select(Shop.menu_catalog_id).where(Shop.id == shop_id)
+        )
+        catalog_id = catalog_result.scalar_one_or_none()
 
-        items_res = await self.db.execute(
-            select(func.count(MenuItem.id)).where(MenuItem.shop_id == shop_id)
-        )
-        cats_res = await self.db.execute(
-            select(func.count(Category.id)).where(Category.shop_id == shop_id)
-        )
+        if catalog_id:
+            items_res = await self.db.execute(
+                select(func.count(MenuItem.id)).where(MenuItem.menu_catalog_id == catalog_id)
+            )
+            cats_res = await self.db.execute(
+                select(func.count(Category.id)).where(Category.menu_catalog_id == catalog_id)
+            )
+        else:
+            items_res = await self.db.execute(select(func.count(MenuItem.id)).where(False))
+            cats_res = await self.db.execute(select(func.count(Category.id)).where(False))
+
         scans_res = await self.db.execute(
             select(func.count(QRScan.id)).where(QRScan.shop_id == shop_id)
         )
@@ -110,9 +114,8 @@ class AnalyticsService:
             "total_menu_views": views_res.scalar() or 0,
         }
 
-    async def get_daily_scans(self, user_id: uuid.UUID, days: int = 30) -> List[dict]:
+    async def get_daily_scans(self, shop_id: uuid.UUID, days: int = 30) -> List[dict]:
         """Get daily QR scan counts for the last N days."""
-        shop_id = await self._get_shop_id(user_id)
         since = datetime.now(timezone.utc) - timedelta(days=days)
 
         result = await self.db.execute(
@@ -127,9 +130,8 @@ class AnalyticsService:
 
         return [{"date": str(row.date), "count": row.count} for row in result]
 
-    async def get_top_items(self, user_id: uuid.UUID, limit: int = 10) -> List[dict]:
+    async def get_top_items(self, shop_id: uuid.UUID, limit: int = 10) -> List[dict]:
         """Get most viewed menu items."""
-        shop_id = await self._get_shop_id(user_id)
 
         result = await self.db.execute(
             select(MenuItem.name, func.count(MenuView.id).label("count"))
@@ -142,9 +144,8 @@ class AnalyticsService:
 
         return [{"name": row.name, "count": row.count} for row in result]
 
-    async def get_top_searches(self, user_id: uuid.UUID, limit: int = 10) -> List[dict]:
+    async def get_top_searches(self, shop_id: uuid.UUID, limit: int = 10) -> List[dict]:
         """Get most searched terms."""
-        shop_id = await self._get_shop_id(user_id)
 
         result = await self.db.execute(
             select(SearchHistory.search_term, func.count(SearchHistory.id).label("count"))
@@ -166,10 +167,9 @@ class AnalyticsService:
         )
         return list(result.scalars().all())
 
-    async def get_top_reviews(self, user_id: uuid.UUID, limit: int = 5) -> List[dict]:
+    async def get_top_reviews(self, shop_id: uuid.UUID, limit: int = 5) -> List[dict]:
         """Get top recent product reviews for the shop's menu items."""
         from app.models.review import MenuItemReview
-        shop_id = await self._get_shop_id(user_id)
 
         result = await self.db.execute(
             select(MenuItemReview, MenuItem.name.label("item_name"))
@@ -218,9 +218,8 @@ class AnalyticsService:
             "total_customers": customers.scalar() or 0,
         }
 
-    async def get_daily_report(self, user_id: uuid.UUID, target_date: str) -> dict:
+    async def get_daily_report(self, shop_id: uuid.UUID, target_date: str) -> dict:
         """Get daily report statistics for a specific date (YYYY-MM-DD)."""
-        shop_id = await self._get_shop_id(user_id)
         # Parse target date
         try:
             target_dt = datetime.strptime(target_date, "%Y-%m-%d").date()
@@ -336,7 +335,7 @@ class AnalyticsService:
 
     async def get_revenue_analytics(
         self, 
-        user_id: uuid.UUID, 
+        shop_id: uuid.UUID, 
         days: int = 30,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None
@@ -344,7 +343,6 @@ class AnalyticsService:
         """Get product-level revenue, top items, daily reports, commission settlement breakdown, and growth ratio."""
         from app.models.order import Order, OrderItem
 
-        shop_id = await self._get_shop_id(user_id)
         now = datetime.now(timezone.utc)
 
         if start_date and end_date:
@@ -497,6 +495,34 @@ class AnalyticsService:
         by_quantity = sorted(top_ordered_items, key=lambda x: x["total_quantity"], reverse=True)
         most_ordered_food = by_quantity[0] if by_quantity else None
 
+        # 6. Top Categories (based on total views/clicks)
+        from app.models.analytics import MenuView
+        from app.models.category import Category
+        top_cats_res = await self.db.execute(
+            select(
+                Category.name,
+                func.count(MenuView.id).label("total_qty")
+            )
+            .select_from(MenuView)
+            .join(Category, Category.id == MenuView.category_id)
+            .where(
+                MenuView.shop_id == shop_id,
+                MenuView.viewed_at >= since,
+                MenuView.viewed_at <= until
+            )
+            .group_by(Category.name)
+            .order_by(desc("total_qty"))
+            .limit(10)
+        )
+        
+        top_ordered_categories = []
+        for row in top_cats_res:
+            top_ordered_categories.append({
+                "name": row.name,
+                "total_quantity": int(row.total_qty or 0),
+                "total_revenue": 0.0
+            })
+
         return {
             "total_gross_revenue": round(total_gross, 2),
             "total_settled_amount": total_settled_amount,
@@ -506,6 +532,7 @@ class AnalyticsService:
             "most_ordered_food": most_ordered_food,
             "growth_ratio": growth_ratio,
             "top_ordered_items": top_ordered_items,
+            "top_ordered_categories": top_ordered_categories,
             "daily_sales": daily_sales,
             "recent_invoices": recent_invoices
         }

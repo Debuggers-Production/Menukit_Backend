@@ -11,11 +11,38 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+class MockPipeline:
+    def __init__(self, store):
+        self.store = store
+        self.commands = []
+
+    def incr(self, key):
+        self.commands.append(('incr', key))
+
+    def expire(self, key, time):
+        self.commands.append(('expire', key, time))
+
+    async def execute(self):
+        for cmd in self.commands:
+            if cmd[0] == 'incr':
+                key = cmd[1]
+                val = self.store.get(key, 0)
+                try:
+                    self.store[key] = str(int(val) + 1)
+                except ValueError:
+                    self.store[key] = "1"
+            elif cmd[0] == 'expire':
+                pass # ignore expire in mock
+        self.commands = []
+
 class MockRedis:
     """In-memory mock for local dev without Redis."""
     def __init__(self):
         self.store = {}
     
+    def pipeline(self):
+        return MockPipeline(self.store)
+
     async def get(self, key):
         return self.store.get(key)
         
@@ -47,7 +74,7 @@ async def invalidate_shop_cache(shop_id: str, r_client=None):
         if r_client is None:
             r_client = await get_redis()
         
-        pattern = f"public:*:{str(shop_id)}:*"
+        pattern = f"public:*{str(shop_id)}*"
         if hasattr(r_client, "keys"):
             matched_keys = await r_client.keys(pattern)
             if matched_keys:
@@ -79,11 +106,13 @@ async def init_redis() -> redis.Redis:
     """Initialize Redis connection."""
     global redis_client
     
-    # Create the client
+    # Create the client with 0.2s connection timeout for instant fallback if Redis server is down
     client = redis.from_url(
         settings.REDIS_URL,
         encoding="utf-8",
         decode_responses=True,
+        socket_connect_timeout=0.2,
+        socket_timeout=0.2,
     )
     
     try:

@@ -5,16 +5,15 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_, and_, func, cast, String
 
 from app.database.session import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_permission
 from app.models.user import User
 from app.models.shop import Shop
 from app.models.shop_settings import ShopSettings
 from app.models.order import Order
 from app.models.contest import Contest, ContestParticipation
-from sqlalchemy import func
 
 
 router = APIRouter(prefix="/settlements", tags=["Settlements"])
@@ -35,6 +34,7 @@ class SettlementItemSchema(BaseModel):
     settlement_status: str  # "settled" or "pending"
     created_at: str
     estimated_payout_date: str
+    actual_settled_date: Optional[str] = None
 
 
 class SettlementSummaryResponse(BaseModel):
@@ -48,6 +48,9 @@ class SettlementSummaryResponse(BaseModel):
     settlement_policy_notice: str
     contest_participants_count: int = 0
     contest_settlement_amount: float = 0.0
+    has_more: bool = False
+    skip: int = 0
+    limit: int = 20
     settlements: List[SettlementItemSchema] = []
 
 
@@ -57,29 +60,15 @@ async def get_settlements_summary(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     status_filter: Optional[str] = Query("all"),  # all, settled, pending
-    user: User = Depends(get_current_user),
+    search: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    shop = Depends(require_permission("settlements", "read")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get merchant online payment settlements summary and transaction list."""
-    shop_q = await db.execute(select(Shop).where(Shop.user_id == user.id))
-    shop = shop_q.scalars().first()
-    if not shop:
-        return SettlementSummaryResponse(
-            total_online_sales=0.0,
-            total_settled_amount=0.0,
-            total_pending_settlement=0.0,
-            total_transactions_count=0,
-            settled_count=0,
-            pending_count=0,
-            bank_account_last4=None,
-            settlement_policy_notice="Online payment amounts will be settled within 7 working days to your registered bank account or UPI ID.",
-            settlements=[]
-        )
+    """Get merchant online payment settlements summary and paginated transaction list with search."""
 
-    settings_q = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop.id))
-    settings = settings_q.scalars().first()
     payout_bank = shop.settings.bank_account_last4 if shop.settings else None
-
     now = datetime.now(timezone.utc)
 
     if start_date and end_date:
@@ -93,31 +82,85 @@ async def get_settlements_summary(
         since = now - timedelta(days=days)
         until = now
 
+    cutoff_7d = now - timedelta(days=7)
+
+    # Base filtering conditions
+    base_conditions = [
+        Order.shop_id == shop.id,
+        Order.created_at >= since,
+        Order.created_at <= until,
+        Order.order_status.notin_(["rejected", "cancelled"]),
+        Order.payment_method == "online",
+        Order.payment_status == "paid"
+    ]
+
+    # Backend Search Filter
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        base_conditions.append(
+            or_(
+                Order.customer_name.ilike(term),
+                Order.customer_phone.ilike(term),
+                cast(Order.id, String).ilike(term),
+                Order.cashfree_order_id.ilike(term),
+                Order.payment_session_id.ilike(term)
+            )
+        )
+
+    # Status Filter
+    settled_condition = or_(
+        Order.settlement_status == "settled",
+        and_(Order.settlement_status.is_(None), Order.created_at <= cutoff_7d)
+    )
+    pending_condition = or_(
+        Order.settlement_status == "pending",
+        and_(Order.settlement_status.is_(None), Order.created_at > cutoff_7d)
+    )
+
+    if status_filter == "settled":
+        base_conditions.append(settled_condition)
+    elif status_filter == "pending":
+        base_conditions.append(pending_condition)
+
+    # Calculate Totals & Counts
+    total_count_q = await db.execute(select(func.count(Order.id)).where(*base_conditions))
+    total_transactions_count = total_count_q.scalar() or 0
+
+    total_gross_q = await db.execute(select(func.coalesce(func.sum(Order.total_amount), 0.0)).where(*base_conditions))
+    total_online_sales = float(total_gross_q.scalar() or 0.0)
+
+    # Settled & Pending Counts and Amounts
+    settled_q = await db.execute(
+        select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0.0))
+        .where(*base_conditions, settled_condition)
+    )
+    settled_res = settled_q.first()
+    settled_count = settled_res[0] or 0
+    settled_gross = float(settled_res[1] or 0.0)
+    total_settled_amount = round(settled_gross * 0.99, 2)  # Net 99%
+
+    pending_q = await db.execute(
+        select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0.0))
+        .where(*base_conditions, pending_condition)
+    )
+    pending_res = pending_q.first()
+    pending_count = pending_res[0] or 0
+    pending_gross = float(pending_res[1] or 0.0)
+    total_pending_settlement = round(pending_gross * 0.99, 2)  # Net 99%
+
+    # Paginated Orders Retrieval
     orders_q = await db.execute(
         select(Order)
-        .where(
-            Order.shop_id == shop.id,
-            Order.created_at >= since,
-            Order.created_at <= until,
-            Order.order_status.notin_(["rejected", "cancelled"]),
-            Order.payment_method == "online",
-            Order.payment_status == "paid"
-        )
+        .where(*base_conditions)
         .order_by(desc(Order.created_at))
+        .offset(skip)
+        .limit(limit)
     )
-    all_orders = list(orders_q.scalars().all())
+    paginated_orders = list(orders_q.scalars().all())
 
     settlements_list = []
-    total_online_sales = 0.0
-    total_settled_amount = 0.0
-    total_pending_settlement = 0.0
-    settled_count = 0
-    pending_count = 0
-
-    for o in all_orders:
+    for o in paginated_orders:
         gross = float(o.total_amount or 0.0)
-        
-        # Breakdown: 1% Gateway Route Fee
         gateway_fee = round(gross * 0.01, 2)
         total_fee = gateway_fee
         net = round(gross - total_fee, 2)
@@ -125,27 +168,9 @@ async def get_settlements_summary(
         created_dt = o.created_at if o.created_at.tzinfo else o.created_at.replace(tzinfo=timezone.utc)
         est_payout_dt = created_dt + timedelta(days=7)
         
-        # Use real database settlement status if available, fallback to 7 days logic
         settlement_status = o.settlement_status or ("settled" if now >= est_payout_dt else "pending")
-        is_settled = settlement_status == "settled"
-
-        if status_filter and status_filter != "all":
-            if status_filter == "settled" and not is_settled:
-                continue
-            if status_filter == "pending" and is_settled:
-                continue
-
-        total_online_sales += gross
-        if is_settled:
-            total_settled_amount += net
-            settled_count += 1
-        else:
-            total_pending_settlement += net
-            pending_count += 1
-
         inv_no = f"SETTL-{created_dt.strftime('%Y%m%d')}-{str(o.id)[:6].upper()}"
         pay_ref = o.cashfree_order_id or o.payment_session_id or f"TXN-{str(o.id)[:8].upper()}"
-        
         pm = (o.payment_method or "").lower()
 
         settlements_list.append(SettlementItemSchema(
@@ -162,10 +187,11 @@ async def get_settlements_summary(
             payment_status=o.payment_status,
             settlement_status=settlement_status,
             created_at=created_dt.strftime("%b %d, %Y %I:%M %p"),
-            estimated_payout_date=est_payout_dt.strftime("%b %d, %Y")
+            estimated_payout_date=est_payout_dt.strftime("%b %d, %Y"),
+            actual_settled_date=o.settled_at.strftime("%b %d, %Y") if o.settled_at else None
         ))
 
-    # Calculate contest settlements (only count successfully submitted entries)
+    # Calculate contest settlements
     contest_q = await db.execute(
         select(func.count(ContestParticipation.id))
         .join(Contest, Contest.id == ContestParticipation.contest_id)
@@ -179,16 +205,21 @@ async def get_settlements_summary(
     contest_participants_count = contest_q.scalar() or 0
     contest_settlement_amount = round(contest_participants_count * 2.0, 2)
 
+    has_more = (skip + len(paginated_orders)) < total_transactions_count
+
     return SettlementSummaryResponse(
         total_online_sales=round(total_online_sales, 2),
         total_settled_amount=round(total_settled_amount, 2),
         total_pending_settlement=round(total_pending_settlement, 2),
-        total_transactions_count=len(settlements_list),
+        total_transactions_count=total_transactions_count,
         settled_count=settled_count,
         pending_count=pending_count,
         bank_account_last4=payout_bank,
         settlement_policy_notice="Online payment amounts will be settled within 7 working days to your registered bank account.",
         contest_participants_count=contest_participants_count,
         contest_settlement_amount=contest_settlement_amount,
+        has_more=has_more,
+        skip=skip,
+        limit=limit,
         settlements=settlements_list
     )

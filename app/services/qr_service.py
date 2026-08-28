@@ -20,18 +20,13 @@ class QRService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def generate_qr(self, user_id: uuid.UUID) -> QRCode:
-        """Generate or regenerate QR code for user's shop."""
-        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
-        shop = result.scalar_one_or_none()
-        if not shop:
-            raise NotFoundException("Shop not found. Create a shop first.")
-
-        qr_url = f"{settings.FRONTEND_URL}/shop/{shop.id}?type=qr"
-
-        # Check if QR already exists
-        result = await self.db.execute(select(QRCode).where(QRCode.shop_id == shop.id))
+    async def generate_qr(self, shop_id: uuid.UUID, user_id: uuid.UUID) -> QRCode:
+        """Generate or regenerate QR code for the shop."""
+        # Check if QR already exists for the user
+        result = await self.db.execute(select(QRCode).where(QRCode.user_id == user_id))
         existing_qr = result.scalar_one_or_none()
+
+        qr_url = f"{settings.FRONTEND_URL}/shop/{shop_id}?type=qr"
 
         if existing_qr:
             existing_qr.qr_url = qr_url
@@ -40,7 +35,7 @@ class QRService:
             qr_code = existing_qr
         else:
             qr_code = QRCode(
-                shop_id=shop.id,
+                user_id=user_id,
                 qr_url=qr_url,
                 qr_image_url=None,
                 qr_svg_data=None,
@@ -51,7 +46,7 @@ class QRService:
         activity = ActivityLog(
             user_id=user_id,
             action="qr_generate",
-            details=f"Generated QR code for {shop.name}",
+            details="Generated Shop QR Code",
         )
         self.db.add(activity)
 
@@ -59,28 +54,22 @@ class QRService:
         await self.db.refresh(qr_code)
         return qr_code
 
-    async def get_qr(self, user_id: uuid.UUID) -> QRCode:
-        """Get QR code for user's shop."""
-        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
-        shop = result.scalar_one_or_none()
-        if not shop:
-            raise NotFoundException("Shop not found")
-
-        result = await self.db.execute(select(QRCode).where(QRCode.shop_id == shop.id))
+    async def get_qr(self, user_id: uuid.UUID, shop_id: uuid.UUID = None) -> QRCode:
+        """Get QR code for the shop."""
+        result = await self.db.execute(select(QRCode).where(QRCode.user_id == user_id))
         qr = result.scalar_one_or_none()
         if not qr:
             raise NotFoundException("QR code not found. Generate one first.")
-
+        if shop_id and (not qr.qr_url or "/brand/" in qr.qr_url):
+            qr.qr_url = f"{settings.FRONTEND_URL}/shop/{shop_id}?type=qr"
+            self.db.add(qr)
+            await self.db.commit()
+            await self.db.refresh(qr)
         return qr
 
     async def update_qr_style(self, user_id: uuid.UUID, style_data) -> QRCode:
-        """Update style preferences for user's shop's QR code."""
-        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
-        shop = result.scalar_one_or_none()
-        if not shop:
-            raise NotFoundException("Shop not found")
-
-        result = await self.db.execute(select(QRCode).where(QRCode.shop_id == shop.id))
+        """Update style preferences for the brand QR code."""
+        result = await self.db.execute(select(QRCode).where(QRCode.user_id == user_id))
         qr = result.scalar_one_or_none()
         if not qr:
             raise NotFoundException("QR code not found. Generate one first.")

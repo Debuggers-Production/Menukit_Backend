@@ -13,7 +13,10 @@ class Shop(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "shops"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    menu_catalog_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("menu_catalogs.id", ondelete="SET NULL"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
@@ -37,19 +40,18 @@ class Shop(Base, UUIDMixin, TimestampMixin):
     review_widget_code: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
-    user = relationship("User", back_populates="shop")
+    user = relationship("User", back_populates="shops")
+    menu_catalog = relationship("MenuCatalog", back_populates="shops")
+    item_overrides = relationship("BranchItemOverride", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     settings = relationship("ShopSettings", back_populates="shop", uselist=False, lazy="selectin", cascade="all, delete-orphan")
     theme = relationship("ThemeSettings", back_populates="shop", uselist=False, lazy="selectin", cascade="all, delete-orphan")
-    categories = relationship("Category", back_populates="shop", lazy="selectin", cascade="all, delete-orphan", order_by="Category.display_order")
-    menu_items = relationship("MenuItem", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
-    qr_code = relationship("QRCode", back_populates="shop", uselist=False, lazy="selectin", cascade="all, delete-orphan")
     qr_scans = relationship("QRScan", back_populates="shop", lazy="dynamic")
     menu_views = relationship("MenuView", back_populates="shop", lazy="dynamic")
     search_history = relationship("SearchHistory", back_populates="shop", lazy="dynamic")
-    discounts = relationship("Discount", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     reviews = relationship("MenuItemReview", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     memberships = relationship("CustomerRetailerMembership", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     subscription = relationship("Subscription", back_populates="shop", uselist=False, lazy="selectin", cascade="all, delete-orphan")
     payment_transactions = relationship("PaymentTransaction", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     contests = relationship("Contest", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
+    employees = relationship("Employee", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")

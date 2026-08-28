@@ -7,7 +7,7 @@ from pydantic import BaseModel
 class QRCodeResponse(BaseModel):
     """QR code response."""
     id: uuid.UUID
-    shop_id: uuid.UUID
+    user_id: uuid.UUID
     qr_url: str
     qr_image_url: Optional[str] = None
     qr_svg_data: Optional[str] = None

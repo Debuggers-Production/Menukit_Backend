@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database.session import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_permission
 from app.models.user import User
 from app.models.category import Category
 from app.models.menu_item import MenuItem
@@ -48,6 +48,7 @@ class BulkImportResponse(BaseModel):
 @router.post("/parse", response_model=List[ParsedItemResponse])
 async def parse_menu_file(
     file: UploadFile = File(...),
+    shop = Depends(require_permission("menu_items", "write")),
     user: User = Depends(get_current_user)
 ):
     """Parse a menu PDF or Image using Gemini AI."""
@@ -72,16 +73,13 @@ async def parse_menu_file(
 @router.post("/confirm", response_model=BulkImportResponse)
 async def confirm_bulk_import(
     request: BulkImportRequest,
+    shop = Depends(require_permission("menu_items", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Confirm and import the extracted menu items."""
     shop_service = ShopService(db)
     menu_service = MenuService(db)
-    
-    shop = await shop_service.get_shop_by_user(user.id)
-    if not shop:
-        raise HTTPException(status_code=404, detail="Shop not found")
         
     # Get existing categories
     categories = await menu_service.get_categories(shop.id)
@@ -165,6 +163,7 @@ async def internal_bulk_categories(
         await menu_service.create_category(user.id, cat.model_dump())
         created_count += 1
     
+    await db.commit()
     return {"message": f"Successfully created {created_count} categories", "count": created_count}
 
 
@@ -181,6 +180,7 @@ async def internal_bulk_menus(
         await menu_service.create_menu_item(user.id, item.model_dump())
         created_count += 1
     
+    await db.commit()
     return {"message": f"Successfully created {created_count} menu items", "count": created_count}
 
 
@@ -197,4 +197,5 @@ async def internal_bulk_discounts(
         await discount_service.create_discount(user.id, discount.model_dump())
         created_count += 1
     
+    await db.commit()
     return {"message": f"Successfully created {created_count} discounts/combos", "count": created_count}

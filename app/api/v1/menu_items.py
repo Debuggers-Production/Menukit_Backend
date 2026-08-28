@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
-from app.core.deps import get_current_user
+from app.database.redis import get_redis
+from app.core.deps import get_current_user, require_permission
 from app.schemas.menu_item import (
     MenuItemCreate, MenuItemUpdate, MenuItemReorder,
     MenuItemResponse, MenuImageResponse,
@@ -27,15 +28,16 @@ router = APIRouter(prefix="/menu-items", tags=["Menu Item Management"])
 @router.post("", response_model=MenuItemResponse)
 async def create_menu_item(
     data: MenuItemCreate,
+    shop = Depends(require_permission("menu_items", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new menu item."""
     service = MenuService(db)
-    item = await service.create_menu_item(user.id, data.model_dump())
+    item = await service.create_menu_item(shop.id, user.id, data.model_dump())
     await db.commit()
     from app.database.redis import invalidate_shop_cache
-    await invalidate_shop_cache(item.shop_id)
+    await invalidate_shop_cache(shop.id)
     return _item_response(item)
 
 
@@ -44,21 +46,22 @@ async def get_menu_items(
     category_id: Optional[str] = Query(None),
     food_type: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    user: User = Depends(get_current_user),
+    status: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    shop = Depends(require_permission("menu_items", "read")),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all menu items with optional filters."""
-    shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_user(user.id)
-    if not shop:
-        return []
-
     service = MenuService(db)
     items = await service.get_menu_items(
         shop.id,
         category_id=uuid.UUID(category_id) if category_id else None,
         food_type=food_type,
         search=search,
+        status=status,
+        skip=skip,
+        limit=limit,
     )
     
     import logging
@@ -88,13 +91,13 @@ async def search_images_by_name(
 @router.get("/{item_id}", response_model=MenuItemResponse)
 async def get_menu_item(
     item_id: str,
-    user: User = Depends(get_current_user),
+    shop = Depends(require_permission("menu_items", "read")),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a single menu item."""
     service = MenuService(db)
     item = await service.get_menu_item(uuid.UUID(item_id))
-    if not item:
+    if not item or item.menu_catalog_id != shop.menu_catalog_id:
         from app.core.exceptions import NotFoundException
         raise NotFoundException("Menu item not found")
         
@@ -109,68 +112,78 @@ async def get_menu_item(
 async def update_menu_item(
     item_id: str,
     data: MenuItemUpdate,
+    shop = Depends(require_permission("menu_items", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a menu item."""
     service = MenuService(db)
-    item = await service.update_menu_item(user.id, uuid.UUID(item_id), data.model_dump(exclude_unset=True))
+    item = await service.update_menu_item(shop.id, user.id, uuid.UUID(item_id), data.model_dump(exclude_unset=True))
     await db.commit()
     from app.database.redis import invalidate_shop_cache
-    await invalidate_shop_cache(item.shop_id)
+    await invalidate_shop_cache(shop.id)
     return _item_response(item)
 
 
 @router.delete("/all", response_model=MessageResponse)
 async def delete_all_menu_items(
+    code: str = Query(..., description="OTP verification code received via email"),
+    shop = Depends(require_permission("menu_items", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ):
-    """Delete ALL menu items for the user's shop."""
-    shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_user(user.id)
+    """Delete ALL menu items for the user's shop after OTP verification."""
+    from app.services.otp_service import OTPService
+    otp_service = OTPService(redis)
+    is_valid = await otp_service.verify_otp(user.email, code)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Invalid or expired deletion OTP code")
+
     service = MenuService(db)
-    await service.delete_all_menu_items(user.id)
+    await service.delete_all_menu_items(shop.id, user.id)
     await db.commit()
-    if shop:
-        from app.database.redis import invalidate_shop_cache
-        await invalidate_shop_cache(shop.id)
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return MessageResponse(message="All menu items deleted successfully")
 
 
 @router.delete("/{item_id}", response_model=MessageResponse)
 async def delete_menu_item(
     item_id: str,
+    shop = Depends(require_permission("menu_items", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a menu item."""
-    shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_user(user.id)
     service = MenuService(db)
-    await service.delete_menu_item(user.id, uuid.UUID(item_id))
+    await service.delete_menu_item(shop.id, user.id, uuid.UUID(item_id))
     await db.commit()
-    if shop:
-        from app.database.redis import invalidate_shop_cache
-        await invalidate_shop_cache(shop.id)
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return MessageResponse(message="Menu item deleted successfully")
 
 
 @router.put("/reorder/batch", response_model=MessageResponse)
 async def reorder_items(
     data: MenuItemReorder,
+    shop = Depends(require_permission("menu_items", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Reorder menu items."""
-    shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_user(user.id)
     service = MenuService(db)
-    await service.reorder_menu_items(user.id, data.order)
+    order_list = [
+        {
+            "id": item["id"] if isinstance(item, dict) else getattr(item, "id"),
+            "display_order": item["display_order"] if isinstance(item, dict) else getattr(item, "display_order")
+        }
+        for item in data.order
+    ]
+    await service.reorder_menu_items(shop.id, user.id, order_list)
     await db.commit()
-    if shop:
-        from app.database.redis import invalidate_shop_cache
-        await invalidate_shop_cache(shop.id)
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return MessageResponse(message="Items reordered successfully")
 
 
@@ -206,6 +219,7 @@ from sqlalchemy import inspect
 
 class ImageUrlRequest(BaseModel):
     url: str
+    is_primary: bool = True
 
 @router.get("/{item_id}/search-images")
 async def search_item_images(
@@ -224,7 +238,7 @@ async def search_item_images(
         raise HTTPException(status_code=404, detail="Shop not found")
 
     item = await menu_service.get_menu_item(uuid.UUID(item_id))
-    if not item or item.shop_id != shop.id:
+    if not item or item.menu_catalog_id != shop.menu_catalog_id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
     scraper = ImageScraperService()
@@ -250,7 +264,7 @@ async def save_item_image_url(
         raise HTTPException(status_code=404, detail="Shop not found")
 
     item = await menu_service.get_menu_item(uuid.UUID(item_id))
-    if not item or item.shop_id != shop.id:
+    if not item or item.menu_catalog_id != shop.menu_catalog_id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
     # Prevent re-downloading/saving duplicate image URL
@@ -274,12 +288,12 @@ async def save_item_image_url(
 
         image_bytes, content_type = result
         
-        # Check if this is the first image
+        # Determine is_primary: honor requested is_primary, or default to True if it's the first image
         result_images = await db.execute(
             select(func.count(MenuImage.id)).where(MenuImage.menu_item_id == item.id)
         )
         existing_count = result_images.scalar() or 0
-        is_primary = (existing_count == 0)
+        should_be_primary = payload.is_primary or (existing_count == 0)
 
         # Upload and save
         upload_service = UploadService()
@@ -292,7 +306,7 @@ async def save_item_image_url(
             item_id=item.id,
             image_url=upload_result["image_url"],
             thumbnail_url=upload_result["thumbnail_url"],
-            is_primary=is_primary
+            is_primary=should_be_primary
         )
         await db.commit()
         return MenuImageResponse(
@@ -329,7 +343,7 @@ async def auto_fetch_item_image(
         raise HTTPException(status_code=404, detail="Shop not found")
 
     item = await menu_service.get_menu_item(uuid.UUID(item_id))
-    if not item or item.shop_id != shop.id:
+    if not item or item.menu_catalog_id != shop.menu_catalog_id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
     # Scrape the image
@@ -460,7 +474,7 @@ async def get_item_reviews(
         raise HTTPException(status_code=404, detail="Shop not found")
 
     item = await MenuService(db).get_menu_item(uuid.UUID(item_id))
-    if not item or item.shop_id != shop.id:
+    if not item or item.menu_catalog_id != shop.menu_catalog_id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
     result = await db.execute(

@@ -12,8 +12,8 @@ from app.database.base import Base, UUIDMixin, TimestampMixin
 class Discount(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "discounts"
 
-    shop_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), nullable=False
+    menu_catalog_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("menu_catalogs.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -44,4 +44,4 @@ class Discount(Base, UUIDMixin, TimestampMixin):
     display_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     # Relationships
-    shop = relationship("Shop", back_populates="discounts")
+    menu_catalog = relationship("MenuCatalog", back_populates="discounts")

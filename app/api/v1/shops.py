@@ -1,10 +1,12 @@
 """Shop management API endpoints."""
 
-from fastapi import APIRouter, Depends
+import uuid
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 
 from app.database.session import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_permission
 from app.schemas.shop import (
     ShopCreate, ShopUpdate, ShopResponse,
     ShopSettingsUpdate, ShopSettingsResponse,
@@ -24,61 +26,134 @@ async def create_shop(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new shop profile."""
+    """Create a new shop profile (strictly limited to 1 shop per user)."""
     service = ShopService(db)
+    shops_info = await service.get_shops_for_user(user.id)
+    if len(shops_info["owned"]) >= 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch creation is currently disabled. Each user is limited to 1 shop."
+        )
+
     shop = await service.create_shop(user.id, data.model_dump(exclude_none=True))
     await db.commit()
     return _shop_to_response(shop)
 
 
+@router.get("/my-shops")
+async def get_my_shops(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all shops the user has access to (owned and employed)."""
+    service = ShopService(db)
+    shops_info = await service.get_shops_for_user(user.id)
+    
+    # Format the response
+    owned = [_shop_to_response(s).model_dump() for s in shops_info["owned"]]
+    employed = []
+    for emp in shops_info["employed"]:
+        resp = _shop_to_response(emp["shop"]).model_dump()
+        resp["employee_permissions"] = emp["permissions"]
+        employed.append(resp)
+        
+    return {
+        "owned": owned,
+        "employed": employed
+    }
+
+
+@router.get("/brand/{user_id}/branches")
+async def get_brand_branches(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all public branches for a given brand (user)."""
+    service = ShopService(db)
+    try:
+        user_uuid = uuid.UUID(user_id)
+        shops_info = await service.get_shops_for_user(user_uuid)
+        active_owned = [s for s in shops_info["owned"] if s.is_active]
+        return [_shop_to_response(s) for s in active_owned]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid brand ID")
+
+
 @router.get("/me", response_model=ShopResponse)
 async def get_my_shop(
+    x_shop_id: Optional[str] = Header(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get the current user's shop with subscription-based feature data filtering."""
     service = ShopService(db)
-    shop = await service.get_shop_by_user(user.id)
+    
+    employee_permissions = None
+    if x_shop_id:
+        shops_info = await service.get_shops_for_user(user.id)
+        shop = None
+        for s in shops_info["owned"]:
+            if str(s.id) == x_shop_id:
+                shop = s
+                break
+        if not shop:
+            for emp in shops_info["employed"]:
+                if str(emp["shop"].id) == x_shop_id:
+                    shop = emp["shop"]
+                    employee_permissions = emp["permissions"]
+                    break
+    else:
+        shop = await service.get_shop_by_user(user.id)
+        if not shop:
+            shops_info = await service.get_shops_for_user(user.id)
+            if shops_info["employed"]:
+                emp = shops_info["employed"][0]
+                shop = emp["shop"]
+                employee_permissions = emp["permissions"]
+        
     if not shop:
         return ShopResponse(
             id="", name="", slug="", is_active=False, created_at=""
         )
-    return await format_shop_response_with_subscription_checks(shop, db)
+        
+    response = await format_shop_response_with_subscription_checks(shop, db)
+    if employee_permissions is not None:
+        response.employee_permissions = employee_permissions
+    return response
 
 
 @router.put("/me", response_model=ShopResponse)
 async def update_my_shop(
     data: ShopUpdate,
+    shop = Depends(require_permission("settings", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update the current user's shop."""
     service = ShopService(db)
-    shop = await service.update_shop(user.id, data.model_dump(exclude_unset=True))
+    shop_updated = await service.update_shop(shop.id, user.id, data.model_dump(exclude_unset=True))
     await db.commit()
-    return await format_shop_response_with_subscription_checks(shop, db)
+    return await format_shop_response_with_subscription_checks(shop_updated, db)
 
 
 @router.put("/me/theme", response_model=ThemeSettingsResponse)
 async def update_theme(
     data: ThemeSettingsUpdate,
+    shop = Depends(require_permission("settings", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update shop theme settings, enforcing subscription check."""
-    service = ShopService(db)
-    shop = await service.get_shop_by_user(user.id)
-    if shop:
-        from app.services.subscription_helper import get_shop_subscription_permissions
-        perms = await get_shop_subscription_permissions(shop.id, db)
-        if not perms["custom_theme"]:
-            from fastapi import HTTPException
-            raise HTTPException(
-                status_code=403,
-                detail="Custom Theme Studio is locked due to expired subscription. Please renew your subscription to save custom themes."
-            )
+    from app.services.subscription_helper import get_shop_subscription_permissions
+    perms = await get_shop_subscription_permissions(shop.id, db)
+    if not perms["custom_theme"]:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=403,
+            detail="Custom Theme Studio is locked due to expired subscription. Please renew your subscription to save custom themes."
+        )
             
-    theme = await service.update_theme(user.id, data.model_dump(exclude_none=True))
+    theme = await ShopService(db).update_theme(shop.id, user.id, data.model_dump(exclude_none=True))
     await db.commit()
     return ThemeSettingsResponse(
         id=str(theme.id),
@@ -98,12 +173,13 @@ async def update_theme(
 @router.put("/me/settings", response_model=ShopSettingsResponse)
 async def update_settings(
     data: ShopSettingsUpdate,
+    shop = Depends(require_permission("settings", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update shop behavior settings."""
+    """Update shop settings."""
     service = ShopService(db)
-    settings = await service.update_settings(user.id, data.model_dump(exclude_none=True))
+    settings = await service.update_settings(shop.id, user.id, data.model_dump(exclude_unset=True))
     await db.commit()
     return ShopSettingsResponse.model_validate(settings)
 
@@ -194,6 +270,7 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
 
     return ShopResponse(
         id=str(shop.id),
+        user_id=str(shop.user_id) if shop.user_id else None,
         name=shop.name,
         slug=shop.slug,
         description=shop.description,
@@ -240,6 +317,7 @@ def _shop_to_response(shop) -> ShopResponse:
 
     return ShopResponse(
         id=str(shop.id),
+        user_id=str(shop.user_id) if shop.user_id else None,
         name=shop.name,
         slug=shop.slug,
         description=shop.description,

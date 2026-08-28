@@ -38,6 +38,12 @@ class Order(Base, UUIDMixin, TimestampMixin):
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     razorpay_settlement_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     razorpay_transfer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    
+    # Workflow fields
+    refund_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    payment_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
 
     # Relationships
     shop = relationship("Shop", back_populates="orders")

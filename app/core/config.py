@@ -52,9 +52,9 @@ class Settings(BaseSettings):
     OTP_RATE_LIMIT_SECONDS: int = 900  # 15 minutes
     
     # SMS OTP
-    MOC_OTP: bool = True
-    MESSAGE_CENTRAL_PASSWORD: str = ""
-    MESSAGE_CENTRAL_CUSTOMER_ID: str = ""
+    MOC_OTP: bool = False
+    MSG91_AUTH_KEY: str = ""
+    MSG91_TEMPLATE_ID: str = ""
 
 
     MINIO_ENDPOINT: str = ""

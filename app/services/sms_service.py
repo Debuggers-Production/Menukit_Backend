@@ -1,146 +1,135 @@
 import httpx
-import base64
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 from app.core.config import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
 class SMSService:
-    """Service to handle SMS OTP via Message Central VerifyNow API."""
+    """Service to handle SMS OTP via MSG91 Widget API."""
 
     def __init__(self):
-        self.base_url = "https://cpaas.messagecentral.com"
-        self.customer_id = settings.MESSAGE_CENTRAL_CUSTOMER_ID
-        self.password = settings.MESSAGE_CENTRAL_PASSWORD
+        self.auth_key = settings.MSG91_AUTH_KEY
+        self.widget_id = settings.MSG91_TEMPLATE_ID # Using TEMPLATE_ID config for WIDGET_ID
         self.mock_mode = settings.MOC_OTP
-
-    async def _get_auth_token(self) -> Optional[str]:
-        """Fetch auth token from Message Central."""
-        if not self.customer_id or not self.password:
-            logger.error("Message Central credentials missing.")
-            return None
-
-        # Base64 encode the password as per docs
-        b64_password = base64.b64encode(self.password.encode('utf-8')).decode('utf-8')
-        
-        url = f"{self.base_url}/auth/v1/authentication/token"
-        params = {
-            "customerId": self.customer_id,
-            "key": b64_password,
-            "scope": "NEW",
-            "country": "91"
-        }
-
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
-                if (data.get("status") in (200, "200") or data.get("responseCode") in (200, "200")) and data.get("token"):
-                    return data.get("token")
-                else:
-                    logger.error(f"Failed to get Message Central token: {data}")
-                    return None
-            except Exception as e:
-                logger.error(f"Error fetching auth token: {str(e)}")
-                return None
+        self.base_url = "https://api.msg91.com/api/v5/widget"
 
     async def send_otp(self, mobile_number: str, country_code: str = "91", otp_length: int = 6) -> Optional[str]:
         """
-        Send OTP to mobile number.
-        Returns verificationId if successful, None otherwise.
+        Send OTP to mobile number via MSG91 Widget API.
+        Returns request ID (reqId) if successful, None otherwise.
         """
-        # Parse and sanitize phone number format (matching Dauth service)
+        # Parse and sanitize phone number format
         clean_phone = "".join(c for c in str(mobile_number) if c.isdigit())
         if clean_phone.startswith("91") and len(clean_phone) == 12:
-            country_code = "91"
-            mobile_number = clean_phone[2:]
-        elif len(clean_phone) > 10:
-            country_code = clean_phone[:-10]
-            mobile_number = clean_phone[-10:]
-        else:
             mobile_number = clean_phone
+        elif len(clean_phone) > 10:
+            mobile_number = clean_phone
+        else:
             country_code = country_code.replace("+", "").strip() or "91"
+            mobile_number = f"{country_code}{clean_phone}"
         
         if self.mock_mode:
             logger.info(f"📱 MOCK: Sent SMS OTP to {mobile_number}")
-            print(f"📱 MOCK: Sent SMS OTP to {mobile_number} | Mock verificationId: mock-verify-id")
-            return "mock-verify-id"
+            return "msg91-mock-id"
 
-        token = await self._get_auth_token()
-        if not token:
+        if not self.auth_key or not self.widget_id:
+            logger.error("MSG91 credentials missing.")
             return None
 
-        url = f"{self.base_url}/verification/v3/send"
-        params = {
-            "customerId": self.customer_id,
-            "countryCode": country_code,
-            "flowType": "SMS",
-            "mobileNumber": mobile_number,
-            "otpLength": otp_length
+        payload = {
+            "widgetId": self.widget_id,
+            "identifier": mobile_number,
         }
+        
         headers = {
-            "authToken": token
+            "authkey": self.auth_key,
+            "content-type": "application/json",
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             try:
-                # Based on docs & Dauth service, send POST request with query parameters including customerId
-                response = await client.post(url, params=params, headers=headers)
+                response = await client.post(
+                    f"{self.base_url}/sendOtp",
+                    json=payload,
+                    headers=headers
+                )
                 response.raise_for_status()
                 data = response.json()
-                if (data.get("responseCode") in (200, "200") or data.get("status") in (200, "200")) and data.get("data"):
-                    # The API docs show 'verficationId' (typo) in the JSON response, handle both
-                    return data["data"].get("verificationId") or data["data"].get("verficationId")
+                
+                if data.get("type") == "success":
+                    # MSG91 Widget API returns reqId in the `message` field
+                    req_id = data.get("message")
+                    return req_id
                 else:
-                    logger.error(f"Failed to send SMS OTP: {data}")
+                    logger.error(f"Failed to send SMS OTP via MSG91: {data}")
                     return None
             except Exception as e:
                 logger.error(f"Error sending SMS OTP: {str(e)}")
                 return None
 
-    async def verify_otp(self, verification_id: str, code: str) -> bool:
+    async def verify_otp(self, verification_id: str, code: str, mobile_number: Optional[str] = None) -> bool:
         """
-        Verify OTP code.
+        Verify OTP code via MSG91 Widget API.
         """
         if self.mock_mode:
-            logger.info(f"📱 MOCK: Verifying SMS OTP code {code} for verificationId {verification_id}")
-            # In mock mode, assume any 4 digit code is valid, or just return True
+            logger.info(f"📱 MOCK: Verifying SMS OTP code {code}")
             return True
 
-        if not verification_id:
+        if not self.auth_key or not self.widget_id:
+            logger.error("MSG91 credentials missing.")
             return False
-
-        token = await self._get_auth_token()
-        if not token:
-            return False
-
-        url = f"{self.base_url}/verification/v3/validateOtp"
-        params = {
-            "verificationId": verification_id,
-            "code": code
+            
+        payload = {
+            "widgetId": self.widget_id,
+            "reqId": verification_id,
+            "otp": code,
         }
+        
         headers = {
-            "authToken": token
+            "authkey": self.auth_key,
+            "content-type": "application/json",
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             try:
-                # The doc says POST for validateOtp path but cURL has no POST method. We'll use GET as query parameters are passed in cURL. If it fails, we should change to POST.
-                response = await client.get(url, params=params, headers=headers)
+                response = await client.post(
+                    f"{self.base_url}/verifyOtp",
+                    json=payload,
+                    headers=headers
+                )
                 data = response.json()
                 
-                # Check if it fails with 405 Method Not Allowed, fallback to POST
-                if response.status_code == 405:
-                     response = await client.post(url, params=params, headers=headers)
-                     data = response.json()
-                
-                if (data.get("responseCode") in (200, "200") or data.get("status") in (200, "200")) and data.get("data", {}).get("verificationStatus") == "VERIFICATION_COMPLETED":
-                    return True
+                # Check for success in response
+                if data.get("type") == "success":
+                    access_token = data.get("message")
+                    
+                    if not access_token:
+                        logger.error("MSG91 verifyOtp succeeded but no access token returned.")
+                        return False
+                        
+                    # 2. Verify Access Token
+                    token_payload = {
+                        "access-token": access_token
+                    }
+                    
+                    token_response = await client.post(
+                        f"{self.base_url}/verifyAccessToken",
+                        json=token_payload,
+                        headers=headers
+                    )
+                    
+                    token_data = token_response.json()
+                    
+                    if token_data.get("type") == "success":
+                        logger.info("MSG91 Access Token verified successfully.")
+                        return True
+                    else:
+                        logger.warning(f"MSG91 Access Token verification failed: {token_data}")
+                        return False
                 else:
-                    logger.warning(f"SMS OTP verification failed: {data}")
+                    logger.warning(f"SMS OTP verification failed via MSG91: {data}")
                     return False
             except Exception as e:
                 logger.error(f"Error verifying SMS OTP: {str(e)}")

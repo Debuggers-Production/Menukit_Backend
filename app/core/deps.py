@@ -43,6 +43,55 @@ async def get_current_user(
 
     return user
 
+async def get_current_shop_context(
+    x_shop_id: Optional[str] = Header(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the current shop context based on X-Shop-Id or fallback to owned shop."""
+    from app.services.shop_service import ShopService
+    shop_service = ShopService(db)
+    
+    if x_shop_id:
+        shops_info = await shop_service.get_shops_for_user(current_user.id)
+        
+        for shop in shops_info["owned"]:
+            if str(shop.id) == x_shop_id:
+                return shop
+                
+        for emp in shops_info["employed"]:
+            if str(emp["shop"].id) == x_shop_id:
+                emp["shop"]._employee_permissions = emp["permissions"]
+                return emp["shop"]
+                
+        raise ForbiddenException("You do not have access to this shop context")
+        
+    shop = await shop_service.get_shop_by_user(current_user.id)
+    if not shop:
+        shops_info = await shop_service.get_shops_for_user(current_user.id)
+        if shops_info["employed"]:
+            emp = shops_info["employed"][0]
+            emp["shop"]._employee_permissions = emp["permissions"]
+            return emp["shop"]
+        raise ForbiddenException("No shop found")
+    return shop
+
+def require_permission(resource: str, action: str):
+    async def permission_checker(
+        shop = Depends(get_current_shop_context),
+        current_user: User = Depends(get_current_user)
+    ):
+        if shop.user_id == current_user.id:
+            return shop
+            
+        permissions = getattr(shop, "_employee_permissions", {})
+        resource_actions = permissions.get(resource, [])
+        if action not in resource_actions:
+            raise ForbiddenException(f"Missing {action} permission for {resource}")
+            
+        return shop
+    return permission_checker
+
 
 async def get_current_admin() -> User:
     """Ensure the current user is an admin."""

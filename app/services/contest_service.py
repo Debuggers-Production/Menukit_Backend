@@ -360,20 +360,83 @@ class ContestService:
         await self.db.refresh(contest)
         return contest
 
-    async def get_contests_by_shop(self, shop_id: uuid.UUID) -> List[Contest]:
+    async def get_contests_by_shop(
+        self,
+        shop_id: uuid.UUID,
+        skip: int = 0,
+        limit: int = 20,
+        status_filter: Optional[str] = "all",
+        search: Optional[str] = None
+    ) -> tuple[List[Contest], int, bool]:
+        """Get shop contests with search, filter, and pagination."""
         from sqlalchemy.orm import selectinload
+        from sqlalchemy import func, or_
+        
+        conditions = [Contest.shop_id == shop_id]
+
+        if status_filter and status_filter != "all":
+            if status_filter == "ongoing":
+                conditions.append(Contest.status == "active")
+            elif status_filter == "completed":
+                conditions.append(
+                    or_(Contest.status == "completed", Contest.status == "ended")
+                )
+            elif status_filter == "cancelled":
+                conditions.append(Contest.status == "cancelled")
+
+        if search and search.strip():
+            term = f"%{search.strip()}%"
+            conditions.append(
+                or_(
+                    Contest.title.ilike(term),
+                    Contest.description.ilike(term),
+                    Contest.reward_value.ilike(term),
+                    Contest.contest_type.ilike(term)
+                )
+            )
+
+        total_count_q = await self.db.execute(select(func.count(Contest.id)).where(*conditions))
+        total_count = total_count_q.scalar() or 0
+
         result = await self.db.execute(
             select(Contest)
             .options(selectinload(Contest.participations))
-            .where(Contest.shop_id == shop_id)
+            .where(*conditions)
             .order_by(Contest.created_at.desc())
+            .offset(skip)
+            .limit(limit)
         )
         contests = list(result.scalars().all())
         updated_contests = []
         for c in contests:
             updated_c = await self._evaluate_contest_status(c)
             updated_contests.append(updated_c)
-        return updated_contests
+
+        has_more = (skip + len(updated_contests)) < total_count
+        return updated_contests, total_count, has_more
+
+    async def get_status_counts(self, shop_id: uuid.UUID) -> dict[str, int]:
+        """Calculate total counts for ongoing, completed, and cancelled contests."""
+        from sqlalchemy import func
+        result = await self.db.execute(
+            select(Contest.status, func.count(Contest.id))
+            .where(Contest.shop_id == shop_id)
+            .group_by(Contest.status)
+        )
+        rows = result.all()
+        counts_map = {row[0]: row[1] for row in rows}
+
+        ongoing = counts_map.get("active", 0)
+        completed = counts_map.get("completed", 0) + counts_map.get("ended", 0)
+        cancelled = counts_map.get("cancelled", 0)
+        total_all = sum(counts_map.values())
+
+        return {
+            "all": total_all,
+            "ongoing": ongoing,
+            "completed": completed,
+            "cancelled": cancelled,
+        }
 
     async def get_active_contest(self, shop_id: uuid.UUID) -> Optional[Contest]:
         result = await self.db.execute(

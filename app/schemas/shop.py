@@ -19,6 +19,15 @@ class ShopCreate(BaseModel):
     area: Optional[str] = None
     opening_time: Optional[str] = None
     closing_time: Optional[str] = None
+    logo_url: Optional[str] = None
+    banner_url: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    google_review_link: Optional[str] = None
+    clone_from_shop_id: Optional[str] = None
+
+    class Config:
+        extra = "ignore"
 
 
 class ShopUpdate(BaseModel):
@@ -129,6 +138,7 @@ class ShopSettingsResponse(BaseModel):
     razorpay_product_id: Optional[str] = None
     razorpay_route_status: Optional[str] = None
     online_payments_enabled: bool = True
+
     class Config:
         from_attributes = True
 
@@ -136,6 +146,7 @@ class ShopSettingsResponse(BaseModel):
 class ShopResponse(BaseModel):
     """Shop response."""
     id: str
+    user_id: Optional[str] = None
     name: str
     slug: str
     description: Optional[str] = None
@@ -157,8 +168,13 @@ class ShopResponse(BaseModel):
     google_review_link: Optional[str] = None
     review_widget_code: Optional[str] = None
     settings: Optional[ShopSettingsResponse] = None
+    theme: Optional[ThemeSettingsResponse] = None
+    created_at: Optional[str] = None
+    employee_permissions: Optional[dict] = None
+
     class Config:
         from_attributes = True
+
 
 class RazorpayBankAccountUpdateRequest(BaseModel):
     account_number: str = Field(..., min_length=9, max_length=18)
@@ -188,4 +204,3 @@ class RazorpayLinkedAccountCreateRequest(BaseModel):
     pan: Optional[str] = None
     business_address: RazorpayAddress
     bank_account: RazorpayBankAccount
-

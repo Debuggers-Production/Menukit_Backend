@@ -19,7 +19,10 @@ class User(Base, UUIDMixin, TimestampMixin):
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    shop = relationship("Shop", back_populates="user", uselist=False, lazy="selectin")
+    shops = relationship("Shop", back_populates="user", cascade="all, delete-orphan")
+    menu_catalogs = relationship("MenuCatalog", back_populates="user", cascade="all, delete-orphan")
+    employments = relationship("Employee", back_populates="user", cascade="all, delete-orphan")
+    activity_logs = relationship("ActivityLog", back_populates="user", cascade="all, delete-orphan")
+    qr_code = relationship("QRCode", back_populates="user", uselist=False, lazy="selectin", cascade="all, delete-orphan")
     sessions = relationship("Session", back_populates="user", lazy="dynamic")
-    activity_logs = relationship("ActivityLog", back_populates="user", lazy="dynamic")
     otp_codes = relationship("OTPCode", back_populates="user", lazy="dynamic")

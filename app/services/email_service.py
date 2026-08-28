@@ -22,6 +22,79 @@ class EmailService:
         # Default fallback to mock console
         return await self._send_console(email, otp_code)
 
+    async def send_deletion_otp_email(self, email: str, otp_code: str, target: str = "categories/items") -> bool:
+        """Send a specialized security OTP email for deleting categories/items."""
+        subject = f"⚠️ Security Alert: OTP to Confirm Deletion of {target.title()} ({otp_code})"
+        
+        html_content = f"""
+        <html>
+        <body style="font-family: 'Inter', system-ui, -apple-system, sans-serif; padding: 40px; background: #f8fafc; color: #1e293b;">
+            <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 36px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <div style="display: inline-block; background: #fef2f2; border-radius: 50%; padding: 16px; margin-bottom: 12px;">
+                        <span style="font-size: 32px;">⚠️</span>
+                    </div>
+                    <h2 style="color: #dc2626; font-size: 22px; font-weight: 700; margin: 0;">Deletion Verification Required</h2>
+                    <p style="color: #64748b; font-size: 14px; margin-top: 6px;">Action requested: Bulk Delete {target.title()}</p>
+                </div>
+
+                <div style="background: #fef2f2; border: 2px dashed #fca5a5; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 24px;">
+                    <p style="color: #991b1b; font-size: 13px; font-weight: 600; margin-top: 0; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px;">Your Deletion Verification Code</p>
+                    <span style="font-size: 38px; font-weight: 800; letter-spacing: 10px; color: #dc2626; font-family: monospace;">{otp_code}</span>
+                </div>
+
+                <div style="background: #fff7ed; border-left: 4px solid #f97316; border-radius: 8px; padding: 14px 16px; margin-bottom: 24px; font-size: 13px; color: #9a3412; line-height: 1.5;">
+                    <strong>Warning:</strong> Deleting categories or menu items will permanently erase all associated data. If you did not initiate this deletion request, please secure your account immediately.
+                </div>
+
+                <p style="color: #94a3b8; font-size: 13px; text-align: center; margin: 0;">This code is valid for {settings.OTP_EXPIRE_SECONDS // 60} minutes. Do not share this OTP with anyone.</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        if self.mock_mode or settings.EMAIL_BACKEND in ("console", "mock"):
+            logger.info(f"🚨 [MOCK EMAIL] Deletion OTP for {email}: {otp_code}")
+            print(f"\n\033[91m{'=' * 55}\033[0m")
+            print(f"\033[91m🚨 DELETION OTP EMAIL to: \033[1m{email}\033[0m")
+            print(f"\033[93m🔑 OTP Code: \033[1m{otp_code}\033[0m | Target: \033[1m{target}\033[0m")
+            print(f"\033[91m{'=' * 55}\n\033[0m")
+            return True
+
+        return await self._dispatch_raw_email(email, subject, html_content)
+
+    async def send_employee_invite_email(self, email: str, token: str, shop_name: str) -> bool:
+        """Send an employee invitation email with verification link."""
+        subject = f"You're invited to join {shop_name} on SmartMenu"
+        verify_url = f"{settings.FRONTEND_URL}/verify-employee?token={token}"
+        
+        html_content = f"""
+        <html>
+        <body style="font-family: 'Inter', system-ui, -apple-system, sans-serif; padding: 40px; background: #f8fafc; color: #1e293b;">
+            <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 36px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
+                <h2 style="color: #0f172a; font-size: 22px; font-weight: 700; margin: 0 0 16px 0;">Invitation to join {shop_name}</h2>
+                <p style="color: #475569; font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
+                    You have been invited to join the team for <strong>{shop_name}</strong>. Please click the button below to accept the invitation and verify your email address.
+                </p>
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <a href="{verify_url}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; font-weight: 600; text-decoration: none; padding: 12px 24px; border-radius: 8px;">Verify and Accept Invitation</a>
+                </div>
+                <p style="color: #94a3b8; font-size: 13px; text-align: center; margin: 0;">If you didn't expect this, you can safely ignore this email.</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        if self.mock_mode or settings.EMAIL_BACKEND in ("console", "mock"):
+            logger.info(f"💌 [MOCK EMAIL] Employee Invite to {email}: {verify_url}")
+            print(f"\n\033[94m{'=' * 55}\033[0m")
+            print(f"\033[94m💌 EMPLOYEE INVITE EMAIL to: \033[1m{email}\033[0m")
+            print(f"\033[96m🔗 Verify URL: \033[1m{verify_url}\033[0m")
+            print(f"\033[94m{'=' * 55}\n\033[0m")
+            return True
+
+        return await self._dispatch_raw_email(email, subject, html_content)
+
     async def _send_console(self, email: str, otp_code: str) -> bool:
         """Log mock OTP to console (development/mock mode)."""
         GREEN = "\033[92m"

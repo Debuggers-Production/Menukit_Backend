@@ -120,11 +120,14 @@ async def list_public_shops(
         return []
 
     shop_ids = [s.id for s in shops]
+    catalog_ids = [s.menu_catalog_id for s in shops if s.menu_catalog_id]
+    shop_to_catalog = {s.id: s.menu_catalog_id for s in shops if s.menu_catalog_id}
+    catalog_to_shop = {s.menu_catalog_id: s.id for s in shops if s.menu_catalog_id}
 
     # Discounts
     disc_result = await db.execute(
         select(Discount).where(
-            Discount.shop_id.in_(shop_ids),
+            Discount.menu_catalog_id.in_(catalog_ids),
             Discount.is_active == True,
             Discount.visibility_type != 'members_only',
         )
@@ -137,7 +140,10 @@ async def list_public_shops(
             and (d.end_date is None or d.end_date.replace(tzinfo=timezone.utc) >= now)
         )
         if in_range:
-            discount_map[d.shop_id].append(d)
+            # Map back to shop_id for response grouping
+            shop_id_for_disc = catalog_to_shop.get(d.menu_catalog_id)
+            if shop_id_for_disc:
+                discount_map[shop_id_for_disc].append(d)
 
     # Ratings
     rating_result = await db.execute(
@@ -284,6 +290,145 @@ async def get_public_shop(
         
     return resp
 
+@router.get("/categories", response_model=List[PublicCategoryResponse])
+async def get_public_categories(
+    shop_id: uuid.UUID,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get ONLY active categories for a shop (no items)."""
+    import json
+    from app.database.redis import get_redis
+    r_client = await get_redis()
+    cache_key = f"public:categories:{str(shop_id)}:{limit}:{offset}"
+    
+    try:
+        cached_cats = await r_client.get(cache_key)
+        if cached_cats:
+            return json.loads(cached_cats)
+    except Exception:
+        pass
+
+    from app.models.category import Category
+    
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_id(shop_id)
+    if not shop:
+        raise NotFoundException("Restaurant not found")
+
+    catalog_id = shop.menu_catalog_id
+    if not catalog_id:
+        return []
+
+    cat_result = await db.execute(
+        select(Category)
+        .where(Category.menu_catalog_id == catalog_id, Category.is_active == True)
+        .order_by(Category.display_order)
+        .offset(offset)
+        .limit(limit)
+    )
+    categories = cat_result.scalars().all()
+    if not categories:
+        return []
+
+    result = []
+    for cat in categories:
+        cat_resp = _category_response(cat)
+        cat_dict = cat_resp.model_dump()
+        cat_dict["items"] = []  # Explicitly empty
+        result.append(cat_dict)
+
+    try:
+        await r_client.setex(cache_key, 300, json.dumps(result, default=str))
+    except Exception:
+        pass
+
+    return result
+
+@router.get("/items", response_model=List[MenuItemResponse])
+async def get_public_items(
+    shop_id: uuid.UUID,
+    category_id: Optional[uuid.UUID] = None,
+    discount_id: Optional[uuid.UUID] = None,
+    search: Optional[str] = None,
+    food_type: Optional[str] = None,
+    status: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    include_unavailable: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get items for a shop with filtering, discount applicability, and sorting options."""
+    from app.models.menu_item import MenuItem
+    from sqlalchemy.orm import selectinload
+    
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_id(shop_id)
+    if not shop:
+        raise NotFoundException("Restaurant not found")
+
+    catalog_id = shop.menu_catalog_id
+    if not catalog_id:
+        return []
+
+    query = (
+        select(MenuItem)
+        .options(selectinload(MenuItem.images))
+        .where(MenuItem.menu_catalog_id == catalog_id)
+    )
+
+    if not include_unavailable:
+        query = query.where(MenuItem.is_available == True)
+
+    if category_id:
+        query = query.where(MenuItem.category_id == category_id)
+
+    if discount_id:
+        from app.models.discount import Discount
+        disc_res = await db.execute(select(Discount).where(Discount.id == discount_id, Discount.is_active == True))
+        disc = disc_res.scalar_one_or_none()
+        if disc:
+            if disc.applies_to == "category" and disc.target_ids:
+                cat_uuids = [uuid.UUID(str(tid)) for tid in disc.target_ids if tid]
+                query = query.where(MenuItem.category_id.in_(cat_uuids))
+            elif disc.applies_to == "items" and disc.target_ids:
+                item_uuids = [uuid.UUID(str(tid)) for tid in disc.target_ids if tid]
+                query = query.where(MenuItem.id.in_(item_uuids))
+    
+    if search:
+        query = query.where(func.lower(MenuItem.name).contains(search.lower()))
+
+    if food_type and food_type != 'all':
+        # Handles food_types JSON/Array containment matching (e.g. veg, non-veg, drink, dessert)
+        query = query.where(MenuItem.food_types.contains([food_type]))
+
+    if status:
+        if status == 'available' or status == 'in_stock':
+            query = query.where(MenuItem.is_available == True)
+        elif status == 'not_available' or status == 'out_of_stock':
+            query = query.where(MenuItem.is_available == False)
+        elif status == 'bestseller':
+            query = query.where(MenuItem.is_bestseller == True)
+        elif status == 'chef_special':
+            query = query.where(MenuItem.is_highlighted == True)
+
+    # Sorting
+    if sort_by == 'price_asc':
+        query = query.order_by(MenuItem.price.asc(), MenuItem.display_order.asc())
+    elif sort_by == 'price_desc':
+        query = query.order_by(MenuItem.price.desc(), MenuItem.display_order.asc())
+    else:
+        query = query.order_by(MenuItem.category_id, MenuItem.display_order)
+
+    query = query.offset(offset).limit(limit)
+    
+    items_result = await db.execute(query)
+    all_items = items_result.scalars().all()
+    
+    result = [_item_response(i) for i in all_items]
+    return result
 
 @router.get("/menu", response_model=List[PublicCategoryResponse])
 async def get_public_menu(
@@ -318,10 +463,14 @@ async def get_public_menu(
     if not shop:
         raise NotFoundException("Restaurant not found")
 
+    catalog_id = shop.menu_catalog_id
+    if not catalog_id:
+        return []
+
     # ── 2. Load all active categories ────────────────────────────────────────
     cat_result = await db.execute(
         select(Category)
-        .where(Category.shop_id == shop_id, Category.is_active == True)
+        .where(Category.menu_catalog_id == catalog_id, Category.is_active == True)
         .order_by(Category.display_order)
         .offset(offset)
         .limit(limit)
@@ -337,7 +486,7 @@ async def get_public_menu(
         select(MenuItem)
         .options(selectinload(MenuItem.images))
         .where(
-            MenuItem.shop_id == shop_id,
+            MenuItem.menu_catalog_id == catalog_id,
             MenuItem.category_id.in_(cat_ids),
             MenuItem.is_available == True,
         )
@@ -390,6 +539,7 @@ async def record_scan(
         try:
             async with async_session_factory() as bg_db:
                 await AnalyticsService(bg_db).record_qr_scan(shop.id, ip=ip, ua=ua, ref=ref)
+                await bg_db.commit()
         except Exception:
             pass
 
@@ -419,6 +569,7 @@ async def record_view(
         try:
             async with async_session_factory() as bg_db:
                 await AnalyticsService(bg_db).record_menu_view(shop.id, item_id=item_id, category_id=cat_id, ip=ip)
+                await bg_db.commit()
         except Exception:
             pass
 
@@ -443,6 +594,7 @@ async def record_search(
         try:
             async with async_session_factory() as bg_db:
                 await AnalyticsService(bg_db).record_search(shop.id, data.term, data.result_count)
+                await bg_db.commit()
         except Exception:
             pass
 
@@ -506,7 +658,7 @@ async def submit_review(
 
     menu_service = MenuService(db)
     item = await menu_service.get_menu_item(item_id)
-    if not item or item.shop_id != shop.id:
+    if not item or item.menu_catalog_id != shop.menu_catalog_id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
     client_ip = request.client.host if request.client else "unknown"
@@ -613,7 +765,7 @@ async def get_public_item(
 
     menu_service = MenuService(db)
     item = await menu_service.get_menu_item(item_id)
-    if not item or item.shop_id != shop.id:
+    if not item or item.menu_catalog_id != shop.menu_catalog_id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
     result = await db.execute(
@@ -661,25 +813,25 @@ async def get_public_shop_qr(
     from app.models.qr_code import QRCode
     from app.models.shop import Shop
     
+    # Verify the shop exists
+    shop_res = await db.execute(select(Shop).where(Shop.id == shop_id))
+    shop = shop_res.scalar_one_or_none()
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+
     result = await db.execute(
-        select(QRCode).where(QRCode.shop_id == shop_id)
+        select(QRCode).where(QRCode.user_id == shop.user_id)
     )
     qr = result.scalar_one_or_none()
     
     if not qr:
-        # Verify the shop exists
-        shop_res = await db.execute(select(Shop).where(Shop.id == shop_id))
-        shop = shop_res.scalar_one_or_none()
-        if not shop:
-            raise HTTPException(status_code=404, detail="Shop not found")
-            
         from app.core.config import get_settings
         settings = get_settings()
         
         qr_url = f"{settings.FRONTEND_URL}/shop/{shop.id}?type=qr"
         
         qr = QRCode(
-            shop_id=shop.id,
+            user_id=shop.user_id,
             qr_url=qr_url,
             qr_image_url=None,
             qr_svg_data=None,
@@ -868,7 +1020,10 @@ async def verify_public_order_payment(
     from app.models.order import Order
 
     settings = get_settings()
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
 
     razorpay_order_id = body.get("razorpay_order_id", "")
     razorpay_payment_id = body.get("razorpay_payment_id", "")
@@ -909,15 +1064,49 @@ async def verify_public_order_payment(
     if not is_valid:
         raise HTTPException(status_code=400, detail="Payment verification failed. Invalid signature.")
 
-    order.payment_status = "paid"
-    order.razorpay_order_id = razorpay_order_id
-    order.payment_session_id = razorpay_payment_id
+    # Optimistic Concurrency Control Check
+    if order.order_status == "CANCELLED":
+        # The order was cancelled (likely by the payment timeout background job).
+        # We must trigger an automatic refund!
+        if not settings.MOCK_PAYMENT_MODE:
+            try:
+                import razorpay
+                client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+                client.payment.refund(razorpay_payment_id, {
+                    "amount": int(order.total_amount * 100)
+                })
+                print(f"Auto-refunded {razorpay_payment_id} because order {order.id} was already cancelled.")
+            except Exception as e:
+                print(f"Failed to auto-refund cancelled order {order.id}: {e}")
+        
+        # We still return the response so the frontend knows, but it's fundamentally cancelled
+        order.payment_status = "refunded"
+        order.payment_session_id = razorpay_payment_id
+        await db.commit()
+        return OrderResponse.model_validate(order)
 
-    # Fetch shop settings to determine auto accept status
-    from app.models.shop_settings import ShopSettings
-    settings_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
-    shop_settings = settings_res.scalar_one_or_none()
-    order.order_status = "accepted" if (shop_settings and shop_settings.auto_accept_orders) else "pending"
+    # If it wasn't cancelled, we can safely mark it as PAID!
+    from sqlalchemy import update
+    update_stmt = (
+        update(Order)
+        .where(Order.id == order.id, Order.version == order.version)
+        .values(
+            payment_status="paid",
+            order_status="PAID",
+            razorpay_order_id=razorpay_order_id,
+            payment_session_id=razorpay_payment_id,
+            version=Order.version + 1
+        )
+    )
+    res = await db.execute(update_stmt)
+    if res.rowcount == 0:
+        # OCC Failure! State changed while we were verifying.
+        # Could just throw a 409 Conflict so the frontend retries.
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Order state changed during verification. Please try again.")
+
+    # Refresh order object
+    await db.refresh(order)
 
     # Award 0.15 Contest Credits if order total >= ₹100
     from app.services.order_service import OrderService
@@ -936,7 +1125,9 @@ async def verify_public_order_payment(
     )
 
     # Broadcast websocket event to merchant dashboard
-    from app.services.websocket_manager import manager
+    from app.services.websocket_manager import manager, customer_manager
+    from app.services.order_service import get_customer_user_id
+    
     ws_msg = {
         "event": "NEW_ORDER",
         "type": "NEW_ORDER",
@@ -945,6 +1136,18 @@ async def verify_public_order_payment(
         "message": f"New paid order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})"
     }
     await manager.broadcast_to_shop(str(shop_id), ws_msg)
+    
+    # Broadcast to customer websocket
+    cust_msg = {
+        "type": "order_update",
+        "order_id": str(order.id),
+        "status": order.order_status,
+        "payment_status": order.payment_status,
+        "customer_phone": order.customer_phone,
+    }
+    clean_phone = "".join(filter(str.isdigit, order.customer_phone))
+    customer_ws_id = get_customer_user_id(clean_phone)
+    await customer_manager.broadcast_to_customer(customer_ws_id, cust_msg)
 
     await db.commit()
     await db.refresh(order)
@@ -995,9 +1198,7 @@ async def get_my_orders(
         .options(selectinload(Order.items))
         .where(
             Order.shop_id == shop_id,
-            Order.customer_phone == mobile_number,
-            Order.order_status != "payment_pending",
-            not_(and_(Order.payment_method == "online", Order.payment_status != "paid"))
+            Order.customer_phone == mobile_number
         )
         .order_by(Order.created_at.desc())
     )

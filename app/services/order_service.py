@@ -11,6 +11,7 @@ from app.models.order import Order, OrderItem
 from app.models.shop import Shop
 from app.models.shop_settings import ShopSettings
 from app.schemas.order import OrderCreate
+from typing import List, Optional
 
 
 def get_customer_user_id(phone: str) -> str:
@@ -54,10 +55,14 @@ class OrderService:
             raise HTTPException(status_code=400, detail="Dine-in option is not available")
 
         # 3. Determine status
-        if data.payment_method == "online":
-            initial_status = "payment_pending"
+        # If auto-accept is on, we skip PENDING_VENDOR and go straight to PAYMENT_PENDING (if online) or PAID (if cash/upi, actually for cash it usually skips payment to PREPARING, but for now we follow the simple state machine).
+        # Actually, let's keep it robust for the new state machine:
+        if settings.auto_accept_orders:
+            # Skip PENDING_VENDOR
+            initial_status = "PAYMENT_PENDING"
         else:
-            initial_status = "accepted" if settings.auto_accept_orders else "pending"
+            # Standard initial status requires vendor acceptance
+            initial_status = "PENDING_VENDOR"
 
         # 1. Validate that all menu items exist in the database
         from app.models.menu_item import MenuItem
@@ -81,7 +86,7 @@ class OrderService:
                 )
 
         # 2. Update customer's saved delivery address if provided
-        if data.order_type == "delivery" and data.delivery_address:
+        if data.order_type == "delivery" and data.delivery_address and data.customer_phone:
             from app.models.customer import Customer
             phone_variants = [data.customer_phone]
             if data.customer_phone.startswith("+91"):
@@ -113,11 +118,13 @@ class OrderService:
             items_list.append(item)
 
         # 4. Create Order model instance
+        from datetime import datetime, timezone, timedelta
+        
         order = Order(
             id=order_id,
             shop_id=shop.id,
-            customer_name=data.customer_name,
-            customer_phone=data.customer_phone,
+            customer_name=data.customer_name or "Walk-in",
+            customer_phone=data.customer_phone or "",
             order_type=data.order_type,
             table_number=data.table_number,
             delivery_address=data.delivery_address,
@@ -127,6 +134,10 @@ class OrderService:
             total_amount=data.total_amount,
             items=items_list,
         )
+        
+        if initial_status == "PAYMENT_PENDING":
+            order.payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+            
         self.db.add(order)
 
         # Create notification for merchant (for non-online payment methods like cash/upi)
@@ -303,20 +314,90 @@ class OrderService:
             raise HTTPException(status_code=404, detail="Order not found")
         return order
 
-    async def get_shop_orders(self, shop_id: uuid.UUID) -> list[Order]:
-        """Fetch all orders placed in a shop, sorted by creation date (excluding unpaid online orders)."""
-        from sqlalchemy import not_, and_
+    async def get_shop_orders(
+        self,
+        shop_id: uuid.UUID,
+        skip: int = 0,
+        limit: int = 20,
+        status_filter: Optional[str] = "all",
+        type_filter: Optional[str] = "all",
+        search: Optional[str] = None
+    ) -> tuple[list[Order], int, bool]:
+        """Fetch shop orders with SQL filtering, search, and pagination."""
+        from sqlalchemy import func, or_, cast, String
+        conditions = [Order.shop_id == shop_id]
+
+        if status_filter and status_filter != "all":
+            if status_filter == "new":
+                conditions.append(Order.order_status.in_(["PENDING_VENDOR", "pending"]))
+            elif status_filter == "awaiting_payment":
+                conditions.append(Order.order_status.in_(["PAYMENT_PENDING"]))
+            elif status_filter == "accepted":
+                conditions.append(Order.order_status.in_(["PAID", "accepted"]))
+            elif status_filter == "preparing":
+                conditions.append(Order.order_status.in_(["PREPARING", "READY"]))
+            elif status_filter == "completed":
+                conditions.append(Order.order_status.in_(["DELIVERED", "COMPLETED", "completed"]))
+            elif status_filter == "cancelled":
+                conditions.append(Order.order_status.in_(["CANCELLED", "OUT_FOR_DELIVERY", "rejected", "cancelled"]))
+
+        if type_filter and type_filter != "all":
+            conditions.append(Order.order_type == type_filter)
+
+        if search and search.strip():
+            term = f"%{search.strip()}%"
+            conditions.append(
+                or_(
+                    Order.customer_name.ilike(term),
+                    Order.customer_phone.ilike(term),
+                    cast(Order.id, String).ilike(term),
+                    Order.table_number.ilike(term),
+                    Order.delivery_address.ilike(term)
+                )
+            )
+
+        total_count_q = await self.db.execute(select(func.count(Order.id)).where(*conditions))
+        total_count = total_count_q.scalar() or 0
+
         result = await self.db.execute(
             select(Order)
             .options(selectinload(Order.items))
-            .where(
-                Order.shop_id == shop_id,
-                Order.order_status != "payment_pending",
-                not_(and_(Order.payment_method == "online", Order.payment_status != "paid"))
-            )
+            .where(*conditions)
             .order_by(Order.created_at.desc())
+            .offset(skip)
+            .limit(limit)
         )
-        return list(result.scalars().all())
+        orders = list(result.scalars().all())
+        has_more = (skip + len(orders)) < total_count
+
+        return orders, total_count, has_more
+
+    async def get_status_counts(self, shop_id: uuid.UUID) -> dict[str, int]:
+        """Calculate shop-wide counts for each status tab."""
+        from sqlalchemy import func
+        base = select(Order.order_status, func.count(Order.id)).where(Order.shop_id == shop_id).group_by(Order.order_status)
+        result = await self.db.execute(base)
+        rows = result.all()
+
+        counts_map = {row[0]: row[1] for row in rows}
+
+        new_count = counts_map.get("PENDING_VENDOR", 0) + counts_map.get("pending", 0)
+        awaiting_payment_count = counts_map.get("PAYMENT_PENDING", 0)
+        accepted_count = counts_map.get("PAID", 0) + counts_map.get("accepted", 0)
+        preparing_count = counts_map.get("PREPARING", 0) + counts_map.get("READY", 0)
+        completed_count = counts_map.get("DELIVERED", 0) + counts_map.get("COMPLETED", 0) + counts_map.get("completed", 0)
+        cancelled_count = counts_map.get("CANCELLED", 0) + counts_map.get("OUT_FOR_DELIVERY", 0) + counts_map.get("rejected", 0) + counts_map.get("cancelled", 0)
+        all_count = sum(counts_map.values())
+
+        return {
+            "all": all_count,
+            "new": new_count,
+            "awaiting_payment": awaiting_payment_count,
+            "accepted": accepted_count,
+            "preparing": preparing_count,
+            "completed": completed_count,
+            "cancelled": cancelled_count,
+        }
 
     async def get_orders_by_user(self, user_id: uuid.UUID) -> list[Order]:
         """Fetch all orders for a merchant's shop based on user ID."""
@@ -327,23 +408,20 @@ class OrderService:
             raise HTTPException(status_code=404, detail="Shop not found")
         return await self.get_shop_orders(shop.id)
 
-    async def update_payment_status(self, order_id: uuid.UUID, payment_status: str, user_id: uuid.UUID) -> Order:
+    async def update_payment_status(self, order_id: uuid.UUID, payment_status: str, shop_id: uuid.UUID) -> Order:
         """Update the payment status of an order (merchant only). If 'refunded' and paid online, triggers Cashfree refund."""
         from app.models.shop_settings import ShopSettings
         import httpx
-        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
-        shop = result.scalar_one_or_none()
-        if not shop:
-            raise HTTPException(status_code=403, detail="Not authorized")
-
+        
+        # Verify order belongs to shop
         order = await self.get_order_by_id(order_id)
-        if order.shop_id != shop.id:
+        if order.shop_id != shop_id:
             raise HTTPException(status_code=403, detail="Not authorized")
 
         # Auto-refund via Cashfree if marking as refunded and payment was online
         if payment_status == "refunded" and order.payment_method == "online" and order.cashfree_order_id:
             settings_result = await self.db.execute(
-                select(ShopSettings).where(ShopSettings.shop_id == shop.id)
+                select(ShopSettings).where(ShopSettings.shop_id == shop_id)
             )
             settings = settings_result.scalar_one_or_none()
 
@@ -380,24 +458,55 @@ class OrderService:
                     raise HTTPException(status_code=502, detail=f"Could not reach Cashfree: {str(e)}")
 
         order.payment_status = payment_status
+        
+        # If manually marked as paid, advance the order status automatically
+        if payment_status.lower() == "paid" and order.order_status == "PAYMENT_PENDING":
+            order.order_status = "PAID"
+            order.payment_expires_at = None
+            
         return order
 
-    async def update_order_status(self, order_id: uuid.UUID, status: str, user_id: uuid.UUID) -> Order:
+    async def update_order_status(self, order_id: uuid.UUID, status: str, shop_id: uuid.UUID, cancellation_reason: str = None, user_id: Optional[uuid.UUID] = None) -> Order:
         """Update the status of an order (merchant only)."""
-        # Ensure shop belongs to merchant
-        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
-        shop = result.scalar_one_or_none()
-        if not shop:
+        
+        order = await self.get_order_by_id(order_id)
+        if order.shop_id != shop_id:
             raise HTTPException(status_code=403, detail="Not authorized")
 
-        order = await self.get_order_by_id(order_id)
-        if order.shop_id != shop.id:
-            raise HTTPException(status_code=403, detail="Not authorized")
+        current_status = order.order_status
+        status = status.upper()
+
+        valid_transitions = {
+            "PENDING_VENDOR": ["PAYMENT_PENDING", "CANCELLED"],
+            "PAYMENT_PENDING": ["PAID", "CANCELLED"],
+            "PAID": ["PREPARING", "CANCELLED"],
+            "PREPARING": ["READY", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"],
+            "READY": ["OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"],
+            "OUT_FOR_DELIVERY": ["DELIVERED", "CANCELLED"],
+            # Fallbacks for legacy/current app usage:
+            "PENDING": ["ACCEPTED", "REJECTED", "CANCELLED", "PAYMENT_PENDING"],
+            "ACCEPTED": ["COMPLETED", "CANCELLED"],
+        }
+        
+        # We don't enforce strict transitions if current_status is not in our map (legacy)
+        # But we do enforce payment checks
+        if status == "PREPARING" and order.payment_status.lower() != "paid" and order.payment_method.lower() != "cash":
+            raise HTTPException(status_code=400, detail="Cannot start preparation until payment is confirmed.")
 
         order.order_status = status
         
+        if status == "PAYMENT_PENDING":
+            from datetime import timedelta, datetime, timezone
+            order.payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        else:
+            # Clear expiry if we move past PAYMENT_PENDING (e.g. to PAID or CANCELLED)
+            order.payment_expires_at = None
+        
+        if status == "CANCELLED":
+            order.cancellation_reason = cancellation_reason or order.cancellation_reason or "VENDOR_REJECTED"
+
         # Award 0.15 Contest Credits if completed order total >= ₹100
-        if status.lower() == "completed":
+        if status in ["COMPLETED", "DELIVERED"]:
             await self._award_contest_credits_if_eligible(order)
 
         # Trigger notification log
@@ -414,7 +523,7 @@ class OrderService:
         from app.services.notification_service import NotificationService
         notif_service = NotificationService(self.db)
         await notif_service.create_notification(
-            shop_id=shop.id,
+            shop_id=shop_id,
             type="ORDER_STATUS",
             title=f"Order #{order.id.hex[:8]} {status.capitalize()}",
             message=f"Order status has been updated to {status}.",
@@ -428,15 +537,14 @@ class OrderService:
             "order_id": str(order.id),
             "status": order.order_status,
             "payment_status": order.payment_status,
-            "customer_phone": order.customer_phone
+            "customer_phone": order.customer_phone,
+            "payment_expires_at": order.payment_expires_at.isoformat() if order.payment_expires_at else None
         }
-        await customer_manager.broadcast_to_customer(order.customer_phone, ws_msg)
         
+        # Broadcast to hashed customer user ID
         clean_phone = "".join(filter(str.isdigit, order.customer_phone))
-        if len(clean_phone) > 10:
-            clean_phone = clean_phone[-10:]
-        if clean_phone != order.customer_phone:
-            await customer_manager.broadcast_to_customer(clean_phone, ws_msg)
+        customer_ws_id = get_customer_user_id(clean_phone)
+        await customer_manager.broadcast_to_customer(customer_ws_id, ws_msg)
 
         # Broadcast to hashed customer user ID
         user_id = get_customer_user_id(clean_phone)
@@ -477,4 +585,40 @@ class OrderService:
                 else:
                     credit.credits = round(float(credit.credits) + 0.15, 2)
                 order.credits_rewarded = True
-        
+
+    async def append_items_to_order(self, order_id: uuid.UUID, shop_id: uuid.UUID, new_items: List[dict]) -> Order:
+        """Append new order items to an existing active order and update total amount."""
+        result = await self.db.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(Order.id == order_id, Order.shop_id == shop_id)
+        )
+        order = result.scalar_one_or_none()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        if order.order_status in ["completed", "cancelled"]:
+            raise HTTPException(status_code=400, detail="Cannot add items to a completed or cancelled order")
+
+        added_amount = 0.0
+        for it in new_items:
+            item_price = float(it.get("price", 0.0))
+            quantity = int(it.get("quantity", 1))
+            added_amount += item_price * quantity
+
+            item = OrderItem(
+                id=uuid.uuid4(),
+                order_id=order.id,
+                menu_item_id=uuid.UUID(str(it["menu_item_id"])) if isinstance(it["menu_item_id"], str) else it["menu_item_id"],
+                name=it["name"],
+                quantity=quantity,
+                price=item_price,
+                variant_info=it.get("variant_info"),
+                addons_info=it.get("addons_info"),
+            )
+            self.db.add(item)
+
+        order.total_amount = float(order.total_amount or 0.0) + added_amount
+        await self.db.flush()
+        return order
+

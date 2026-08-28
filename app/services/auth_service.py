@@ -24,13 +24,32 @@ class AuthService:
 
     async def get_or_create_user(self, email: str) -> User:
         """Get existing user or create a new one by email."""
-        result = await self.db.execute(select(User).where(User.email == email))
+        clean_email = email.strip().lower()
+        result = await self.db.execute(select(User).where(User.email == clean_email))
         user = result.scalar_one_or_none()
 
         if not user:
-            user = User(email=email, role="owner")
+            user = User(email=clean_email, role="owner")
             self.db.add(user)
             await self.db.flush()
+            
+            # Check if this user was invited as an employee
+            from app.models.employee import Employee
+            from sqlalchemy import update
+            
+            emp_stmt = select(Employee).where(Employee.email == clean_email)
+            emp_res = await self.db.execute(emp_stmt)
+            employees = emp_res.scalars().all()
+            
+            if employees:
+                # Link user_id to all employee records
+                await self.db.execute(
+                    update(Employee)
+                    .where(Employee.email == clean_email)
+                    .values(user_id=user.id)
+                )
+                user.role = "employee"
+                await self.db.flush()
 
         return user
 

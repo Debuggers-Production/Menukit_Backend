@@ -20,9 +20,14 @@ from app.models.notification import Notification
 from app.models.subscription import Subscription, PaymentTransaction
 from app.models.contest import Contest, ContestParticipation, ContestCredit, ContestLike, ContestComment, ContestCommentLike
 from app.models.order import Order, OrderItem
+from app.models.oauth import OAuthClient, OAuthAuthorizationCode, OAuthRefreshToken
+from app.models.employee import Employee
+from app.models.menu_catalog import MenuCatalog
+from app.models.branch_item_override import BranchItemOverride
 
 __all__ = [
     "User",
+    "Employee",
     "OTPCode",
     "Session",
     "Shop",
@@ -52,4 +57,9 @@ __all__ = [
     "ContestCommentLike",
     "Order",
     "OrderItem",
+    "OAuthClient",
+    "OAuthAuthorizationCode",
+    "OAuthRefreshToken",
+    "MenuCatalog",
+    "BranchItemOverride",
 ]

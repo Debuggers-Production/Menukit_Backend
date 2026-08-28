@@ -3,15 +3,20 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
-    auth, shops, categories, menu_items,
+    auth, shops, categories, menu_items, employees,
     upload, qr, analytics, public, admin, discounts, bulk_upload,
-    customers, memberships, notifications, subscription, seo, order, contests, settlements, whatsapp, razorpay_webhook
+    customers, memberships, notifications, subscription, seo, order, contests, settlements, whatsapp, razorpay_webhook, mcp_web_auth,
+    oauth, well_known
 )
 
 api_router = APIRouter()
 
+api_router.include_router(well_known.router)
+api_router.include_router(oauth.router)
 api_router.include_router(auth.router)
+api_router.include_router(mcp_web_auth.router)
 api_router.include_router(shops.router)
+api_router.include_router(employees.router)
 api_router.include_router(categories.router)
 api_router.include_router(menu_items.router)
 api_router.include_router(upload.router)

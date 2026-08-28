@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -149,14 +149,38 @@ async def delete_contest(
     await db.commit()
     return {"status": "success", "message": "Contest deleted successfully"}
 
-@router.get("/shop/{shop_id}", response_model=List[ContestResponse])
-async def get_shop_contests(
+@router.get("/shop/{shop_id}/status-counts")
+async def get_shop_contest_status_counts(
     shop_id: uuid.UUID,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all contests for a shop."""
+    """Get accurate counts for shop's ongoing, completed, and cancelled contests."""
     service = ContestService(db)
-    contests = await service.get_contests_by_shop(shop_id)
+    counts = await service.get_status_counts(shop_id)
+    return counts
+
+
+@router.get("/shop/{shop_id}", response_model=List[ContestResponse])
+async def get_shop_contests(
+    shop_id: uuid.UUID,
+    response: Response,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    status_filter: Optional[str] = Query("all"),
+    search: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get contests for a shop with backend search, filter, and pagination."""
+    service = ContestService(db)
+    contests, total_count, has_more = await service.get_contests_by_shop(
+        shop_id,
+        skip=skip,
+        limit=limit,
+        status_filter=status_filter,
+        search=search
+    )
+    response.headers["x-total-count"] = str(total_count)
+    response.headers["x-has-more"] = "true" if has_more else "false"
     return [_contest_response(c) for c in contests]
 
 

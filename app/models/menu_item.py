@@ -13,8 +13,8 @@ class MenuItem(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "menu_items"
 
-    shop_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True
+    menu_catalog_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("menu_catalogs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     category_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("categories.id", ondelete="CASCADE"), nullable=False, index=True
@@ -39,7 +39,8 @@ class MenuItem(Base, UUIDMixin, TimestampMixin):
     custom_time_to: Mapped[str | None] = mapped_column(String(5), nullable=True)
 
     # Relationships
-    shop = relationship("Shop", back_populates="menu_items")
+    menu_catalog = relationship("MenuCatalog", back_populates="menu_items")
+    branch_overrides = relationship("BranchItemOverride", back_populates="menu_item", lazy="dynamic", cascade="all, delete-orphan")
     category = relationship("Category", back_populates="menu_items")
     images = relationship(
         "MenuImage", back_populates="menu_item", lazy="selectin",

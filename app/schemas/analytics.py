@@ -105,6 +105,12 @@ class OrderSettlementInvoice(BaseModel):
     created_at: str
 
 
+class TopOrderedCategory(BaseModel):
+    """Top ordered category with revenue."""
+    name: str
+    total_quantity: int
+    total_revenue: float
+
 class RevenueAnalyticsSummary(BaseModel):
     """Revenue & Sales summary analytics."""
     total_gross_revenue: float
@@ -115,6 +121,7 @@ class RevenueAnalyticsSummary(BaseModel):
     most_ordered_food: Optional[TopOrderedFoodItem] = None
     growth_ratio: float
     top_ordered_items: List[TopOrderedFoodItem] = []
+    top_ordered_categories: List[TopOrderedCategory] = []
     daily_sales: List[DailySalesReportPoint] = []
     recent_invoices: List[OrderSettlementInvoice] = []
 

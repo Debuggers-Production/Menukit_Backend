@@ -1,17 +1,31 @@
 """Authentication schemas."""
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 
 
 class OTPRequest(BaseModel):
     """Request OTP for email."""
     email: EmailStr
 
+    @field_validator('email', mode='before')
+    @classmethod
+    def lowercase_email(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
 
 class OTPVerify(BaseModel):
     """Verify OTP code."""
     email: EmailStr
     code: str
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def lowercase_email(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
 
 
 class TokenResponse(BaseModel):

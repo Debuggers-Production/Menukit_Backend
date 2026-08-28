@@ -8,11 +8,14 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+import logging
 from app.models.shop import Shop
 from app.models.shop_settings import ShopSettings
 from app.models.theme_settings import ThemeSettings
 from app.models.activity_log import ActivityLog
 from app.core.exceptions import NotFoundException, ConflictException
+
+logger = logging.getLogger(__name__)
 
 
 class ShopService:
@@ -35,13 +38,9 @@ class ShopService:
             counter += 1
 
     async def create_shop(self, user_id: uuid.UUID, data: dict) -> Shop:
-        """Create a new shop for a user."""
-        # Check if user already has a shop
-        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
-        existing = result.scalar_one_or_none()
-        if existing:
-            raise ConflictException("You already have a shop. Update it instead.")
+        from app.models.menu_catalog import MenuCatalog
 
+        clone_from_shop_id = data.pop("clone_from_shop_id", None)
         slug = await self._generate_unique_slug(data["name"])
 
         shop = Shop(
@@ -71,18 +70,86 @@ class ShopService:
         self.db.add(activity)
 
         await self.db.flush()
+
+        if clone_from_shop_id:
+            # --- BRANCH CREATION: Share the existing catalog ---
+            # Resolve the source shop's catalog_id
+            result = await self.db.execute(
+                select(Shop.menu_catalog_id).where(Shop.id == clone_from_shop_id)
+            )
+            source_catalog_id = result.scalar_one_or_none()
+
+            if source_catalog_id:
+                # Point the new branch at the same shared catalog
+                shop.menu_catalog_id = source_catalog_id
+            else:
+                # Source shop has no catalog yet (edge case) – create one for it then share
+                source_shop = await self.db.get(Shop, clone_from_shop_id)
+                catalog = MenuCatalog(user_id=user_id, name=f"{source_shop.name} Menu")
+                self.db.add(catalog)
+                await self.db.flush()
+                source_shop.menu_catalog_id = catalog.id
+                shop.menu_catalog_id = catalog.id
+        else:
+            # --- FIRST SHOP: Create a fresh, owned catalog ---
+            catalog = MenuCatalog(user_id=user_id, name=f"{shop.name} Menu")
+            self.db.add(catalog)
+            await self.db.flush()
+            shop.menu_catalog_id = catalog.id
+
         await self.db.commit()
         await self.db.refresh(shop)
         return shop
 
     async def get_shop_by_user(self, user_id: uuid.UUID) -> Optional[Shop]:
-        """Get shop owned by user."""
+        """Get the first shop owned by user."""
         result = await self.db.execute(
             select(Shop)
             .options(selectinload(Shop.settings), selectinload(Shop.theme))
             .where(Shop.user_id == user_id)
+            .order_by(Shop.created_at.asc())
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
+
+    async def get_shops_for_user(self, user_id: uuid.UUID) -> dict:
+        """Get all shops a user has access to (owned + employed)."""
+        from app.models.employee import Employee
+        from app.models.user import User
+        
+        user = await self.db.get(User, user_id)
+        
+        owned_result = await self.db.execute(
+            select(Shop)
+            .options(selectinload(Shop.settings), selectinload(Shop.theme))
+            .where(Shop.user_id == user_id)
+        )
+        owned_shops = owned_result.scalars().all()
+        
+        if not user:
+            return {"owned": owned_shops, "employed": []}
+
+        emp_result = await self.db.execute(
+            select(Employee)
+            .options(selectinload(Employee.shop).selectinload(Shop.settings))
+            .options(selectinload(Employee.shop).selectinload(Shop.theme))
+            .where(Employee.email == user.email, Employee.status == "active")
+        )
+        employments = emp_result.scalars().all()
+        
+        # Retroactively fix user_id if it's missing
+        needs_commit = False
+        for emp in employments:
+            if not emp.user_id:
+                emp.user_id = user.id
+                needs_commit = True
+        
+        if needs_commit:
+            await self.db.commit()
+        
+        return {
+            "owned": owned_shops,
+            "employed": [{"shop": emp.shop, "permissions": emp.permissions} for emp in employments if emp.shop]
+        }
 
     async def get_shop_by_slug(self, slug: str) -> Optional[Shop]:
         """Get shop by its URL slug."""
@@ -91,7 +158,6 @@ class ShopService:
             .options(
                 selectinload(Shop.settings),
                 selectinload(Shop.theme),
-                selectinload(Shop.categories),
             )
             .where(Shop.slug == slug, Shop.is_active == True)
         )
@@ -104,19 +170,35 @@ class ShopService:
             .options(
                 selectinload(Shop.settings),
                 selectinload(Shop.theme),
-                selectinload(Shop.categories),
             )
             .where(Shop.id == shop_id, Shop.is_active == True)
         )
         return result.scalar_one_or_none()
 
-    async def update_shop(self, user_id: uuid.UUID, data: dict) -> Shop:
+    async def update_shop(self, shop_id: uuid.UUID, user_id: uuid.UUID, data: dict) -> Shop:
         """Update shop details."""
-        shop = await self.get_shop_by_user(user_id)
+        shop = await self.get_shop_by_id(shop_id)
         if not shop:
             raise NotFoundException("Shop not found")
 
         name_changed = "name" in data and data["name"] and data["name"] != shop.name
+
+        from app.services.upload_service import UploadService
+        upload_service = UploadService()
+
+        # Delete old logo if a new logo_url is provided
+        if "logo_url" in data and data["logo_url"] and shop.logo_url and data["logo_url"] != shop.logo_url:
+            try:
+                await upload_service.delete_image_by_url(shop.logo_url)
+            except Exception as e:
+                logger.warning(f"Failed to delete old logo: {e}")
+
+        # Delete old banner if a new banner_url is provided
+        if "banner_url" in data and data["banner_url"] and shop.banner_url and data["banner_url"] != shop.banner_url:
+            try:
+                await upload_service.delete_image_by_url(shop.banner_url)
+            except Exception as e:
+                logger.warning(f"Failed to delete old banner: {e}")
 
         for key, value in data.items():
             if hasattr(shop, key):
@@ -139,9 +221,9 @@ class ShopService:
         await self.db.refresh(shop)
         return shop
 
-    async def update_theme(self, user_id: uuid.UUID, data: dict) -> ThemeSettings:
-        """Update theme settings."""
-        shop = await self.get_shop_by_user(user_id)
+    async def update_theme(self, shop_id: uuid.UUID, user_id: uuid.UUID, data: dict) -> ThemeSettings:
+        """Update shop theme settings."""
+        shop = await self.get_shop_by_id(shop_id)
         if not shop:
             raise NotFoundException("Shop not found")
 
@@ -157,11 +239,15 @@ class ShopService:
         await self.db.flush()
         await self.db.commit()
         await self.db.refresh(shop)
+        
+        from app.database.redis import invalidate_shop_cache
+        await invalidate_shop_cache(str(shop.id))
+        
         return shop.theme
 
-    async def update_settings(self, user_id: uuid.UUID, data: dict) -> ShopSettings:
+    async def update_settings(self, shop_id: uuid.UUID, user_id: uuid.UUID, data: dict) -> ShopSettings:
         """Update shop settings."""
-        shop = await self.get_shop_by_user(user_id)
+        shop = await self.get_shop_by_id(shop_id)
         if not shop:
             raise NotFoundException("Shop not found")
 

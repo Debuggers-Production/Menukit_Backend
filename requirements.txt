@@ -54,3 +54,7 @@ icecream
 
 # Payment
 razorpay
+
+# MCP
+mcp
+fastmcp

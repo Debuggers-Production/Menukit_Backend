@@ -12,8 +12,8 @@ class Category(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "categories"
 
-    shop_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True
+    menu_catalog_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("menu_catalogs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -21,7 +21,7 @@ class Category(Base, UUIDMixin, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships
-    shop = relationship("Shop", back_populates="categories")
+    menu_catalog = relationship("MenuCatalog", back_populates="categories")
     menu_items = relationship(
         "MenuItem", back_populates="category", lazy="selectin",
         cascade="all, delete-orphan", order_by="MenuItem.display_order"

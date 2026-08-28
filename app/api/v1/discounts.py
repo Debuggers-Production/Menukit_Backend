@@ -3,11 +3,11 @@
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends,Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_permission
 from app.schemas.discount import DiscountCreate, DiscountUpdate, DiscountResponse, DiscountReorder
 from app.schemas.common import MessageResponse
 from app.services.discount_service import DiscountService
@@ -21,7 +21,7 @@ def _discount_response(d) -> DiscountResponse:
     """Convert Discount model to response."""
     return DiscountResponse(
         id=str(d.id),
-        shop_id=str(d.shop_id),
+        shop_id=str(d.menu_catalog_id),  # expose catalog_id as shop_id for frontend compat
         title=d.title,
         description=d.description,
         discount_type=d.discount_type,
@@ -46,27 +46,26 @@ def _discount_response(d) -> DiscountResponse:
 @router.post("", response_model=DiscountResponse)
 async def create_discount(
     data: DiscountCreate,
+    shop = Depends(require_permission("discounts", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new discount."""
     service = DiscountService(db)
-    discount = await service.create_discount(user.id, data.model_dump())
+    discount = await service.create_discount(shop.id, user.id, data.model_dump())
     return _discount_response(discount)
 
 
 @router.get("", response_model=List[DiscountResponse])
 async def get_discounts(
-    user: User = Depends(get_current_user),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    shop = Depends(require_permission("discounts", "read")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get all discounts for the shop."""
-    shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_user(user.id)
-    if not shop:
-        return []
+    """Get all discounts for the user's shop with pagination."""
     service = DiscountService(db)
-    discounts = await service.get_discounts(shop.id)
+    discounts = await service.get_discounts(shop.id, skip=skip, limit=limit)
     return [_discount_response(d) for d in discounts]
 
 
@@ -74,60 +73,66 @@ async def get_discounts(
 async def update_discount(
     discount_id: str,
     data: DiscountUpdate,
+    shop = Depends(require_permission("discounts", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a discount."""
     service = DiscountService(db)
     discount = await service.update_discount(
-        user.id, uuid.UUID(discount_id), data.model_dump(exclude_unset=True)
+        shop.id, user.id, uuid.UUID(discount_id), data.model_dump(exclude_unset=True)
     )
     return _discount_response(discount)
 
 
 @router.put("/reorder/batch", response_model=MessageResponse)
+@router.post("/reorder", response_model=MessageResponse)
 async def reorder_discounts(
     data: DiscountReorder,
+    shop = Depends(require_permission("discounts", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Reorder discounts."""
     service = DiscountService(db)
-    await service.reorder_discounts(user.id, data.order)
+    order_list = [
+        {
+            "id": item["id"] if isinstance(item, dict) else getattr(item, "id"),
+            "display_order": item["display_order"] if isinstance(item, dict) else getattr(item, "display_order")
+        }
+        for item in data.order
+    ]
+    await service.reorder_discounts(shop.id, user.id, order_list)
+    await db.commit()
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return MessageResponse(message="Discounts reordered successfully")
 
 
-@router.delete("/{discount_id}", response_model=MessageResponse)
-async def delete_discount(
-    discount_id: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Delete a discount."""
-    service = DiscountService(db)
-    await service.delete_discount(user.id, uuid.UUID(discount_id))
-    return MessageResponse(message="Discount deleted successfully")
-
 @router.delete("/all", response_model=MessageResponse)
 async def delete_all_discounts(
-    user: User = Depends(get_current_user),
+    shop = Depends(require_permission("discounts", "write")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete all discounts for the user's shop."""
-    shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_user(user.id)
-    if not shop:
-        return MessageResponse(message="No shop found")
-
-    from app.models.discount import Discount
-    from sqlalchemy import select
-    
-    stmt = select(Discount).where(Discount.shop_id == shop.id)
-    result = await db.execute(stmt)
-    discounts = result.scalars().all()
+    """Delete all discounts for the user's shop's catalog."""
+    service = DiscountService(db)
+    discounts = await service.get_discounts(shop.id)
     
     for discount in discounts:
         await db.delete(discount)
         
     await db.commit()
     return MessageResponse(message=f"Deleted {len(discounts)} discounts successfully")
+
+
+@router.delete("/{discount_id}", response_model=MessageResponse)
+async def delete_discount(
+    discount_id: str,
+    shop = Depends(require_permission("discounts", "write")),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a discount."""
+    service = DiscountService(db)
+    await service.delete_discount(shop.id, user.id, uuid.UUID(discount_id))
+    return MessageResponse(message="Discount deleted successfully")

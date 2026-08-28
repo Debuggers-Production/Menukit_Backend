@@ -23,44 +23,45 @@ class OTPService:
         """Generate a 6-digit OTP code."""
         return "".join(random.choices(string.digits, k=6))
 
-    async def _check_rate_limit(self, email: str) -> bool:
+    async def _check_rate_limit(self, email: str, rate_limit_type: str = "login") -> bool:
         """Check if the email has exceeded the OTP rate limit."""
-        key = f"{self.rate_prefix}{email}"
+        key = f"{self.rate_prefix}{rate_limit_type}:{email}"
         count = await self.redis.get(key)
-        if count and int(count) >= settings.OTP_MAX_ATTEMPTS:
+        # For deletion, allow up to 10 requests per window
+        max_attempts = 10 if rate_limit_type == "deletion" else settings.OTP_MAX_ATTEMPTS
+        if count and int(count) >= max_attempts:
             return False
         return True
 
-    async def _increment_rate_limit(self, email: str):
+    async def _increment_rate_limit(self, email: str, rate_limit_type: str = "login"):
         """Increment the rate limit counter for an email."""
-        key = f"{self.rate_prefix}{email}"
+        key = f"{self.rate_prefix}{rate_limit_type}:{email}"
         pipe = self.redis.pipeline()
         pipe.incr(key)
         pipe.expire(key, settings.OTP_RATE_LIMIT_SECONDS)
         await pipe.execute()
 
-    async def create_otp(self, email: str) -> Optional[str]:
+    async def create_otp(self, email: str, rate_limit_type: str = "login") -> Optional[str]:
         """Create and store a new OTP for the given email.
 
         Returns the OTP code, or None if rate limited.
         """
-        # Test email bypass check
         clean_email = email.strip().lower()
         if getattr(settings, "ALLOW_TEST_EMAIL", False) and clean_email == getattr(settings, "TEST_EMAIL", "").strip().lower():
             code = getattr(settings, "TEST_EMAIL_OTP", "023576")
-            key = f"{self.prefix}{email}"
+            key = f"{self.prefix}{clean_email}"
             await self.redis.setex(key, settings.OTP_EXPIRE_SECONDS, code)
             return code
 
-        if not await self._check_rate_limit(email):
+        if not await self._check_rate_limit(clean_email, rate_limit_type):
             return None
 
         code = self._generate_code()
-        key = f"{self.prefix}{email}"
+        key = f"{self.prefix}{clean_email}"
 
         # Store OTP in Redis with expiration
         await self.redis.setex(key, settings.OTP_EXPIRE_SECONDS, code)
-        await self._increment_rate_limit(email)
+        await self._increment_rate_limit(clean_email, rate_limit_type)
 
         return code
 
@@ -74,10 +75,10 @@ class OTPService:
             if code.strip() == test_otp:
                 return True
 
-        key = f"{self.prefix}{email}"
+        key = f"{self.prefix}{clean_email}"
         stored_code = await self.redis.get(key)
 
-        if stored_code and stored_code == code:
+        if stored_code and stored_code == code.strip():
             # Delete the OTP after successful verification
             await self.redis.delete(key)
             return True

@@ -12,8 +12,8 @@ class QRCode(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "qr_codes"
 
-    shop_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), unique=True, nullable=False
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
     )
     qr_url: Mapped[str] = mapped_column(String(500), nullable=False)
     qr_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -27,4 +27,4 @@ class QRCode(Base, UUIDMixin, TimestampMixin):
     include_logo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     # Relationships
-    shop = relationship("Shop", back_populates="qr_code")
+    user = relationship("User", back_populates="qr_code")

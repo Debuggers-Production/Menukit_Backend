@@ -69,10 +69,26 @@ class MembershipService:
 
         auto_registered = max(0, total_members - manually_added)
 
+        stmt_repeated = (
+            select(func.count(func.distinct(Customer.id)))
+            .select_from(Customer)
+            .join(MembershipEvent, MembershipEvent.customer_id == Customer.id)
+            .join(CustomerRetailerMembership, (CustomerRetailerMembership.customer_id == Customer.id) & (CustomerRetailerMembership.shop_id == shop_id))
+            .where(
+                MembershipEvent.shop_id == shop_id,
+                MembershipEvent.event_type.in_(["member_matched", "otp_verified", "token_verified", "discount_unlocked"])
+            )
+            .group_by(Customer.id)
+            .having(func.count(func.distinct(func.date(MembershipEvent.event_time))) >= 2)
+        )
+        res_repeated = await self.db.execute(stmt_repeated)
+        repeated_count = len(res_repeated.all())
+
         return {
             "total_members": total_members,
             "manually_added": manually_added,
-            "auto_registered": auto_registered
+            "auto_registered": auto_registered,
+            "repeated_count": repeated_count
         }
 
     async def log_event(self, shop_id: uuid.UUID, event_type: str, customer_id: uuid.UUID | None = None):

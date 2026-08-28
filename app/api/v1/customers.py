@@ -65,7 +65,7 @@ async def verify_mobile(
             
             return response
 
-    # 2. Token invalid or missing, proceed with SMS OTP generation via Message Central
+    # 2. Token invalid or missing, proceed with SMS OTP generation via MSG91
     verification_id = await sms_service.send_otp(data.mobile_number, country_code=data.country_code)
     if not verification_id:
         raise HTTPException(
@@ -108,13 +108,13 @@ async def verify_otp(
         is_valid = True
     elif verification_id_bytes:
         verification_id = verification_id_bytes.decode('utf-8') if isinstance(verification_id_bytes, bytes) else str(verification_id_bytes)
-        is_valid = await sms_service.verify_otp(verification_id, data.code)
+        is_valid = await sms_service.verify_otp(verification_id, data.code, mobile_number=data.mobile_number)
     else:
         logger.error(f"❌ OTP verification failed for {data.mobile_number}: Verification ID expired or not found in Redis (Key: {redis_key})")
 
     if not is_valid:
         if verification_id_bytes:
-            logger.error(f"❌ OTP verification failed for {data.mobile_number}: Code '{data.code}' rejected by Message Central")
+            logger.error(f"❌ OTP verification failed for {data.mobile_number}: Code '{data.code}' rejected by MSG91")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OTP code."

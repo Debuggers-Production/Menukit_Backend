@@ -45,10 +45,31 @@ def decode_token(token: str) -> Optional[dict]:
 
 
 def verify_access_token(token: str) -> Optional[dict]:
-    """Verify an access token and return payload."""
-    payload = decode_token(token)
-    if payload and payload.get("type") == "access":
-        return payload
+    """Verify an access token and return payload. Supports both standard HS256 and OAuth RS256."""
+    try:
+        # First try standard HS256
+        payload = jwt.decode(
+            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+        )
+        if payload and payload.get("type") == "access":
+            return payload
+    except JWTError:
+        pass
+
+    # Try OAuth RS256
+    try:
+        from app.services.oauth_service import get_or_generate_rsa_key
+        _, pub_key = get_or_generate_rsa_key()
+        payload = jwt.decode(
+            token, pub_key, algorithms=["RS256"], audience="menukit-mcp"
+        )
+        if payload and "client_id" in payload:
+            # Normalize for backend deps if needed
+            payload["type"] = "access"
+            return payload
+    except Exception as e:
+        pass
+
     return None
 
 

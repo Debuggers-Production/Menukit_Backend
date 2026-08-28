@@ -14,6 +14,7 @@ class MembershipAnalyticsResponse(BaseModel):
     total_members: int
     manually_added: int
     auto_registered: int
+    repeated_count: int = 0
 
 
 class MembershipEventRequest(BaseModel):

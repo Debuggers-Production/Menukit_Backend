@@ -14,7 +14,7 @@ from app.database.session import get_db
 from app.models.shop import Shop
 from app.models.subscription import Subscription, PaymentTransaction
 from app.core.config import get_settings
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_current_shop_context, require_permission
 from app.models.user import User
 
 router = APIRouter()
@@ -38,8 +38,10 @@ MODULE_PRICES = {
     'member-details': 129,
     'search-data': 69,
     'custom-theme': 69,
-    'analytics-advanced-filters': 59,
-    'analytics-customer-insights': 59,
+    'analytics-advanced': 129,
+    # Legacy fallbacks:
+    'analytics-advanced-filters': 129,
+    'analytics-customer-insights': 129,
 }
 ALL_ACCESS_PRICE = 399
 
@@ -59,7 +61,7 @@ class VerifyPaymentRequest(BaseModel):
 @router.post("/create-order")
 async def create_order(
     request: CreateOrderRequest,
-    current_user: User = Depends(get_current_user),
+    shop: Shop = Depends(require_permission("settings", "write")),
     db: AsyncSession = Depends(get_db)
 ):
     """Creates a Razorpay order for the selected subscription modules."""
@@ -84,11 +86,7 @@ async def create_order(
     gst_on_fee = round(pg_fee * 0.18, 2)
     final_total = round(base_amount + pg_fee + gst_on_fee, 2)
 
-    # Get user's shop
-    stmt = select(Shop).where(Shop.user_id == current_user.id)
-    result = await db.execute(stmt)
-    shop = result.scalar_one_or_none()
-    
+    # Verify shop exists
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
 
@@ -344,7 +342,7 @@ async def verify_payment(
 
 ALL_MARKETPLACE_MODULES = [
     "online-orders", "new-member", "member-count", "member-details", 
-    "search-data", "custom-theme", "analytics-advanced-filters", "analytics-customer-insights"
+    "search-data", "custom-theme", "analytics-advanced"
 ]
 
 
@@ -519,14 +517,10 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
 
 @router.get("/current")
 async def get_current_subscription(
-    current_user: User = Depends(get_current_user),
+    shop: Shop = Depends(get_current_shop_context),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get active subscription details for the current user's shop including trial & grace period status."""
-    stmt = select(Shop).where(Shop.user_id == current_user.id)
-    result = await db.execute(stmt)
-    shop = result.scalar_one_or_none()
-    
+    """Get active subscription details for the current shop including trial & grace period status."""
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
         
@@ -535,14 +529,10 @@ async def get_current_subscription(
 
 @router.get("/history")
 async def get_billing_history(
-    current_user: User = Depends(get_current_user),
+    shop: Shop = Depends(get_current_shop_context),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch past successful subscription payment transactions for current user's shop."""
-    stmt = select(Shop).where(Shop.user_id == current_user.id)
-    result = await db.execute(stmt)
-    shop = result.scalar_one_or_none()
-    
+    """Get all past subscription transactions and invoices."""
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
 
@@ -575,15 +565,19 @@ async def get_billing_history(
 
 
 @router.get("/invoices/{transaction_id}")
-async def get_invoice_html(
+async def get_invoice_details(
     transaction_id: str,
-    current_user: User = Depends(get_current_user),
+    shop: Shop = Depends(get_current_shop_context),
     db: AsyncSession = Depends(get_db)
 ):
-    """Returns printable HTML invoice for a specific transaction."""
+    """Get details for a specific invoice/transaction."""
     from fastapi.responses import HTMLResponse
     from app.services.invoice_service import InvoiceService
 
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+
+    # Fetch transaction
     try:
         tx_uuid = uuid.UUID(transaction_id)
     except ValueError:
@@ -592,14 +586,6 @@ async def get_invoice_html(
     stmt = select(PaymentTransaction).where(PaymentTransaction.id == tx_uuid)
     result = await db.execute(stmt)
     tx = result.scalar_one_or_none()
-
-    if not tx:
-        raise HTTPException(status_code=404, detail="Payment transaction not found")
-
-    # Verify authorization: current_user must own the shop of this transaction
-    stmt = select(Shop).where(Shop.id == tx.shop_id, Shop.user_id == current_user.id)
-    res = await db.execute(stmt)
-    shop = res.scalar_one_or_none()
 
     if not shop and current_user.role != "super_admin":
         raise HTTPException(status_code=403, detail="Not authorized to view this invoice")

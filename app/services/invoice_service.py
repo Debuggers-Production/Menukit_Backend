@@ -11,6 +11,7 @@ MODULE_TITLES = {
     "member-details": "Detailed Member Analytics",
     "search-data": "Customer Search Insights",
     "custom-theme": "Custom Brand Themes",
+    "analytics-advanced": "Advanced Analytics",
     "analytics-advanced-filters": "Advanced Analytics Filters",
     "analytics-customer-insights": "Customer Retention Insights"
 }
@@ -22,6 +23,7 @@ MODULE_PRICES = {
     "member-details": 129.0,
     "search-data": 69.0,
     "custom-theme": 69.0,
+    "analytics-advanced": 129.0,
     "analytics-advanced-filters": 59.0,
     "analytics-customer-insights": 59.0
 }
