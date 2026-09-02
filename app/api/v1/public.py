@@ -914,12 +914,32 @@ async def pay_public_order(
     if order.payment_status == "paid":
         raise HTTPException(status_code=400, detail="Order has already been paid")
 
+    # Map currency symbol or code to standard 3-letter ISO code
+    CURRENCY_MAP = {
+        "₹": "INR", "INR": "INR",
+        "$": "USD", "USD": "USD",
+        "€": "EUR", "EUR": "EUR",
+        "£": "GBP", "GBP": "GBP",
+        "¥": "JPY", "JPY": "JPY",
+        "AED": "AED",
+        "SAR": "SAR",
+        "A$": "AUD", "AUD": "AUD",
+        "C$": "CAD", "CAD": "CAD",
+        "S$": "SGD", "SGD": "SGD",
+        "RM": "MYR", "MYR": "MYR",
+    }
+    raw_curr = (shop_settings.currency if shop_settings and shop_settings.currency else "₹").strip()
+    target_currency = CURRENCY_MAP.get(raw_curr, "INR")
+    curr_symbol = raw_curr if raw_curr in ["₹", "$", "€", "£", "¥", "A$", "C$", "S$", "AED", "SAR", "RM"] else target_currency
+
     base_total = float(order.total_amount)
     platform_fee = round(base_total * 0.02, 2)
     pg_fee = round(base_total * 0.03, 2)
     gst_on_fee = round(pg_fee * 0.18, 2)
     grand_total = round(base_total + platform_fee + pg_fee + gst_on_fee, 2)
-    amount_in_paise = int(round(grand_total * 100))
+
+    is_zero_decimal = target_currency in ["JPY", "KRW", "VND", "CLP"]
+    amount_subunits = int(round(grand_total)) if is_zero_decimal else int(round(grand_total * 100))
 
     # Mock mode
     if settings.MOCK_PAYMENT_MODE:
@@ -934,8 +954,9 @@ async def pay_public_order(
             "pg_fee": pg_fee,
             "gst_on_fee": gst_on_fee,
             "grand_total": grand_total,
-            "amount": amount_in_paise,
-            "currency": "INR",
+            "amount": amount_subunits,
+            "currency": target_currency,
+            "currency_symbol": curr_symbol,
             "mock_mode": True,
         }
 
@@ -943,28 +964,29 @@ async def pay_public_order(
         import razorpay
         client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
         order_data = {
-            "amount": amount_in_paise,
-            "currency": "INR",
+            "amount": amount_subunits,
+            "currency": target_currency,
             "receipt": f"order_{str(order_id)[:8]}_{int(datetime.now(timezone.utc).timestamp())}",
             "notes": {
                 "order_id": str(order_id),
                 "shop_id": str(shop_id),
-                "base_total": str(base_total),
-                "platform_fee": str(platform_fee),
-                "pg_fee": str(pg_fee),
-                "gst_on_fee": str(gst_on_fee),
+                "currency": target_currency,
+                "base_total": f"{curr_symbol}{base_total:.2f}",
+                "platform_fee": f"{curr_symbol}{platform_fee:.2f}",
+                "pg_fee": f"{curr_symbol}{pg_fee:.2f}",
+                "gst_on_fee": f"{curr_symbol}{gst_on_fee:.2f}",
             }
         }
         
         if shop_settings and shop_settings.razorpay_account_id:
-            # Transfer 100% of vendor base amount directly to their Razorpay account (0% gateway deduction)
+            # Transfer 100% of vendor base amount directly to their Razorpay account
             vendor_net_amount = base_total
-            vendor_amount_paise = int(round(vendor_net_amount * 100))
+            vendor_amount_subunits = int(round(vendor_net_amount)) if is_zero_decimal else int(round(vendor_net_amount * 100))
             order_data["transfers"] = [
                 {
                     "account": shop_settings.razorpay_account_id,
-                    "amount": vendor_amount_paise,
-                    "currency": "INR",
+                    "amount": vendor_amount_subunits,
+                    "currency": target_currency,
                     "notes": {
                         "type": "vendor_payout",
                         "order_id": str(order_id)
@@ -972,7 +994,6 @@ async def pay_public_order(
                     "on_hold": 0
                 }
             ]
-
 
         try:
             rzp_order = client.order.create(data=order_data)
@@ -998,6 +1019,7 @@ async def pay_public_order(
             "grand_total": grand_total,
             "amount": rzp_order["amount"],
             "currency": rzp_order["currency"],
+            "currency_symbol": curr_symbol,
             "mock_mode": False,
         }
     except Exception as e:
