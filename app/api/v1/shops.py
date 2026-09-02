@@ -181,7 +181,17 @@ async def update_settings(
     service = ShopService(db)
     settings = await service.update_settings(shop.id, user.id, data.model_dump(exclude_unset=True))
     await db.commit()
+
+    # Invalidate public shop cache
+    try:
+        from app.database.redis import get_redis
+        r_client = await get_redis()
+        await r_client.delete(f"public:shop:{str(shop.id)}")
+    except Exception:
+        pass
+
     return ShopSettingsResponse.model_validate(settings)
+
 
 
 @router.patch("/me/razorpay/bank-account")
@@ -266,7 +276,10 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
             # Automatic disable takeaway and delivery if online_orders is locked/expired
             settings_dict["allow_takeaway"] = False
             settings_dict["allow_delivery"] = False
+            settings_dict["takeaway_enabled"] = False
+            settings_dict["delivery_enabled"] = False
         settings_resp = ShopSettingsResponse(**settings_dict)
+
 
     return ShopResponse(
         id=str(shop.id),

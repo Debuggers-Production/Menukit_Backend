@@ -59,5 +59,8 @@ class PaymentTransaction(Base, UUIDMixin, TimestampMixin):
     purchased_modules: Mapped[list | dict | None] = mapped_column(JSON, nullable=True)
     billing_cycle: Mapped[str | None] = mapped_column(String(20), default="monthly", nullable=True)
 
+    country_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    fx_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Relationships
     shop = relationship("Shop", back_populates="payment_transactions")

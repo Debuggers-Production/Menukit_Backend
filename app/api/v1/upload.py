@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
 from app.database.session import get_db
 from app.core.deps import get_current_user
@@ -69,3 +70,20 @@ async def upload_image(
         "url": result["image_url"],
         "thumbnail": result["thumbnail_url"]
     }
+
+
+class DeleteImageRequest(BaseModel):
+    image_url: str
+
+
+
+@router.delete("/image")
+async def delete_image(
+    data: DeleteImageRequest,
+    user: User = Depends(get_current_user),
+):
+    """Delete an uploaded image from MinIO or local storage."""
+    upload_service = UploadService()
+    await upload_service.delete_image_by_url(data.image_url)
+    return {"success": True, "message": "Image deleted successfully"}
+

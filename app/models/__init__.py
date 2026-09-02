@@ -24,9 +24,12 @@ from app.models.oauth import OAuthClient, OAuthAuthorizationCode, OAuthRefreshTo
 from app.models.employee import Employee
 from app.models.menu_catalog import MenuCatalog
 from app.models.branch_item_override import BranchItemOverride
+from app.models.broadcast import BroadcastCampaign
 
 __all__ = [
+    "BroadcastCampaign",
     "User",
+
     "Employee",
     "OTPCode",
     "Session",

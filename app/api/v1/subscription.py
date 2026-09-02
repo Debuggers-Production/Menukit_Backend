@@ -5,18 +5,22 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+import logging
 from app.database.session import get_db
 from app.models.shop import Shop
 from app.models.subscription import Subscription, PaymentTransaction
 from app.core.config import get_settings
 from app.core.deps import get_current_user, get_current_shop_context, require_permission
 from app.models.user import User
+from app.services.pricing_engine import pricing_engine, MODULE_METADATA, COUNTRIES_CONFIG, BASE_INR_PRICES
+from app.services.geo_service import geo_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 settings = get_settings()
 
@@ -30,26 +34,12 @@ if settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET:
         print("Warning: razorpay package not installed or initialized.")
         razorpay_client = None
 
-# Add-on prices based on frontend UI and menu_landing
-MODULE_PRICES = {
-    'online-orders': 129,
-    'new-member': 99,
-    'member-count': 99,
-    'member-details': 129,
-    'search-data': 69,
-    'custom-theme': 69,
-    'analytics-advanced': 129,
-    # Legacy fallbacks:
-    'analytics-advanced-filters': 129,
-    'analytics-customer-insights': 129,
-}
-ALL_ACCESS_PRICE = 399
-
 
 class CreateOrderRequest(BaseModel):
     is_all_access: bool
     selected_modules: List[str]
     billing_cycle: Optional[str] = "monthly"
+    country_code: Optional[str] = None
 
 
 class VerifyPaymentRequest(BaseModel):
@@ -58,39 +48,72 @@ class VerifyPaymentRequest(BaseModel):
     razorpay_signature: str
 
 
+@router.get("/pricing")
+async def get_public_pricing(
+    request: Request,
+    country: Optional[str] = None,
+    billing_cycle: Optional[str] = "monthly"
+):
+    """
+    Get dynamic, country-specific pricing catalog for all plans and modules.
+    Master India (INR) price is automatically converted using real-time FX and rounded.
+    """
+    country_code = country
+    if not country_code or country_code.strip() == "":
+        country_code = await geo_service.detect_country_code(request)
+    return await pricing_engine.get_pricing_catalog(country_code, billing_cycle or "monthly")
+
+
+@router.get("/detect-country")
+async def detect_visitor_country(request: Request):
+    """Detect visitor's country based on IP geolocation and proxy headers."""
+    country_cfg = await geo_service.get_detected_country_config(request)
+    return {
+        "code": country_cfg.code,
+        "name": country_cfg.name,
+        "currency": country_cfg.currency,
+        "symbol": country_cfg.symbol,
+        "flag": country_cfg.flag,
+    }
+
+
 @router.post("/create-order")
 async def create_order(
     request: CreateOrderRequest,
+    raw_request: Request,
     shop: Shop = Depends(require_permission("settings", "write")),
     db: AsyncSession = Depends(get_db)
 ):
-    """Creates a Razorpay order for the selected subscription modules."""
-    
-    # Calculate base amount on backend
-    base_amount = 0.0
-    if request.is_all_access:
-        base_amount = float(ALL_ACCESS_PRICE)
-    else:
-        for mod in request.selected_modules:
-            if mod in MODULE_PRICES:
-                base_amount += float(MODULE_PRICES[mod])
-                
-    if request.billing_cycle == "yearly":
-        base_amount = round(base_amount * 10.0, 2)  # 2 months free!
+    """
+    Creates a Razorpay / Gateway order using backend single-source-of-truth pricing engine.
+    Validates country, calculates FX rate, rounds to clean price, and secures payment values.
+    """
+    country_code = request.country_code
+    if not country_code or country_code.strip() == "":
+        country_code = await geo_service.detect_country_code(raw_request)
 
-    if base_amount == 0:
-        raise HTTPException(status_code=400, detail="Total amount cannot be zero for subscription.")
+    logger.info(f"Create order payload: is_all_access={request.is_all_access}, modules={request.selected_modules}, country={country_code}, cycle={request.billing_cycle}")
 
-    # Calculate 3% Payment Gateway Fee + 18% GST on PG Fee
-    pg_fee = round(base_amount * 0.03, 2)
-    gst_on_fee = round(pg_fee * 0.18, 2)
-    final_total = round(base_amount + pg_fee + gst_on_fee, 2)
+    # Securely calculate order total on backend
+    calc = await pricing_engine.calculate_order_total(
+        is_all_access=request.is_all_access,
+        selected_modules=request.selected_modules,
+        country_code=country_code,
+        billing_cycle=request.billing_cycle or "monthly"
+    )
 
-    # Verify shop exists
+    logger.info(f"Calculated order total: {calc}")
+
+    if calc["base_subtotal"] <= 0:
+        raise HTTPException(status_code=400, detail="Total amount cannot be zero. Please select the All-Access pack or at least one module.")
+
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
 
-    amount_in_paise = int(round(final_total * 100))  # Razorpay accepts subunits (paise)
+    final_total = calc["final_total"]
+    currency = calc["currency"]
+    amount_subunits = calc["amount_subunits"]
+    fx_rate = calc["fx_rate"]
 
     # 1. Mock / Fallback Mode
     if settings.MOCK_PAYMENT_MODE:
@@ -100,7 +123,9 @@ async def create_order(
             shop_id=shop.id,
             razorpay_order_id=mock_order_id,
             amount=final_total,
-            currency="INR",
+            currency=currency,
+            country_code=calc["country_code"],
+            fx_rate=fx_rate,
             status="created",
             is_all_access=request.is_all_access,
             purchased_modules=request.selected_modules,
@@ -111,12 +136,13 @@ async def create_order(
         
         return {
             "order_id": mock_order_id,
-            "base_amount": base_amount,
-            "pg_fee": pg_fee,
-            "gst_on_fee": gst_on_fee,
+            "base_amount": calc["base_subtotal"],
+            "pg_fee": calc["pg_fee"],
+            "gst_on_fee": calc["gst_on_fee"],
             "final_total": final_total,
-            "amount": amount_in_paise,
-            "currency": "INR",
+            "amount": amount_subunits,
+            "currency": currency,
+            "currency_symbol": calc["currency_symbol"],
             "mock_mode": True,
             "key": settings.RAZORPAY_KEY_ID or "rzp_test_mock"
         }
@@ -124,26 +150,42 @@ async def create_order(
     # 2. Real Razorpay Mode
     try:
         order_data = {
-            "amount": amount_in_paise,
-            "currency": "INR",
+            "amount": amount_subunits,
+            "currency": currency,
             "receipt": f"sub_rcpt_{shop.id.hex[:10]}_{int(datetime.now().timestamp())}",
             "notes": {
                 "shop_id": str(shop.id),
                 "is_all_access": "true" if request.is_all_access else "false",
                 "billing_cycle": request.billing_cycle or "monthly",
-                "base_amount": str(base_amount),
-                "pg_fee": str(pg_fee),
-                "gst_on_fee": str(gst_on_fee)
+                "country_code": calc["country_code"],
+                "currency": currency,
+                "base_amount": str(calc["base_subtotal"]),
+                "pg_fee": str(calc["pg_fee"]),
+                "gst_on_fee": str(calc["gst_on_fee"]),
+                "fx_rate": str(fx_rate)
             }
         }
-        order = razorpay_client.order.create(data=order_data)
+        
+        try:
+            order = razorpay_client.order.create(data=order_data)
+        except Exception as rzp_err:
+            # If foreign currency is not supported by merchant account settings, seamlessly convert to INR
+            if currency != "INR":
+                inr_paise = int(round(calc["inr_equivalent"] * 100))
+                order_data["amount"] = inr_paise
+                order_data["currency"] = "INR"
+                order = razorpay_client.order.create(data=order_data)
+            else:
+                raise rzp_err
         
         # Save pending transaction
         transaction = PaymentTransaction(
             shop_id=shop.id,
             razorpay_order_id=order['id'],
             amount=final_total,
-            currency="INR",
+            currency=currency,
+            country_code=calc["country_code"],
+            fx_rate=fx_rate,
             status="created",
             is_all_access=request.is_all_access,
             purchased_modules=request.selected_modules,
@@ -154,12 +196,13 @@ async def create_order(
         
         return {
             "order_id": order['id'],
-            "base_amount": base_amount,
-            "pg_fee": pg_fee,
-            "gst_on_fee": gst_on_fee,
+            "base_amount": calc["base_subtotal"],
+            "pg_fee": calc["pg_fee"],
+            "gst_on_fee": calc["gst_on_fee"],
             "final_total": final_total,
             "amount": order['amount'],
             "currency": order['currency'],
+            "currency_symbol": calc["currency_symbol"],
             "mock_mode": False,
             "key": settings.RAZORPAY_KEY_ID
         }

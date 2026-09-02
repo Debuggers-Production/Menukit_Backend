@@ -33,7 +33,7 @@ class ContestService:
         shop_id: uuid.UUID,
         image_url: Optional[str] = None
     ):
-        """Send WhatsApp template 'contest_created_template' to all registered customers about a new contest."""
+        """Send WhatsApp template 'contest_created_template' in high-speed concurrent batches to all registered customers."""
         try:
             if not mobiles:
                 return
@@ -43,7 +43,9 @@ class ContestService:
             # Dynamic button URL suffix — appended to base URL in the Meta template
             contest_url_suffix = f"shop/{shop_id}/contest"
 
-            for phone in mobiles:
+            import concurrent.futures
+
+            def send_one(phone: str):
                 try:
                     wa.send_contest_created_template(
                         phone_number=phone,
@@ -55,8 +57,14 @@ class ContestService:
                     )
                 except Exception as e:
                     print(f"Failed to send contest template WhatsApp to {phone}: {e}")
+
+            loop = asyncio.get_running_loop()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [loop.run_in_executor(executor, send_one, p) for p in mobiles]
+                await asyncio.gather(*futures, return_exceptions=True)
         except Exception as err:
             print(f"Error broadcasting contest_created_template WhatsApp: {err}")
+
 
 
     async def _notify_contest_winner(self, customer_id: uuid.UUID, contest_title: str, reward_value: str, shop_name: str):
@@ -133,14 +141,30 @@ class ContestService:
             ends_at=ends_at,
             **data
         )
-        # Fetch customer phones for broadcast prior to session commit
-        mobiles_res = await self.db.execute(select(Customer.mobile_number))
-        mobiles = list(mobiles_res.scalars().all())
+        # Fetch ALL customer phone numbers across the entire platform (global customers + all order records)
+        all_phone_set = set()
+        
+        cust_res = await self.db.execute(select(Customer.mobile_number))
+        for p in cust_res.scalars().all():
+            if p:
+                clean = "".join(filter(str.isdigit, str(p)))
+                if len(clean) >= 10:
+                    all_phone_set.add(clean)
+
+        order_res = await self.db.execute(select(Order.customer_phone).where(Order.customer_phone.isnot(None)).distinct())
+        for p in order_res.scalars().all():
+            if p:
+                clean = "".join(filter(str.isdigit, str(p)))
+                if len(clean) >= 10:
+                    all_phone_set.add(clean)
+
+        mobiles = list(all_phone_set)
 
         self.db.add(contest)
         await self.db.flush()
         await self.db.commit()
         await self.db.refresh(contest)
+
 
         # Construct detailed reward description string for WhatsApp template
         target_item_names = []

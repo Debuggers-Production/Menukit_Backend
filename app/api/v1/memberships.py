@@ -4,8 +4,9 @@ from datetime import datetime
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, text
 from sqlalchemy.orm import joinedload
+
 
 from app.database.session import get_db
 from app.core.deps import get_current_user, require_permission
@@ -218,38 +219,56 @@ async def get_paginated_members(
     total_count = 0
 
     if tab == "repeated":
-        stmt = (
-            select(
-                Customer.id,
-                Customer.name,
-                Customer.mobile_number,
-                func.min(CustomerRetailerMembership.created_at).label("joined_at"),
-                func.count(func.distinct(func.date(MembershipEvent.event_time))).label("visit_count")
+        repeated_query_str = """
+            WITH order_visits AS (
+                SELECT 
+                    RIGHT(REGEXP_REPLACE(customer_phone, '[^0-9]', '', 'g'), 10) as clean_phone,
+                    DATE(created_at) as visit_date
+                FROM orders
+                WHERE shop_id = :sid 
+                  AND UPPER(order_status) NOT IN ('CANCELLED', 'REJECTED')
+                  AND customer_phone IS NOT NULL AND customer_phone != ''
+            ),
+            event_visits AS (
+                SELECT 
+                    RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10) as clean_phone,
+                    DATE(me.event_time) as visit_date
+                FROM membership_events me
+                JOIN customers c ON c.id = me.customer_id
+                WHERE me.shop_id = :sid
+            ),
+            all_visits AS (
+                SELECT clean_phone, visit_date FROM order_visits
+                UNION
+                SELECT clean_phone, visit_date FROM event_visits
             )
-            .join(MembershipEvent, MembershipEvent.customer_id == Customer.id)
-            .join(
-                CustomerRetailerMembership,
-                (CustomerRetailerMembership.customer_id == Customer.id) &
-                (CustomerRetailerMembership.shop_id == shop_id)
-            )
-            .where(
-                MembershipEvent.shop_id == shop_id,
-                MembershipEvent.event_type.in_(["member_matched", "otp_verified", "token_verified", "discount_unlocked"])
-            )
-        )
-
+            SELECT 
+                c.id,
+                c.name,
+                c.mobile_number,
+                MIN(m.created_at) as joined_at,
+                m.is_retailer_added,
+                GREATEST(COUNT(DISTINCT av.visit_date), COUNT(DISTINCT o.id), 1) as visit_count
+            FROM customers c
+            JOIN customer_retailer_memberships m ON m.customer_id = c.id AND m.shop_id = :sid
+            LEFT JOIN all_visits av ON av.clean_phone = RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10)
+            LEFT JOIN orders o ON RIGHT(REGEXP_REPLACE(o.customer_phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10) 
+                              AND o.shop_id = :sid 
+                              AND UPPER(o.order_status) NOT IN ('CANCELLED', 'REJECTED')
+        """
+        params = {"sid": shop_id, "min_visits": min_visits}
         if search and search.strip():
-            term = f"%{search.strip()}%"
-            stmt = stmt.where(or_(Customer.name.ilike(term), Customer.mobile_number.ilike(term)))
+            repeated_query_str += " WHERE (c.name ILIKE :search OR c.mobile_number ILIKE :search)"
+            params["search"] = f"%{search.strip()}%"
 
-        stmt = (
-            stmt.group_by(Customer.id, Customer.name, Customer.mobile_number)
-            .having(func.count(func.distinct(func.date(MembershipEvent.event_time))) >= min_visits)
-            .order_by(func.count(func.distinct(func.date(MembershipEvent.event_time))).desc())
-        )
+        repeated_query_str += """
+            GROUP BY c.id, c.name, c.mobile_number, m.is_retailer_added
+            HAVING COUNT(DISTINCT av.visit_date) >= :min_visits OR COUNT(DISTINCT o.id) >= :min_visits
+            ORDER BY GREATEST(COUNT(DISTINCT av.visit_date), COUNT(DISTINCT o.id)) DESC, MIN(m.created_at) DESC
+        """
 
-        result = await db.execute(stmt)
-        all_rows = result.all()
+        result = await db.execute(text(repeated_query_str), params)
+        all_rows = result.fetchall()
         total_count = len(all_rows)
         paginated_rows = all_rows[skip : skip + limit]
 
@@ -259,50 +278,73 @@ async def get_paginated_members(
                 name=r.name,
                 mobile_number=r.mobile_number,
                 joined_at=r.joined_at,
-                is_retailer_added=False,
+                is_retailer_added=r.is_retailer_added,
                 visit_count=r.visit_count
             ))
 
     else:
         is_retailer_added = (tab == "existing")
-
-        conditions = [
-            CustomerRetailerMembership.shop_id == shop_id,
-            CustomerRetailerMembership.is_retailer_added == is_retailer_added
-        ]
-
-        if search and search.strip():
-            term = f"%{search.strip()}%"
-            conditions.append(
-                or_(Customer.name.ilike(term), Customer.mobile_number.ilike(term))
+        members_query_str = """
+            WITH order_visits AS (
+                SELECT 
+                    RIGHT(REGEXP_REPLACE(customer_phone, '[^0-9]', '', 'g'), 10) as clean_phone,
+                    DATE(created_at) as visit_date
+                FROM orders
+                WHERE shop_id = :sid 
+                  AND UPPER(order_status) NOT IN ('CANCELLED', 'REJECTED')
+                  AND customer_phone IS NOT NULL AND customer_phone != ''
+            ),
+            event_visits AS (
+                SELECT 
+                    RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10) as clean_phone,
+                    DATE(me.event_time) as visit_date
+                FROM membership_events me
+                JOIN customers c ON c.id = me.customer_id
+                WHERE me.shop_id = :sid
+            ),
+            all_visits AS (
+                SELECT clean_phone, visit_date FROM order_visits
+                UNION
+                SELECT clean_phone, visit_date FROM event_visits
             )
+            SELECT 
+                c.id,
+                c.name,
+                c.mobile_number,
+                MIN(m.created_at) as joined_at,
+                m.is_retailer_added,
+                GREATEST(COUNT(DISTINCT av.visit_date), COUNT(DISTINCT o.id), 1) as visit_count
+            FROM customers c
+            JOIN customer_retailer_memberships m ON m.customer_id = c.id AND m.shop_id = :sid
+            LEFT JOIN all_visits av ON av.clean_phone = RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10)
+            LEFT JOIN orders o ON RIGHT(REGEXP_REPLACE(o.customer_phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10) 
+                              AND o.shop_id = :sid 
+                              AND UPPER(o.order_status) NOT IN ('CANCELLED', 'REJECTED')
+            WHERE m.is_retailer_added = :is_ret
+        """
+        params = {"sid": shop_id, "is_ret": is_retailer_added}
+        if search and search.strip():
+            members_query_str += " AND (c.name ILIKE :search OR c.mobile_number ILIKE :search)"
+            params["search"] = f"%{search.strip()}%"
 
-        count_stmt = select(func.count(CustomerRetailerMembership.id)).join(
-            Customer, Customer.id == CustomerRetailerMembership.customer_id
-        ).where(*conditions)
-        count_res = await db.execute(count_stmt)
-        total_count = count_res.scalar() or 0
+        members_query_str += """
+            GROUP BY c.id, c.name, c.mobile_number, m.is_retailer_added
+            ORDER BY MIN(m.created_at) DESC
+        """
 
-        items_stmt = (
-            select(CustomerRetailerMembership)
-            .join(Customer, Customer.id == CustomerRetailerMembership.customer_id)
-            .options(joinedload(CustomerRetailerMembership.customer))
-            .where(*conditions)
-            .order_by(CustomerRetailerMembership.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-        )
+        result = await db.execute(text(members_query_str), params)
+        all_rows = result.fetchall()
+        total_count = len(all_rows)
+        paginated_rows = all_rows[skip : skip + limit]
 
-        items_res = await db.execute(items_stmt)
-        memberships = items_res.scalars().all()
-
-        for m in memberships:
+        for r in paginated_rows:
             items.append(MemberItemSchema(
-                id=m.customer.id,
-                name=m.customer.name,
-                mobile_number=m.customer.mobile_number,
-                joined_at=m.created_at,
-                is_retailer_added=m.is_retailer_added
+                id=r.id,
+                name=r.name,
+                mobile_number=r.mobile_number,
+                joined_at=r.joined_at,
+                is_retailer_added=r.is_retailer_added,
+                visit_count=r.visit_count
             ))
 
     has_more = (skip + len(items)) < total_count
@@ -315,6 +357,7 @@ async def get_paginated_members(
         tab=tab,
         items=items
     )
+
 
 
 @router.post("/retailer/{shop_id}/members/{customer_id}/convert")

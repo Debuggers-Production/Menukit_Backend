@@ -3,7 +3,7 @@
 import uuid
 from typing import List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 
 from app.models.customer import Customer
 from app.models.membership import CustomerRetailerMembership
@@ -69,19 +69,41 @@ class MembershipService:
 
         auto_registered = max(0, total_members - manually_added)
 
-        stmt_repeated = (
-            select(func.count(func.distinct(Customer.id)))
-            .select_from(Customer)
-            .join(MembershipEvent, MembershipEvent.customer_id == Customer.id)
-            .join(CustomerRetailerMembership, (CustomerRetailerMembership.customer_id == Customer.id) & (CustomerRetailerMembership.shop_id == shop_id))
-            .where(
-                MembershipEvent.shop_id == shop_id,
-                MembershipEvent.event_type.in_(["member_matched", "otp_verified", "token_verified", "discount_unlocked"])
+        # Repeated members: Count members with >= 2 visits (orders or membership events matched by canonical phone)
+        stmt_repeated = text("""
+            WITH order_visits AS (
+                SELECT 
+                    RIGHT(REGEXP_REPLACE(customer_phone, '[^0-9]', '', 'g'), 10) as clean_phone,
+                    DATE(created_at) as visit_date
+                FROM orders
+                WHERE shop_id = :sid 
+                  AND UPPER(order_status) NOT IN ('CANCELLED', 'REJECTED')
+                  AND customer_phone IS NOT NULL AND customer_phone != ''
+            ),
+            event_visits AS (
+                SELECT 
+                    RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10) as clean_phone,
+                    DATE(me.event_time) as visit_date
+                FROM membership_events me
+                JOIN customers c ON c.id = me.customer_id
+                WHERE me.shop_id = :sid
+            ),
+            all_visits AS (
+                SELECT clean_phone, visit_date FROM order_visits
+                UNION
+                SELECT clean_phone, visit_date FROM event_visits
             )
-            .group_by(Customer.id)
-            .having(func.count(func.distinct(func.date(MembershipEvent.event_time))) >= 2)
-        )
-        res_repeated = await self.db.execute(stmt_repeated)
+            SELECT COUNT(DISTINCT c.id)
+            FROM customers c
+            JOIN customer_retailer_memberships m ON m.customer_id = c.id AND m.shop_id = :sid
+            LEFT JOIN all_visits av ON av.clean_phone = RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10)
+            LEFT JOIN orders o ON RIGHT(REGEXP_REPLACE(o.customer_phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10) 
+                              AND o.shop_id = :sid 
+                              AND UPPER(o.order_status) NOT IN ('CANCELLED', 'REJECTED')
+            GROUP BY c.id
+            HAVING COUNT(DISTINCT av.visit_date) >= 2 OR COUNT(DISTINCT o.id) >= 2
+        """)
+        res_repeated = await self.db.execute(stmt_repeated, {"sid": shop_id})
         repeated_count = len(res_repeated.all())
 
         return {
@@ -101,31 +123,48 @@ class MembershipService:
         await self.db.commit()
 
     async def get_repeated_customers(self, shop_id: uuid.UUID, min_visits: int = 2) -> List[Dict[str, Any]]:
-        stmt = (
-            select(
-                Customer.id,
-                Customer.name,
-                Customer.mobile_number,
-                func.min(CustomerRetailerMembership.created_at).label("joined_at"),
-                func.count(func.distinct(func.date(MembershipEvent.event_time))).label("visit_count")
+        stmt = text("""
+            WITH order_visits AS (
+                SELECT 
+                    RIGHT(REGEXP_REPLACE(customer_phone, '[^0-9]', '', 'g'), 10) as clean_phone,
+                    DATE(created_at) as visit_date
+                FROM orders
+                WHERE shop_id = :sid 
+                  AND UPPER(order_status) NOT IN ('CANCELLED', 'REJECTED')
+                  AND customer_phone IS NOT NULL AND customer_phone != ''
+            ),
+            event_visits AS (
+                SELECT 
+                    RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10) as clean_phone,
+                    DATE(me.event_time) as visit_date
+                FROM membership_events me
+                JOIN customers c ON c.id = me.customer_id
+                WHERE me.shop_id = :sid
+            ),
+            all_visits AS (
+                SELECT clean_phone, visit_date FROM order_visits
+                UNION
+                SELECT clean_phone, visit_date FROM event_visits
             )
-            .join(MembershipEvent, MembershipEvent.customer_id == Customer.id)
-            .join(
-                CustomerRetailerMembership,
-                (CustomerRetailerMembership.customer_id == Customer.id) &
-                (CustomerRetailerMembership.shop_id == shop_id)
-            )
-            .where(
-                MembershipEvent.shop_id == shop_id,
-                MembershipEvent.event_type.in_(["member_matched", "otp_verified", "token_verified", "discount_unlocked"])
-            )
-            .group_by(Customer.id, Customer.name, Customer.mobile_number)
-            .having(func.count(func.distinct(func.date(MembershipEvent.event_time))) >= min_visits)
-            .order_by(func.count(func.distinct(func.date(MembershipEvent.event_time))).desc())
-        )
+            SELECT 
+                c.id,
+                c.name,
+                c.mobile_number,
+                MIN(m.created_at) as joined_at,
+                GREATEST(COUNT(DISTINCT av.visit_date), COUNT(DISTINCT o.id), 1) as visit_count
+            FROM customers c
+            JOIN customer_retailer_memberships m ON m.customer_id = c.id AND m.shop_id = :sid
+            LEFT JOIN all_visits av ON av.clean_phone = RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10)
+            LEFT JOIN orders o ON RIGHT(REGEXP_REPLACE(o.customer_phone, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(c.mobile_number, '[^0-9]', '', 'g'), 10) 
+                              AND o.shop_id = :sid 
+                              AND UPPER(o.order_status) NOT IN ('CANCELLED', 'REJECTED')
+            GROUP BY c.id, c.name, c.mobile_number
+            HAVING COUNT(DISTINCT av.visit_date) >= :min_visits OR COUNT(DISTINCT o.id) >= :min_visits
+            ORDER BY GREATEST(COUNT(DISTINCT av.visit_date), COUNT(DISTINCT o.id)) DESC, MIN(m.created_at) DESC
+        """)
         
-        result = await self.db.execute(stmt)
-        rows = result.all()
+        result = await self.db.execute(stmt, {"sid": shop_id, "min_visits": min_visits})
+        rows = result.fetchall()
         
         return [
             {
@@ -137,3 +176,4 @@ class MembershipService:
             }
             for row in rows
         ]
+

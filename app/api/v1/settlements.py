@@ -137,7 +137,7 @@ async def get_settlements_summary(
     settled_res = settled_q.first()
     settled_count = settled_res[0] or 0
     settled_gross = float(settled_res[1] or 0.0)
-    total_settled_amount = round(settled_gross * 0.99, 2)  # Net 99%
+    total_settled_amount = round(settled_gross, 2)  # 100% net to vendor (0% fee)
 
     pending_q = await db.execute(
         select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0.0))
@@ -146,7 +146,7 @@ async def get_settlements_summary(
     pending_res = pending_q.first()
     pending_count = pending_res[0] or 0
     pending_gross = float(pending_res[1] or 0.0)
-    total_pending_settlement = round(pending_gross * 0.99, 2)  # Net 99%
+    total_pending_settlement = round(pending_gross, 2)  # 100% net to vendor (0% fee)
 
     # Paginated Orders Retrieval
     orders_q = await db.execute(
@@ -161,9 +161,10 @@ async def get_settlements_summary(
     settlements_list = []
     for o in paginated_orders:
         gross = float(o.total_amount or 0.0)
-        gateway_fee = round(gross * 0.01, 2)
-        total_fee = gateway_fee
-        net = round(gross - total_fee, 2)
+        gateway_fee = 0.0
+        total_fee = 0.0
+        net = round(gross, 2)
+
 
         created_dt = o.created_at if o.created_at.tzinfo else o.created_at.replace(tzinfo=timezone.utc)
         est_payout_dt = created_dt + timedelta(days=7)

@@ -808,3 +808,1382 @@
   }
 }
 [2026-08-08 13:10:03,136] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919677639292","wa_id":"919677639292"}],"messages":[{"id":"wamid.HBgMOTE5Njc3NjM5MjkyFQIAERgSNDg0NkNCRjdBRUI1RjQzQTExAA==","message_status":"accepted"}]}
+[2026-08-30 11:28:02,209] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918946029205",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_create",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Srinivasan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "294A4F63"
+          },
+          {
+            "type": "text",
+            "text": "\u20b950"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 11:28:05,466] INFO - 📥 WhatsApp Meta API Response (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_create) does not exist in en"},"fbtrace_id":"A1K7CBg3n02drTN1egtReAM"}}
+[2026-08-30 11:28:05,468] ERROR - WhatsApp API Error (404): 404 Client Error: Not Found for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_create) does not exist in en"},"fbtrace_id":"A1K7CBg3n02drTN1egtReAM"}}
+[2026-08-30 11:28:34,616] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918946029205",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_create",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Srinivasan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "294A4F63"
+          },
+          {
+            "type": "text",
+            "text": "\u20b950"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 11:28:36,978] INFO - 📥 WhatsApp Meta API Response (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_create) does not exist in en"},"fbtrace_id":"AFNht-pGAOIVaDNUWHQdXfg"}}
+[2026-08-30 11:28:36,980] ERROR - WhatsApp API Error (404): 404 Client Error: Not Found for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_create) does not exist in en"},"fbtrace_id":"AFNht-pGAOIVaDNUWHQdXfg"}}
+[2026-08-30 11:33:19,668] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918946029205",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_create",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Srinivasan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "C6FD33A9"
+          },
+          {
+            "type": "text",
+            "text": "\u20b950"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 11:33:21,244] INFO - 📥 WhatsApp Meta API Response (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_create) does not exist in en"},"fbtrace_id":"A3gCplXjt8ZpQsdSOfsOpF1"}}
+[2026-08-30 11:33:21,246] ERROR - WhatsApp API Error (404): 404 Client Error: Not Found for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_create) does not exist in en"},"fbtrace_id":"A3gCplXjt8ZpQsdSOfsOpF1"}}
+[2026-08-30 11:39:23,819] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "A76A4E53"
+          },
+          {
+            "type": "text",
+            "text": "\u20b945"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 11:39:26,052] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMjY5RDAxODQ0Q0EyMjZENUM3AA==","message_status":"accepted"}]}
+[2026-08-30 11:48:02,637] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "DA19904E"
+          },
+          {
+            "type": "text",
+            "text": "\u20b980"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 11:48:04,334] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNzZGMjlBN0JFQTI4NEFCNDc1AA==","message_status":"accepted"}]}
+[2026-08-30 11:48:57,273] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "DA19904E"
+          },
+          {
+            "type": "text",
+            "text": "\u20b980"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 11:48:59,965] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQTI5OTQwRUU0NEE3NDcyRjgyAA==","message_status":"accepted"}]}
+[2026-08-30 13:18:43,900] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "71211900"
+          },
+          {
+            "type": "text",
+            "text": "\u20b9225"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 13:18:46,393] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMDIyOUZFODM1RThBNkJFREJCAA==","message_status":"accepted"}]}
+[2026-08-30 13:19:45,146] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "71211900"
+          },
+          {
+            "type": "text",
+            "text": "\u20b9225"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 13:19:47,808] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQUIzN0IxRDRFRDMxMjhCNzdEAA==","message_status":"accepted"}]}
+[2026-08-30 13:21:03,366] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "D7F76491"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 13:21:04,647] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "AFB72848"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 13:21:05,801] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQ0ZGNDYxMEY3NjhGNDlGMTYyAA==","message_status":"accepted"}]}
+[2026-08-30 13:21:06,530] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNTc0RjZDNDg4Q0M5QzE5QUVCAA==","message_status":"accepted"}]}
+[2026-08-30 13:21:29,006] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "D7F76491"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 13:21:30,077] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "AFB72848"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 13:21:31,451] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNjE5QTFDRjYzMkU1QkFBQjlGAA==","message_status":"accepted"}]}
+[2026-08-30 13:21:32,429] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNzc0Nzg4ODQ5RTQ0NkQ5MjcyAA==","message_status":"accepted"}]}
+[2026-08-30 13:25:31,307] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "6F5E7EBD"
+          },
+          {
+            "type": "text",
+            "text": "\u20b956"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 13:25:34,040] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMDRBQjkzOEM4QUFEQTcxNDUzAA==","message_status":"accepted"}]}
+[2026-08-30 13:36:28,249] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "6F5E7EBD"
+          },
+          {
+            "type": "text",
+            "text": "\u20b956"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 13:36:30,403] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "A76A4E53"
+          },
+          {
+            "type": "text",
+            "text": "\u20b945"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 13:36:30,630] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRUI3ODQzMDRDQTg2N0JGMUNFAA==","message_status":"accepted"}]}
+[2026-08-30 13:36:32,387] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNDVERDUyMzNENzVGNzQwMjczAA==","message_status":"accepted"}]}
+[2026-08-30 14:29:03,405] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "6DF44F6C"
+          },
+          {
+            "type": "text",
+            "text": "\u20b9870"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 14:29:06,323] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRjBEMDVBMTYxODE0MDdFRTAxAA==","message_status":"accepted"}]}
+[2026-08-30 14:31:09,394] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "DA19904E"
+          },
+          {
+            "type": "text",
+            "text": "\u20b980"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 14:31:11,888] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQzkwRTEzNUI4QkM5NDBENDU2AA==","message_status":"accepted"}]}
+[2026-08-30 14:48:38,100] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "80C96E5B"
+          },
+          {
+            "type": "text",
+            "text": "\u20b9260"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 14:48:40,339] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSOERGRDE2OUY1QjdCMzgwQzczAA==","message_status":"accepted"}]}
+[2026-08-30 14:54:14,479] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "972EA99E"
+          },
+          {
+            "type": "text",
+            "text": "\u20b9100"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 14:54:19,508] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNDAyNjE1REFCNTAwRjdGNzJCAA==","message_status":"accepted"}]}
+[2026-08-30 15:14:30,078] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "84992FED"
+          },
+          {
+            "type": "text",
+            "text": "\u20b940"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 15:14:32,407] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQzE0RUQzOEMxREFGNzNFNDBEAA==","message_status":"accepted"}]}
+[2026-08-30 23:38:23,889] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "We are currently providing a special 20% discount on all orders today! Visit our digital store now to claim your offer."
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-30 23:39:05,777] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMEFFNTk3OTc1OTc5NDA4NTEzAA==","message_status":"accepted"}]}
+[2026-08-31 00:05:12,341] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0ba4\u0bbf\u0ba9\u0bae\u0bc1\u0bae\u0bcd Customers \u0bb5\u0bb0\u0bbe\u0b99\u0bcd\u0b95.\n\n\u0b86\u0ba9\u0bbe \u0b92\u0bb0\u0bc1 \u0baa\u0bc6\u0bb0\u0bbf\u0baf Problem \u0b87\u0bb0\u0bc1\u0b95\u0bcd\u0b95\u0bc1:\n\n\u0b9a\u0bbe\u0baa\u0bcd\u0baa\u0bbf\u0b9f\u0bc1\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 Bill Pay \u0baa\u0ba3\u0bcd\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 \u0baa\u0bcb\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 \u0b85\u0baa\u0bcd\u0baa\u0b9f\u0bbf\u0baf\u0bc7 \u0bae\u0bb1\u0ba8\u0bcd\u0ba4\u0bc1\u0b9f\u0bc1\u0bb1\u0bbe\u0b99\u0bcd\u0b95. \ud83d\udc7b\n\n\u0b85\u0ba8\u0bcd\u0ba4 Customers-\u0b90 \u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0ba4\u0bbf\u0bb0\u0bc1\u0bae\u0bcd\u0baa\u0bb5\u0bc1\u0bae\u0bcd \u0bb5\u0bb0 \u0bb5\u0bc8\u0b95\u0bcd\u0b95 \u0bae\u0bc1\u0b9f\u0bbf\u0b9e\u0bcd\u0b9a\u0bbe? \ud83d\udd25\n\n\u0b85\u0ba4\u0bc1\u0b95\u0bcd\u0b95\u0bbe\u0b95\u0ba4\u0bcd\u0ba4\u0bbe\u0ba9\u0bcd MenuKit \ud83d\ude80\n\n\u0b87\u0ba4\u0bc1 \u0bb5\u0bc6\u0bb1\u0bc1\u0bae\u0bcd Digital Menu \u0bae\u0b9f\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bbf\u0b9f\u0bc8\u0baf\u0bbe\u0ba4\u0bc1.\n\n\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bbe\u0ba9 Customer Management Platform.\n\n\ud83d\udcf1 Digital Menu\n\ud83d\udc64 Customer Details\n\ud83c\udfaf Offers & Promotions\n\ud83d\udd01 \u0baa\u0bb4\u0bc8\u0baf Customers-\u0b90 \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bca\u0ba3\u0bcd\u0b9f\u0bc1 \u0bb5\u0bb0\u0bc1\u0ba4\u0bb2\u0bcd\n\ud83d\udcca Customer Insights\n\u26a1 Menu-\u0bb5\u0bc8 \u0b89\u0b9f\u0ba9\u0bc1\u0b95\u0bcd\u0b95\u0bc1\u0b9f\u0ba9\u0bcd Update \u0b9a\u0bc6\u0baf\u0bcd\u0baf\u0bb2\u0bbe\u0bae\u0bcd\n\n\u0b92\u0bb0\u0bc1\u0bae\u0bc1\u0bb1\u0bc8 \u0bb5\u0ba8\u0bcd\u0ba4 Customer-\u0b90 \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0bb5\u0bb0\u0b95\u0bcd\u0b95\u0bc2\u0b9f\u0bbf\u0baf Customer-\u0b86 \u0bae\u0bbe\u0bb1\u0bcd\u0bb1\u0bc1\u0b99\u0bcd\u0b95\u0bb3\u0bcd. \u2764\ufe0f\n\n\u0ba8\u0bbe\u0b99\u0bcd\u0b95\u0bb3\u0bcd \u0ba4\u0bb1\u0bcd\u0baa\u0bcb\u0ba4\u0bc1 Restaurants-\u0b90 MenuKit-\u0bb2\u0bcd onboard \u0b9a\u0bc6\u0baf\u0bcd\u0ba4\u0bc1 \u0bb5\u0bb0\u0bc1\u0b95\u0bbf\u0bb1\u0bcb\u0bae\u0bcd.\n\n\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0b92\u0bb0\u0bc1 Quick Demo \u0b95\u0bbe\u0b9f\u0bcd\u0b9f\u0b9f\u0bcd\u0b9f\u0bc1\u0bae\u0bbe? \ud83d\udc40\n\nInterested? \ud83d\udd25"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-31 00:05:14,919] INFO - 📥 WhatsApp Meta API Response (400): {"error":{"message":"(#132018) There’s an issue with the parameters in your template","code":132018,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"Param text cannot have new-line/tab characters or more than 4 consecutive spaces"},"fbtrace_id":"AekylWdT5CmUXGKmFNOfo2-"}}
+[2026-08-31 00:05:14,920] ERROR - WhatsApp API Error (400): 400 Client Error: Bad Request for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132018) There’s an issue with the parameters in your template","code":132018,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"Param text cannot have new-line/tab characters or more than 4 consecutive spaces"},"fbtrace_id":"AekylWdT5CmUXGKmFNOfo2-"}}
+[2026-08-31 00:05:14,926] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0ba4\u0bbf\u0ba9\u0bae\u0bc1\u0bae\u0bcd Customers \u0bb5\u0bb0\u0bbe\u0b99\u0bcd\u0b95.\n\n\u0b86\u0ba9\u0bbe \u0b92\u0bb0\u0bc1 \u0baa\u0bc6\u0bb0\u0bbf\u0baf Problem \u0b87\u0bb0\u0bc1\u0b95\u0bcd\u0b95\u0bc1:\n\n\u0b9a\u0bbe\u0baa\u0bcd\u0baa\u0bbf\u0b9f\u0bc1\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 Bill Pay \u0baa\u0ba3\u0bcd\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 \u0baa\u0bcb\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 \u0b85\u0baa\u0bcd\u0baa\u0b9f\u0bbf\u0baf\u0bc7 \u0bae\u0bb1\u0ba8\u0bcd\u0ba4\u0bc1\u0b9f\u0bc1\u0bb1\u0bbe\u0b99\u0bcd\u0b95. \ud83d\udc7b\n\n\u0b85\u0ba8\u0bcd\u0ba4 Customers-\u0b90 \u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0ba4\u0bbf\u0bb0\u0bc1\u0bae\u0bcd\u0baa\u0bb5\u0bc1\u0bae\u0bcd \u0bb5\u0bb0 \u0bb5\u0bc8\u0b95\u0bcd\u0b95 \u0bae\u0bc1\u0b9f\u0bbf\u0b9e\u0bcd\u0b9a\u0bbe? \ud83d\udd25\n\n\u0b85\u0ba4\u0bc1\u0b95\u0bcd\u0b95\u0bbe\u0b95\u0ba4\u0bcd\u0ba4\u0bbe\u0ba9\u0bcd MenuKit \ud83d\ude80\n\n\u0b87\u0ba4\u0bc1 \u0bb5\u0bc6\u0bb1\u0bc1\u0bae\u0bcd Digital Menu \u0bae\u0b9f\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bbf\u0b9f\u0bc8\u0baf\u0bbe\u0ba4\u0bc1.\n\n\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bbe\u0ba9 Customer Management Platform.\n\n\ud83d\udcf1 Digital Menu\n\ud83d\udc64 Customer Details\n\ud83c\udfaf Offers & Promotions\n\ud83d\udd01 \u0baa\u0bb4\u0bc8\u0baf Customers-\u0b90 \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bca\u0ba3\u0bcd\u0b9f\u0bc1 \u0bb5\u0bb0\u0bc1\u0ba4\u0bb2\u0bcd\n\ud83d\udcca Customer Insights\n\u26a1 Menu-\u0bb5\u0bc8 \u0b89\u0b9f\u0ba9\u0bc1\u0b95\u0bcd\u0b95\u0bc1\u0b9f\u0ba9\u0bcd Update \u0b9a\u0bc6\u0baf\u0bcd\u0baf\u0bb2\u0bbe\u0bae\u0bcd\n\n\u0b92\u0bb0\u0bc1\u0bae\u0bc1\u0bb1\u0bc8 \u0bb5\u0ba8\u0bcd\u0ba4 Customer-\u0b90 \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0bb5\u0bb0\u0b95\u0bcd\u0b95\u0bc2\u0b9f\u0bbf\u0baf Customer-\u0b86 \u0bae\u0bbe\u0bb1\u0bcd\u0bb1\u0bc1\u0b99\u0bcd\u0b95\u0bb3\u0bcd. \u2764\ufe0f\n\n\u0ba8\u0bbe\u0b99\u0bcd\u0b95\u0bb3\u0bcd \u0ba4\u0bb1\u0bcd\u0baa\u0bcb\u0ba4\u0bc1 Restaurants-\u0b90 MenuKit-\u0bb2\u0bcd onboard \u0b9a\u0bc6\u0baf\u0bcd\u0ba4\u0bc1 \u0bb5\u0bb0\u0bc1\u0b95\u0bbf\u0bb1\u0bcb\u0bae\u0bcd.\n\n\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0b92\u0bb0\u0bc1 Quick Demo \u0b95\u0bbe\u0b9f\u0bcd\u0b9f\u0b9f\u0bcd\u0b9f\u0bc1\u0bae\u0bbe? \ud83d\udc40\n\nInterested? \ud83d\udd25"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-31 00:05:17,281] INFO - 📥 WhatsApp Meta API Response (400): {"error":{"message":"(#132018) There’s an issue with the parameters in your template","code":132018,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"Param text cannot have new-line/tab characters or more than 4 consecutive spaces"},"fbtrace_id":"Awq5PJ2TSujAghrCQkQLgrc"}}
+[2026-08-31 00:05:17,283] ERROR - WhatsApp API Error (400): 400 Client Error: Bad Request for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132018) There’s an issue with the parameters in your template","code":132018,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"Param text cannot have new-line/tab characters or more than 4 consecutive spaces"},"fbtrace_id":"Awq5PJ2TSujAghrCQkQLgrc"}}
+[2026-08-31 00:05:44,892] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0ba4\u0bbf\u0ba9\u0bae\u0bc1\u0bae\u0bcd Customers \u0bb5\u0bb0\u0bbe\u0b99\u0bcd\u0b95.\n\n\u0b86\u0ba9\u0bbe \u0b92\u0bb0\u0bc1 \u0baa\u0bc6\u0bb0\u0bbf\u0baf Problem \u0b87\u0bb0\u0bc1\u0b95\u0bcd\u0b95\u0bc1:\n\n\u0b9a\u0bbe\u0baa\u0bcd\u0baa\u0bbf\u0b9f\u0bc1\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 Bill Pay \u0baa\u0ba3\u0bcd\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 \u0baa\u0bcb\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 \u0b85\u0baa\u0bcd\u0baa\u0b9f\u0bbf\u0baf\u0bc7 \u0bae\u0bb1\u0ba8\u0bcd\u0ba4\u0bc1\u0b9f\u0bc1\u0bb1\u0bbe\u0b99\u0bcd\u0b95. \ud83d\udc7b\n\n\u0b85\u0ba8\u0bcd\u0ba4 Customers-\u0b90 \u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0ba4\u0bbf\u0bb0\u0bc1\u0bae\u0bcd\u0baa\u0bb5\u0bc1\u0bae\u0bcd \u0bb5\u0bb0 \u0bb5\u0bc8\u0b95\u0bcd\u0b95 \u0bae\u0bc1\u0b9f\u0bbf\u0b9e\u0bcd\u0b9a\u0bbe? \ud83d\udd25\n\n\u0b85\u0ba4\u0bc1\u0b95\u0bcd\u0b95\u0bbe\u0b95\u0ba4\u0bcd\u0ba4\u0bbe\u0ba9\u0bcd MenuKit \ud83d\ude80\n\n\u0b87\u0ba4\u0bc1 \u0bb5\u0bc6\u0bb1\u0bc1\u0bae\u0bcd Digital Menu \u0bae\u0b9f\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bbf\u0b9f\u0bc8\u0baf\u0bbe\u0ba4\u0bc1.\n\n\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bbe\u0ba9 Customer Management Platform.\n\n\ud83d\udcf1 Digital Menu\n\ud83d\udc64 Customer Details\n\ud83c\udfaf Offers & Promotions\n\ud83d\udd01 \u0baa\u0bb4\u0bc8\u0baf Customers-\u0b90 \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bca\u0ba3\u0bcd\u0b9f\u0bc1 \u0bb5\u0bb0\u0bc1\u0ba4\u0bb2\u0bcd\n\ud83d\udcca Customer Insights\n\u26a1 Menu-\u0bb5\u0bc8 \u0b89\u0b9f\u0ba9\u0bc1\u0b95\u0bcd\u0b95\u0bc1\u0b9f\u0ba9\u0bcd Update \u0b9a\u0bc6\u0baf\u0bcd\u0baf\u0bb2\u0bbe\u0bae\u0bcd\n\n\u0b92\u0bb0\u0bc1\u0bae\u0bc1\u0bb1\u0bc8 \u0bb5\u0ba8\u0bcd\u0ba4 Customer-\u0b90 \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0bb5\u0bb0\u0b95\u0bcd\u0b95\u0bc2\u0b9f\u0bbf\u0baf Customer-\u0b86 \u0bae\u0bbe\u0bb1\u0bcd\u0bb1\u0bc1\u0b99\u0bcd\u0b95\u0bb3\u0bcd. \u2764\ufe0f\n\n\u0ba8\u0bbe\u0b99\u0bcd\u0b95\u0bb3\u0bcd \u0ba4\u0bb1\u0bcd\u0baa\u0bcb\u0ba4\u0bc1 Restaurants-\u0b90 MenuKit-\u0bb2\u0bcd onboard \u0b9a\u0bc6\u0baf\u0bcd\u0ba4\u0bc1 \u0bb5\u0bb0\u0bc1\u0b95\u0bbf\u0bb1\u0bcb\u0bae\u0bcd.\n\n\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0b92\u0bb0\u0bc1 Quick Demo \u0b95\u0bbe\u0b9f\u0bcd\u0b9f\u0b9f\u0bcd\u0b9f\u0bc1\u0bae\u0bbe? \ud83d\udc40\n\nInterested? \ud83d\udd25"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-31 00:05:46,753] INFO - 📥 WhatsApp Meta API Response (400): {"error":{"message":"(#132018) There’s an issue with the parameters in your template","code":132018,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"Param text cannot have new-line/tab characters or more than 4 consecutive spaces"},"fbtrace_id":"Ahh7drT8oZFGRj_jnahFnfV"}}
+[2026-08-31 00:05:46,754] ERROR - WhatsApp API Error (400): 400 Client Error: Bad Request for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132018) There’s an issue with the parameters in your template","code":132018,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"Param text cannot have new-line/tab characters or more than 4 consecutive spaces"},"fbtrace_id":"Ahh7drT8oZFGRj_jnahFnfV"}}
+[2026-08-31 00:05:46,756] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0ba4\u0bbf\u0ba9\u0bae\u0bc1\u0bae\u0bcd Customers \u0bb5\u0bb0\u0bbe\u0b99\u0bcd\u0b95.\n\n\u0b86\u0ba9\u0bbe \u0b92\u0bb0\u0bc1 \u0baa\u0bc6\u0bb0\u0bbf\u0baf Problem \u0b87\u0bb0\u0bc1\u0b95\u0bcd\u0b95\u0bc1:\n\n\u0b9a\u0bbe\u0baa\u0bcd\u0baa\u0bbf\u0b9f\u0bc1\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 Bill Pay \u0baa\u0ba3\u0bcd\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 \u0baa\u0bcb\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 \u0b85\u0baa\u0bcd\u0baa\u0b9f\u0bbf\u0baf\u0bc7 \u0bae\u0bb1\u0ba8\u0bcd\u0ba4\u0bc1\u0b9f\u0bc1\u0bb1\u0bbe\u0b99\u0bcd\u0b95. \ud83d\udc7b\n\n\u0b85\u0ba8\u0bcd\u0ba4 Customers-\u0b90 \u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0ba4\u0bbf\u0bb0\u0bc1\u0bae\u0bcd\u0baa\u0bb5\u0bc1\u0bae\u0bcd \u0bb5\u0bb0 \u0bb5\u0bc8\u0b95\u0bcd\u0b95 \u0bae\u0bc1\u0b9f\u0bbf\u0b9e\u0bcd\u0b9a\u0bbe? \ud83d\udd25\n\n\u0b85\u0ba4\u0bc1\u0b95\u0bcd\u0b95\u0bbe\u0b95\u0ba4\u0bcd\u0ba4\u0bbe\u0ba9\u0bcd MenuKit \ud83d\ude80\n\n\u0b87\u0ba4\u0bc1 \u0bb5\u0bc6\u0bb1\u0bc1\u0bae\u0bcd Digital Menu \u0bae\u0b9f\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bbf\u0b9f\u0bc8\u0baf\u0bbe\u0ba4\u0bc1.\n\n\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bbe\u0ba9 Customer Management Platform.\n\n\ud83d\udcf1 Digital Menu\n\ud83d\udc64 Customer Details\n\ud83c\udfaf Offers & Promotions\n\ud83d\udd01 \u0baa\u0bb4\u0bc8\u0baf Customers-\u0b90 \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bca\u0ba3\u0bcd\u0b9f\u0bc1 \u0bb5\u0bb0\u0bc1\u0ba4\u0bb2\u0bcd\n\ud83d\udcca Customer Insights\n\u26a1 Menu-\u0bb5\u0bc8 \u0b89\u0b9f\u0ba9\u0bc1\u0b95\u0bcd\u0b95\u0bc1\u0b9f\u0ba9\u0bcd Update \u0b9a\u0bc6\u0baf\u0bcd\u0baf\u0bb2\u0bbe\u0bae\u0bcd\n\n\u0b92\u0bb0\u0bc1\u0bae\u0bc1\u0bb1\u0bc8 \u0bb5\u0ba8\u0bcd\u0ba4 Customer-\u0b90 \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0bb5\u0bb0\u0b95\u0bcd\u0b95\u0bc2\u0b9f\u0bbf\u0baf Customer-\u0b86 \u0bae\u0bbe\u0bb1\u0bcd\u0bb1\u0bc1\u0b99\u0bcd\u0b95\u0bb3\u0bcd. \u2764\ufe0f\n\n\u0ba8\u0bbe\u0b99\u0bcd\u0b95\u0bb3\u0bcd \u0ba4\u0bb1\u0bcd\u0baa\u0bcb\u0ba4\u0bc1 Restaurants-\u0b90 MenuKit-\u0bb2\u0bcd onboard \u0b9a\u0bc6\u0baf\u0bcd\u0ba4\u0bc1 \u0bb5\u0bb0\u0bc1\u0b95\u0bbf\u0bb1\u0bcb\u0bae\u0bcd.\n\n\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0b92\u0bb0\u0bc1 Quick Demo \u0b95\u0bbe\u0b9f\u0bcd\u0b9f\u0b9f\u0bcd\u0b9f\u0bc1\u0bae\u0bbe? \ud83d\udc40\n\nInterested? \ud83d\udd25"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-31 00:05:48,673] INFO - 📥 WhatsApp Meta API Response (400): {"error":{"message":"(#132018) There’s an issue with the parameters in your template","code":132018,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"Param text cannot have new-line/tab characters or more than 4 consecutive spaces"},"fbtrace_id":"A_jMKmnzgX9TGEV2e4ToQiE"}}
+[2026-08-31 00:05:48,673] ERROR - WhatsApp API Error (400): 400 Client Error: Bad Request for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132018) There’s an issue with the parameters in your template","code":132018,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"Param text cannot have new-line/tab characters or more than 4 consecutive spaces"},"fbtrace_id":"A_jMKmnzgX9TGEV2e4ToQiE"}}
+[2026-08-31 00:15:01,769] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0ba4\u0bbf\u0ba9\u0bae\u0bc1\u0bae\u0bcd Customers \u0bb5\u0bb0\u0bbe\u0b99\u0bcd\u0b95. \u0b86\u0ba9\u0bbe \u0b92\u0bb0\u0bc1 \u0baa\u0bc6\u0bb0\u0bbf\u0baf Problem \u0b87\u0bb0\u0bc1\u0b95\u0bcd\u0b95\u0bc1: \u0b9a\u0bbe\u0baa\u0bcd\u0baa\u0bbf\u0b9f\u0bc1\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 Bill Pay \u0baa\u0ba3\u0bcd\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 \u0baa\u0bcb\u0bb1\u0bbe\u0b99\u0bcd\u0b95 \u2192 \u0b85\u0baa\u0bcd\u0baa\u0b9f\u0bbf\u0baf\u0bc7 \u0bae\u0bb1\u0ba8\u0bcd\u0ba4\u0bc1\u0b9f\u0bc1\u0bb1\u0bbe\u0b99\u0bcd\u0b95. \ud83d\udc7b \u0b85\u0ba8\u0bcd\u0ba4 Customers-\u0b90 \u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0ba4\u0bbf\u0bb0\u0bc1\u0bae\u0bcd\u0baa\u0bb5\u0bc1\u0bae\u0bcd \u0bb5\u0bb0 \u0bb5\u0bc8\u0b95\u0bcd\u0b95 \u0bae\u0bc1\u0b9f\u0bbf\u0b9e\u0bcd\u0b9a\u0bbe? \ud83d\udd25 \u0b85\u0ba4\u0bc1\u0b95\u0bcd\u0b95\u0bbe\u0b95\u0ba4\u0bcd\u0ba4\u0bbe\u0ba9\u0bcd MenuKit \ud83d\ude80 \u0b87\u0ba4\u0bc1 \u0bb5\u0bc6\u0bb1\u0bc1\u0bae\u0bcd Digital Menu \u0bae\u0b9f\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bbf\u0b9f\u0bc8\u0baf\u0bbe\u0ba4\u0bc1. \u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bbe\u0ba9 Customer Management Platform. \ud83d\udcf1 Digital Menu \ud83d\udc64 Customer Details \ud83c\udfaf Offers & Promotions \ud83d\udd01 \u0baa\u0bb4\u0bc8\u0baf Customers-\u0b90 \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0b95\u0bca\u0ba3\u0bcd\u0b9f\u0bc1 \u0bb5\u0bb0\u0bc1\u0ba4\u0bb2\u0bcd \ud83d\udcca Customer Insights \u26a1 Menu-\u0bb5\u0bc8 \u0b89\u0b9f\u0ba9\u0bc1\u0b95\u0bcd\u0b95\u0bc1\u0b9f\u0ba9\u0bcd Update \u0b9a\u0bc6\u0baf\u0bcd\u0baf\u0bb2\u0bbe\u0bae\u0bcd \u0b92\u0bb0\u0bc1\u0bae\u0bc1\u0bb1\u0bc8 \u0bb5\u0ba8\u0bcd\u0ba4 Customer-\u0b90 \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd \u0bb5\u0bb0\u0b95\u0bcd\u0b95\u0bc2\u0b9f\u0bbf\u0baf Customer-\u0b86 \u0bae\u0bbe\u0bb1\u0bcd\u0bb1\u0bc1\u0b99\u0bcd\u0b95\u0bb3\u0bcd. \u2764\ufe0f \u0ba8\u0bbe\u0b99\u0bcd\u0b95\u0bb3\u0bcd \u0ba4\u0bb1\u0bcd\u0baa\u0bcb\u0ba4\u0bc1 Restaurants-\u0b90 MenuKit-\u0bb2\u0bcd onboard \u0b9a\u0bc6\u0baf\u0bcd\u0ba4\u0bc1 \u0bb5\u0bb0\u0bc1\u0b95\u0bbf\u0bb1\u0bcb\u0bae\u0bcd. \u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd Restaurant-\u0b95\u0bcd\u0b95\u0bc1 \u0b92\u0bb0\u0bc1 Quick Demo \u0b95\u0bbe\u0b9f\u0bcd\u0b9f\u0b9f\u0bcd\u0b9f\u0bc1\u0bae\u0bbe? \ud83d\udc40 Interested? \ud83d\udd25"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-31 00:15:04,897] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMDhEQ0Y4REMzRTcxM0UzQzM1AA==","message_status":"accepted"}]}
+[2026-08-31 00:49:23,938] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/1acf180a-78bd-4ea9-b66c-4c4cdcc1284f.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "We are currently providing a special 20% discount on all orders today! Visit our digital store now to claim your offer."
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-31 00:49:26,357] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMTVEMkIwNUJDRUNDRkMyREZDAA==","message_status":"accepted"}]}
+[2026-08-31 00:49:53,635] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "http://localhost:9000/menukitassets/banners/1acf180a-78bd-4ea9-b66c-4c4cdcc1284f.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "We are currently providing a special 20% discount on all orders today! Visit our digital store now to claim your offer."
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-31 00:49:56,084] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSODFBNDNCOTA1OTEzQzcwMDcxAA==","message_status":"accepted"}]}
+[2026-08-31 01:04:04,650] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "We are currently providing a special 20% discount on all orders today! Visit our digital store now to claim your offer."
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-31 01:04:06,960] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQTdDNEZCODkyMDc5RDMwRjkyAA==","message_status":"accepted"}]}
+[2026-08-31 01:06:47,654] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "We are currently providing a special 20% discount on all orders today! Visit our digital store now to claim your offer."
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-31 01:06:49,832] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRkRENzQ2NUE2QzlDQjZFMDVCAA==","message_status":"accepted"}]}
+[2026-08-31 10:44:49,098] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "We are currently providing a special 20% discount on all orders today! Visit our digital store now to claim your offer."
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-08-31 10:44:52,388] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRUMyMzlBNDcxQUZDMzE1QjhGAA==","message_status":"accepted"}]}

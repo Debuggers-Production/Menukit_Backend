@@ -85,21 +85,60 @@ class OrderService:
                     detail=f"Item '{it.name}' is no longer available. Please remove it from your cart and try again."
                 )
 
-        # 2. Update customer's saved delivery address if provided
-        if data.order_type == "delivery" and data.delivery_address and data.customer_phone:
-            from app.models.customer import Customer
-            phone_variants = [data.customer_phone]
-            if data.customer_phone.startswith("+91"):
-                phone_variants.append(data.customer_phone[3:])
-            else:
-                phone_variants.append("+91" + data.customer_phone)
+        # 2. Customer Lookup & Auto-Link/Create
+        customer = None
+        if data.customer_phone and data.customer_phone.strip():
+            raw_phone = data.customer_phone.strip()
+            clean_phone = "".join(filter(str.isdigit, raw_phone))
+            if clean_phone:
+                phone_variants = [raw_phone, clean_phone]
+                if len(clean_phone) == 10:
+                    phone_variants.extend([f"+91{clean_phone}", f"91{clean_phone}"])
+                elif len(clean_phone) == 12 and clean_phone.startswith("91"):
+                    phone_variants.extend([clean_phone[2:], f"+{clean_phone}"])
 
-            cust_result = await self.db.execute(
-                select(Customer).where(Customer.mobile_number.in_(phone_variants))
-            )
-            customer = cust_result.scalars().first()
-            if customer:
-                customer.delivery_address = data.delivery_address
+                from app.models.customer import Customer
+                from app.models.membership import CustomerRetailerMembership
+
+                cust_stmt = select(Customer).where(Customer.mobile_number.in_(phone_variants))
+                cust_res = await self.db.execute(cust_stmt)
+                customer = cust_res.scalars().first()
+
+                cust_name = data.customer_name.strip() if (data.customer_name and data.customer_name.strip() not in ["Walk-in", "Walk-in Customer", ""]) else None
+
+                if customer:
+                    # Update name if previously empty/generic and a valid name is provided
+                    if cust_name and (not customer.name or customer.name in ["Walk-in", "Customer"]):
+                        customer.name = cust_name
+                    if data.order_type == "delivery" and data.delivery_address:
+                        customer.delivery_address = data.delivery_address
+                else:
+                    # Standardize new customer phone number (e.g. +91 prefix for 10-digit Indian numbers)
+                    standard_mobile = f"+91{clean_phone}" if len(clean_phone) == 10 else (f"+{clean_phone}" if len(clean_phone) == 12 and clean_phone.startswith("91") else raw_phone)
+                    customer = Customer(
+                        id=uuid.uuid4(),
+                        name=cust_name or "Customer",
+                        mobile_number=standard_mobile,
+                        delivery_address=data.delivery_address if data.order_type == "delivery" else None
+                    )
+                    self.db.add(customer)
+                    await self.db.flush()
+
+                # Ensure customer is linked to this shop as a member
+                mem_stmt = select(CustomerRetailerMembership).where(
+                    CustomerRetailerMembership.customer_id == customer.id,
+                    CustomerRetailerMembership.shop_id == shop.id
+                )
+                mem_res = await self.db.execute(mem_stmt)
+                membership = mem_res.scalar_one_or_none()
+                if not membership:
+                    membership = CustomerRetailerMembership(
+                        id=uuid.uuid4(),
+                        customer_id=customer.id,
+                        shop_id=shop.id,
+                        is_retailer_added=True
+                    )
+                    self.db.add(membership)
 
         # 3. Create OrderItem instances
         order_id = uuid.uuid4()
@@ -120,25 +159,37 @@ class OrderService:
         # 4. Create Order model instance
         from datetime import datetime, timezone, timedelta
         
+        initial_pay_status = (getattr(data, "payment_status", None) or "pending").lower()
+        
+        # Normalize order customer_phone to match customer profile format
+        order_phone = ""
+        if customer and customer.mobile_number:
+            order_phone = customer.mobile_number
+        elif data.customer_phone and data.customer_phone.strip():
+            cp_digits = "".join(filter(str.isdigit, data.customer_phone))
+            order_phone = f"+91{cp_digits}" if len(cp_digits) == 10 else data.customer_phone.strip()
+
         order = Order(
             id=order_id,
             shop_id=shop.id,
             customer_name=data.customer_name or "Walk-in",
-            customer_phone=data.customer_phone or "",
+            customer_phone=order_phone,
             order_type=data.order_type,
             table_number=data.table_number,
             delivery_address=data.delivery_address,
             order_status=initial_status,
-            payment_status="pending",
+            payment_status=initial_pay_status,
             payment_method=data.payment_method,
             total_amount=data.total_amount,
             items=items_list,
         )
+
         
-        if initial_status == "PAYMENT_PENDING":
+        if initial_status == "PAYMENT_PENDING" and initial_pay_status != "paid":
             order.payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
             
         self.db.add(order)
+
 
         # Create notification for merchant (for non-online payment methods like cash/upi)
         if data.payment_method != "online":
@@ -321,21 +372,35 @@ class OrderService:
         limit: int = 20,
         status_filter: Optional[str] = "all",
         type_filter: Optional[str] = "all",
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        date_filter: Optional[str] = None
     ) -> tuple[list[Order], int, bool]:
-        """Fetch shop orders with SQL filtering, search, and pagination."""
-        from sqlalchemy import func, or_, cast, String
+        """Fetch shop orders with SQL filtering, search, date filter, and pagination."""
+        from sqlalchemy import func, or_, and_, cast, String
         conditions = [Order.shop_id == shop_id]
 
         if status_filter and status_filter != "all":
             if status_filter == "new":
                 conditions.append(Order.order_status.in_(["PENDING_VENDOR", "pending"]))
             elif status_filter == "awaiting_payment":
-                conditions.append(Order.order_status.in_(["PAYMENT_PENDING"]))
-            elif status_filter == "accepted":
-                conditions.append(Order.order_status.in_(["PAID", "accepted"]))
-            elif status_filter == "preparing":
-                conditions.append(Order.order_status.in_(["PREPARING", "READY"]))
+                # Takeaway & online/delivery orders waiting for payment
+                conditions.append(
+                    and_(
+                        Order.order_status.in_(["PAYMENT_PENDING"]),
+                        Order.order_type != "dine_in"
+                    )
+                )
+            elif status_filter in ["preparing", "awaiting_complete", "accepted"]:
+                # Awaiting complete includes accepted dine-in orders (guests eat first) and paid takeaway/delivery orders
+                conditions.append(
+                    or_(
+                        Order.order_status.in_(["PAID", "accepted", "ACCEPTED", "PREPARING", "READY"]),
+                        and_(
+                            Order.order_type == "dine_in",
+                            Order.order_status.in_(["PAYMENT_PENDING", "ACCEPTED", "accepted"])
+                        )
+                    )
+                )
             elif status_filter == "completed":
                 conditions.append(Order.order_status.in_(["DELIVERED", "COMPLETED", "completed"]))
             elif status_filter == "cancelled":
@@ -343,6 +408,21 @@ class OrderService:
 
         if type_filter and type_filter != "all":
             conditions.append(Order.order_type == type_filter)
+
+        if date_filter and date_filter.strip():
+            try:
+                from datetime import datetime, date, time
+                d = date.fromisoformat(date_filter.strip())
+                start_dt = datetime.combine(d, time.min)
+                end_dt = datetime.combine(d, time.max)
+                conditions.append(
+                    or_(
+                        func.date(Order.created_at) == d,
+                        (Order.created_at >= start_dt) & (Order.created_at <= end_dt)
+                    )
+                )
+            except ValueError:
+                pass
 
         if search and search.strip():
             term = f"%{search.strip()}%"
@@ -372,32 +452,74 @@ class OrderService:
 
         return orders, total_count, has_more
 
-    async def get_status_counts(self, shop_id: uuid.UUID) -> dict[str, int]:
-        """Calculate shop-wide counts for each status tab."""
-        from sqlalchemy import func
-        base = select(Order.order_status, func.count(Order.id)).where(Order.shop_id == shop_id).group_by(Order.order_status)
-        result = await self.db.execute(base)
+    async def get_status_counts(self, shop_id: uuid.UUID, date_filter: Optional[str] = None) -> dict[str, int]:
+        """Calculate shop-wide counts for each status tab, optionally filtered by date."""
+        from sqlalchemy import func, or_
+        conditions = [Order.shop_id == shop_id]
+
+        if date_filter and date_filter.strip():
+            try:
+                from datetime import datetime, date, time
+                d = date.fromisoformat(date_filter.strip())
+                start_dt = datetime.combine(d, time.min)
+                end_dt = datetime.combine(d, time.max)
+                conditions.append(
+                    or_(
+                        func.date(Order.created_at) == d,
+                        (Order.created_at >= start_dt) & (Order.created_at <= end_dt)
+                    )
+                )
+            except ValueError:
+                pass
+
+        stmt = (
+            select(Order.order_status, Order.order_type, func.count(Order.id))
+            .where(*conditions)
+            .group_by(Order.order_status, Order.order_type)
+        )
+        result = await self.db.execute(stmt)
         rows = result.all()
 
-        counts_map = {row[0]: row[1] for row in rows}
+        new_count = 0
+        awaiting_payment_count = 0
+        awaiting_complete_count = 0
+        completed_count = 0
+        cancelled_count = 0
+        all_count = 0
 
-        new_count = counts_map.get("PENDING_VENDOR", 0) + counts_map.get("pending", 0)
-        awaiting_payment_count = counts_map.get("PAYMENT_PENDING", 0)
-        accepted_count = counts_map.get("PAID", 0) + counts_map.get("accepted", 0)
-        preparing_count = counts_map.get("PREPARING", 0) + counts_map.get("READY", 0)
-        completed_count = counts_map.get("DELIVERED", 0) + counts_map.get("COMPLETED", 0) + counts_map.get("completed", 0)
-        cancelled_count = counts_map.get("CANCELLED", 0) + counts_map.get("OUT_FOR_DELIVERY", 0) + counts_map.get("rejected", 0) + counts_map.get("cancelled", 0)
-        all_count = sum(counts_map.values())
+        for status_val, order_type_val, count_val in rows:
+            all_count += count_val
+            s = (status_val or "").upper()
+            t = (order_type_val or "").lower()
+
+            if s in ["PENDING_VENDOR", "PENDING"]:
+                new_count += count_val
+            elif s == "PAYMENT_PENDING":
+                if t == "dine_in":
+                    # Dine-in accepted orders are active tickets awaiting completion
+                    awaiting_complete_count += count_val
+                else:
+                    awaiting_payment_count += count_val
+            elif s in ["PAID", "ACCEPTED", "PREPARING", "READY"]:
+                awaiting_complete_count += count_val
+            elif s in ["DELIVERED", "COMPLETED"]:
+                completed_count += count_val
+            elif s in ["CANCELLED", "OUT_FOR_DELIVERY", "REJECTED"]:
+                cancelled_count += count_val
 
         return {
             "all": all_count,
             "new": new_count,
             "awaiting_payment": awaiting_payment_count,
-            "accepted": accepted_count,
-            "preparing": preparing_count,
+            "accepted": awaiting_complete_count,
+            "preparing": awaiting_complete_count,
+            "awaiting_complete": awaiting_complete_count,
             "completed": completed_count,
             "cancelled": cancelled_count,
         }
+
+
+
 
     async def get_orders_by_user(self, user_id: uuid.UUID) -> list[Order]:
         """Fetch all orders for a merchant's shop based on user ID."""
@@ -463,6 +585,7 @@ class OrderService:
         if payment_status.lower() == "paid" and order.order_status == "PAYMENT_PENDING":
             order.order_status = "PAID"
             order.payment_expires_at = None
+            await self._send_order_status_whatsapp_notification(order)
             
         return order
 
@@ -477,21 +600,23 @@ class OrderService:
         status = status.upper()
 
         valid_transitions = {
-            "PENDING_VENDOR": ["PAYMENT_PENDING", "CANCELLED"],
-            "PAYMENT_PENDING": ["PAID", "CANCELLED"],
-            "PAID": ["PREPARING", "CANCELLED"],
-            "PREPARING": ["READY", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"],
-            "READY": ["OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"],
-            "OUT_FOR_DELIVERY": ["DELIVERED", "CANCELLED"],
+            "PENDING_VENDOR": ["PAYMENT_PENDING", "ACCEPTED", "CANCELLED"],
+            "PAYMENT_PENDING": ["PAID", "ACCEPTED", "CANCELLED"],
+            "PAID": ["PREPARING", "ACCEPTED", "CANCELLED"],
+            "ACCEPTED": ["PREPARING", "READY", "DELIVERED", "COMPLETED", "CANCELLED"],
+            "PREPARING": ["READY", "OUT_FOR_DELIVERY", "DELIVERED", "COMPLETED", "CANCELLED"],
+            "READY": ["OUT_FOR_DELIVERY", "DELIVERED", "COMPLETED", "CANCELLED"],
+            "OUT_FOR_DELIVERY": ["DELIVERED", "COMPLETED", "CANCELLED"],
             # Fallbacks for legacy/current app usage:
             "PENDING": ["ACCEPTED", "REJECTED", "CANCELLED", "PAYMENT_PENDING"],
-            "ACCEPTED": ["COMPLETED", "CANCELLED"],
         }
+
         
         # We don't enforce strict transitions if current_status is not in our map (legacy)
-        # But we do enforce payment checks
-        if status == "PREPARING" and order.payment_status.lower() != "paid" and order.payment_method.lower() != "cash":
+        # But we do enforce payment checks for takeaway/delivery
+        if status == "PREPARING" and order.payment_status.lower() != "paid" and order.payment_method.lower() != "cash" and order.order_type != "dine_in":
             raise HTTPException(status_code=400, detail="Cannot start preparation until payment is confirmed.")
+
 
         order.order_status = status
         
@@ -509,15 +634,17 @@ class OrderService:
         if status in ["COMPLETED", "DELIVERED"]:
             await self._award_contest_credits_if_eligible(order)
 
-        # Trigger notification log
-        from app.models.activity_log import ActivityLog
-        log = ActivityLog(
-            id=uuid.uuid4(),
-            user_id=user_id,
-            action=f"order_{status}",
-            details=f"Order {order.id} status updated to {status}."
-        )
-        self.db.add(log)
+        # Trigger notification log if user_id present
+        if user_id:
+            from app.models.activity_log import ActivityLog
+            log = ActivityLog(
+                id=uuid.uuid4(),
+                user_id=user_id,
+                action=f"order_{status}",
+                details=f"Order {order.id} status updated to {status}."
+            )
+            self.db.add(log)
+
 
         # Create notification for order status update
         from app.services.notification_service import NotificationService
@@ -550,7 +677,71 @@ class OrderService:
         user_id = get_customer_user_id(clean_phone)
         await customer_manager.broadcast_to_customer(user_id, ws_msg)
 
+        # Send WhatsApp template notification 'menukit_order_create' to customer
+        await self._send_order_status_whatsapp_notification(order)
+
         return order
+
+    async def _send_order_status_whatsapp_notification(self, order: Order, shop_name: Optional[str] = None):
+        """Send 'menukit_order_created' WhatsApp template to customer ONLY when order is BOTH Completed AND Paid."""
+        if not order or not order.customer_phone:
+            return
+
+        # STRICT GUARD: Only send WhatsApp message if order is BOTH Completed AND Paid
+        is_paid = str(order.payment_status or "").lower() == "paid"
+        is_completed = str(order.order_status or "").upper() in ["COMPLETED", "DELIVERED"]
+
+        if not (is_paid and is_completed):
+            return
+
+
+        try:
+
+            if not shop_name:
+                if hasattr(order, "shop") and order.shop and getattr(order.shop, "name", None):
+                    shop_name = order.shop.name
+                else:
+                    shop_res = await self.db.execute(select(Shop.name).where(Shop.id == order.shop_id))
+                    shop_name = shop_res.scalar_one_or_none()
+            
+            shop_name = shop_name or "Restaurant"
+            raw_phone = order.customer_phone
+            clean_phone = "".join(filter(str.isdigit, raw_phone))
+            if not clean_phone:
+                return
+            if len(clean_phone) == 10:
+                clean_phone = f"91{clean_phone}"
+
+            amt_val = float(order.total_amount or 0.0)
+            formatted_amount = f"₹{int(amt_val)}" if amt_val.is_integer() else f"₹{amt_val:.2f}"
+            bill_id = order.id.hex[:8].upper()
+            customer_name = order.customer_name or "Customer"
+            customer_url = "https://menukit.debuggerstechnologies.com/customer/"
+
+            def _send_wa():
+                try:
+                    from app.services.whatsapp_service import WhatsAppClient
+                    wa = WhatsAppClient()
+                    wa.send_order_create_template(
+                        phone_number=clean_phone,
+                        customer_name=customer_name,
+                        shop_name=shop_name,
+                        bill_id=bill_id,
+                        amount_paid=formatted_amount,
+                        customer_url=customer_url,
+                    )
+                except Exception as ex:
+                    print(f"Failed to send order status WhatsApp to {clean_phone}: {ex}")
+
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                loop.run_in_executor(None, _send_wa)
+            except RuntimeError:
+                _send_wa()
+        except Exception as e:
+            print(f"Error initiating WhatsApp order status notification: {e}")
+
     async def _award_contest_credits_if_eligible(self, order: Order):
         """Award 0.15 contest credits if order total >= ₹100."""
         if not order or getattr(order, "credits_rewarded", False):
@@ -621,4 +812,62 @@ class OrderService:
         order.total_amount = float(order.total_amount or 0.0) + added_amount
         await self.db.flush()
         return order
+
+    async def toggle_order_item_completion(self, order_id: uuid.UUID, item_id: uuid.UUID, shop_id: uuid.UUID, is_completed: Optional[bool] = None) -> Order:
+        """Toggle or set an order item's completion status."""
+        result = await self.db.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(Order.id == order_id, Order.shop_id == shop_id)
+        )
+        order = result.scalar_one_or_none()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        item = next((it for it in order.items if it.id == item_id), None)
+        if not item:
+            raise HTTPException(status_code=404, detail="Order item not found")
+
+        if is_completed is not None:
+            item.is_completed = is_completed
+        else:
+            item.is_completed = not bool(item.is_completed)
+
+        # If marked completed, un-cancel
+        if item.is_completed:
+            item.is_cancelled = False
+            item.cancellation_reason = None
+
+        await self.db.flush()
+        return order
+
+    async def toggle_order_item_cancel(
+        self, order_id: uuid.UUID, item_id: uuid.UUID, shop_id: uuid.UUID, reason: Optional[str] = None
+    ) -> Order:
+        """Cancel or restore an individual order item."""
+        result = await self.db.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(Order.id == order_id, Order.shop_id == shop_id)
+        )
+        order = result.scalar_one_or_none()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        item = next((it for it in order.items if it.id == item_id), None)
+        if not item:
+            raise HTTPException(status_code=404, detail="Order item not found")
+
+        # Toggle cancellation
+        item.is_cancelled = not bool(item.is_cancelled)
+        if item.is_cancelled:
+            item.is_completed = False
+            item.cancellation_reason = reason or "Cancelled by merchant"
+        else:
+            item.cancellation_reason = None
+
+        await self.db.flush()
+        return order
+
+
 

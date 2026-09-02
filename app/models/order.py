@@ -2,7 +2,7 @@
 
 from datetime import datetime
 import uuid
-from sqlalchemy import String, ForeignKey, Numeric, Boolean, Index, DateTime
+from sqlalchemy import String, ForeignKey, Numeric, Boolean, Index, DateTime, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base, UUIDMixin, TimestampMixin
@@ -66,6 +66,11 @@ class OrderItem(Base, UUIDMixin, TimestampMixin):
     price: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     variant_info: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     addons_info: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'), nullable=False)
+    is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'), nullable=False)
+    cancellation_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Relationships
     order = relationship("Order", back_populates="items")
+
+

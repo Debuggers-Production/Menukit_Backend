@@ -13,6 +13,9 @@ class OrderItemBase(BaseModel):
     price: float
     variant_info: Optional[dict] = None
     addons_info: Optional[List[dict]] = None
+    is_completed: bool = False
+    is_cancelled: bool = False
+    cancellation_reason: Optional[str] = None
 
 
 class OrderItemCreate(OrderItemBase):
@@ -26,8 +29,14 @@ class OrderAddItems(BaseModel):
 class OrderItemResponse(OrderItemBase):
     id: uuid.UUID
     order_id: uuid.UUID
+    is_completed: bool = False
+    is_cancelled: bool = False
+    cancellation_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
 
 
 class OrderBase(BaseModel):
@@ -37,7 +46,9 @@ class OrderBase(BaseModel):
     table_number: Optional[str] = None
     delivery_address: Optional[str] = None
     payment_method: str  # 'cash', 'online'
+    payment_status: Optional[str] = "pending"
     total_amount: float
+
 
 
 class OrderCreate(OrderBase):

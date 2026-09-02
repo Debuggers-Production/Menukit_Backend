@@ -14,9 +14,19 @@ class CustomerService:
         self.db = db
 
     async def get_customer_by_mobile(self, mobile_number: str) -> Optional[Customer]:
-        stmt = select(Customer).where(Customer.mobile_number == mobile_number)
+        clean = "".join([c for c in mobile_number if c.isdigit()])
+        last10 = clean[-10:] if len(clean) >= 10 else clean
+        variants = list(set([
+            mobile_number.strip(),
+            clean,
+            f"+91{last10}",
+            f"91{last10}",
+            last10
+        ]))
+        stmt = select(Customer).where(Customer.mobile_number.in_(variants))
         result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
+
 
     async def register_customer(self, name: str, mobile_number: str) -> Customer:
         # Check if already exists

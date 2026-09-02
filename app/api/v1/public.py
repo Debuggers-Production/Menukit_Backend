@@ -957,9 +957,8 @@ async def pay_public_order(
         }
         
         if shop_settings and shop_settings.razorpay_account_id:
-            # Platform deducts an additional 1% gateway/route fee from the vendor's base amount
-            platform_route_fee = round(base_total * 0.01, 2)
-            vendor_net_amount = base_total - platform_route_fee
+            # Transfer 100% of vendor base amount directly to their Razorpay account (0% gateway deduction)
+            vendor_net_amount = base_total
             vendor_amount_paise = int(round(vendor_net_amount * 100))
             order_data["transfers"] = [
                 {
@@ -973,6 +972,7 @@ async def pay_public_order(
                     "on_hold": 0
                 }
             ]
+
 
         try:
             rzp_order = client.order.create(data=order_data)
@@ -1085,19 +1085,39 @@ async def verify_public_order_payment(
         await db.commit()
         return OrderResponse.model_validate(order)
 
-    # If it wasn't cancelled, we can safely mark it as PAID!
+    # If it wasn't cancelled, calculate exact paid amount (including convenience/gateway fees) and mark as PAID!
+    base_total = float(order.total_amount)
+    platform_fee = round(base_total * 0.02, 2)
+    pg_fee = round(base_total * 0.03, 2)
+    gst_on_fee = round(pg_fee * 0.18, 2)
+    paid_total = round(base_total + platform_fee + pg_fee + gst_on_fee, 2)
+
+    # Try fetching exact paid amount from Razorpay if available
+    if not settings.MOCK_PAYMENT_MODE and razorpay_payment_id:
+        try:
+            import razorpay
+            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+            pay_obj = client.payment.fetch(razorpay_payment_id)
+            if pay_obj and "amount" in pay_obj:
+                paid_total = round(float(pay_obj["amount"]) / 100.0, 2)
+        except Exception as p_err:
+            print(f"Could not fetch razorpay payment amount: {p_err}")
+
     from sqlalchemy import update
     update_stmt = (
         update(Order)
         .where(Order.id == order.id, Order.version == order.version)
         .values(
             payment_status="paid",
+            payment_method="online",
             order_status="PAID",
+            total_amount=paid_total,
             razorpay_order_id=razorpay_order_id,
             payment_session_id=razorpay_payment_id,
             version=Order.version + 1
         )
     )
+
     res = await db.execute(update_stmt)
     if res.rowcount == 0:
         # OCC Failure! State changed while we were verifying.
@@ -1149,9 +1169,13 @@ async def verify_public_order_payment(
     customer_ws_id = get_customer_user_id(clean_phone)
     await customer_manager.broadcast_to_customer(customer_ws_id, cust_msg)
 
+    # Send WhatsApp template notification 'menukit_order_create'
+    await order_service._send_order_status_whatsapp_notification(order)
+
     await db.commit()
     await db.refresh(order)
     return OrderResponse.model_validate(order)
+
 
 
 @router.post("/orders/{order_id}/cancel")
@@ -1177,6 +1201,27 @@ async def cancel_unpaid_public_order(
     return {"status": "success", "message": "Order cancelled"}
 
 
+def _get_phone_variants(phone: Optional[str]) -> list[str]:
+    if not phone:
+        return []
+    raw = phone.strip()
+    clean = "".join(filter(str.isdigit, raw))
+    if not clean:
+        return [raw] if raw else []
+    variants = {raw, clean}
+    if len(clean) == 10:
+        variants.add(f"+91{clean}")
+        variants.add(f"91{clean}")
+    elif len(clean) == 12 and clean.startswith("91"):
+        variants.add(clean[2:])
+        variants.add(f"+{clean}")
+    elif len(clean) > 10:
+        variants.add(clean[-10:])
+        variants.add(f"+91{clean[-10:]}")
+        variants.add(f"91{clean[-10:]}")
+    return list(variants)
+
+
 @router.get("/my-orders", response_model=List[OrderResponse])
 async def get_my_orders(
     shop_id: uuid.UUID,
@@ -1193,12 +1238,13 @@ async def get_my_orders(
     from sqlalchemy import select, not_, and_
     from sqlalchemy.orm import selectinload
     
+    mobile_variants = _get_phone_variants(mobile_number)
     result = await db.execute(
         select(Order)
         .options(selectinload(Order.items))
         .where(
             Order.shop_id == shop_id,
-            Order.customer_phone == mobile_number
+            Order.customer_phone.in_(mobile_variants)
         )
         .order_by(Order.created_at.desc())
     )
@@ -1271,8 +1317,9 @@ async def get_customer_profile(
         shop_uuid = None
 
     if mobile:
-        c_result = await db.execute(select(Customer).where(Customer.mobile_number == mobile))
-        customer_obj = c_result.scalar_one_or_none()
+        mobile_variants = _get_phone_variants(mobile)
+        c_result = await db.execute(select(Customer).where(Customer.mobile_number.in_(mobile_variants)))
+        customer_obj = c_result.scalars().first()
 
         if customer_obj:
             customer_info["name"] = customer_obj.name or "Customer"
@@ -1293,7 +1340,7 @@ async def get_customer_profile(
             # Total Orders count & Credits calculation (includes rejected/cancelled orders)
             orders_count_res = await db.execute(
                 select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0))
-                .where(Order.customer_phone == customer_obj.mobile_number)
+                .where(Order.customer_phone.in_(mobile_variants))
             )
             total_orders_count, total_spent = orders_count_res.first() or (0, 0)
             from app.models.contest import ContestCredit
@@ -1308,7 +1355,7 @@ async def get_customer_profile(
             # Visited Shops Count
             vshops_res = await db.execute(
                 select(func.count(func.distinct(Order.shop_id)))
-                .where(Order.customer_phone == customer_obj.mobile_number)
+                .where(Order.customer_phone.in_(mobile_variants))
             )
             visited_shops_count = vshops_res.scalar() or (1 if shop_uuid else 0)
             customer_info["counts"]["visited_shops"] = max(1 if shop_uuid else 0, visited_shops_count)
@@ -1362,21 +1409,22 @@ async def get_customer_summary_counts(
     }
 
     if mobile:
-        c_result = await db.execute(select(Customer).where(Customer.mobile_number == mobile))
-        customer_obj = c_result.scalar_one_or_none()
+        mobile_variants = _get_phone_variants(mobile)
+        c_result = await db.execute(select(Customer).where(Customer.mobile_number.in_(mobile_variants)))
+        customer_obj = c_result.scalars().first()
 
         if customer_obj:
             # 1. Total Orders Count (including rejected/cancelled/completed)
             orders_res = await db.execute(
                 select(func.count(Order.id))
-                .where(Order.customer_phone == customer_obj.mobile_number)
+                .where(Order.customer_phone.in_(mobile_variants))
             )
             counts["orders"] = orders_res.scalar() or 0
 
             # 2. Visited Shops Count
             vshops_res = await db.execute(
                 select(func.count(func.distinct(Order.shop_id)))
-                .where(Order.customer_phone == customer_obj.mobile_number)
+                .where(Order.customer_phone.in_(mobile_variants))
             )
             counts["visited_shops"] = vshops_res.scalar() or 0
 
@@ -1426,10 +1474,11 @@ async def get_customer_visited_shops(
 
     visited_shops_map = {}
     if mobile:
+        mobile_variants = _get_phone_variants(mobile)
         ord_result = await db.execute(
             select(Order)
             .options(selectinload(Order.shop))
-            .where(Order.customer_phone == mobile)
+            .where(Order.customer_phone.in_(mobile_variants))
         )
         orders_obj = ord_result.scalars().all()
         for o in orders_obj:
@@ -1520,11 +1569,13 @@ async def get_customer_orders(
     if not mobile:
         return {"items": [], "pagination": {"page": 1, "limit": limit, "total": 0, "total_pages": 1}}
 
+    mobile_variants = _get_phone_variants(mobile)
     query = (
         select(Order)
         .options(selectinload(Order.items), selectinload(Order.shop))
-        .where(Order.customer_phone == mobile)
+        .where(Order.customer_phone.in_(mobile_variants))
     )
+
 
     q = (search or "").strip()
     if q:
