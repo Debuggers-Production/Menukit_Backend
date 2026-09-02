@@ -55,11 +55,12 @@ class OrderService:
             raise HTTPException(status_code=400, detail="Dine-in option is not available")
 
         # 3. Determine status
-        # If auto-accept is on, we skip PENDING_VENDOR and go straight to PAYMENT_PENDING (if online) or PAID (if cash/upi, actually for cash it usually skips payment to PREPARING, but for now we follow the simple state machine).
-        # Actually, let's keep it robust for the new state machine:
         if settings.auto_accept_orders:
-            # Skip PENDING_VENDOR
-            initial_status = "PAYMENT_PENDING"
+            # For cash orders with auto-accept, set directly to ACCEPTED (paid on delivery/counter)
+            if data.payment_method in ["cash", "cash_on_delivery", "counter"]:
+                initial_status = "ACCEPTED"
+            else:
+                initial_status = "PAYMENT_PENDING"
         else:
             # Standard initial status requires vendor acceptance
             initial_status = "PENDING_VENDOR"
@@ -185,7 +186,7 @@ class OrderService:
         )
 
         
-        if initial_status == "PAYMENT_PENDING" and initial_pay_status != "paid":
+        if initial_status == "PAYMENT_PENDING" and initial_pay_status != "paid" and data.payment_method not in ["cash", "cash_on_delivery", "counter"]:
             order.payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
             
         self.db.add(order)
@@ -620,11 +621,11 @@ class OrderService:
 
         order.order_status = status
         
-        if status == "PAYMENT_PENDING":
+        if status == "PAYMENT_PENDING" and order.payment_method not in ["cash", "cash_on_delivery", "counter"]:
             from datetime import timedelta, datetime, timezone
             order.payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
         else:
-            # Clear expiry if we move past PAYMENT_PENDING (e.g. to PAID or CANCELLED)
+            # Clear expiry if we move past PAYMENT_PENDING or for cash orders
             order.payment_expires_at = None
         
         if status == "CANCELLED":
