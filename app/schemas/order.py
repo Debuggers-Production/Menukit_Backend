@@ -26,6 +26,20 @@ class OrderAddItems(BaseModel):
     items: List[OrderItemCreate]
 
 
+class OrderItemCancel(BaseModel):
+    reason: Optional[str] = "Cancelled by staff"
+
+
+class OrderItemReplace(BaseModel):
+    new_menu_item_id: uuid.UUID
+    name: str
+    quantity: int = 1
+    price: float
+    variant_info: Optional[dict] = None
+    addons_info: Optional[List[dict]] = None
+    reason: Optional[str] = "Customer requested item replacement"
+
+
 class OrderItemResponse(OrderItemBase):
     id: uuid.UUID
     order_id: uuid.UUID

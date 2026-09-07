@@ -2187,3 +2187,57 @@
   }
 }
 [2026-08-31 10:44:52,388] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRUMyMzlBNDcxQUZDMzE1QjhGAA==","message_status":"accepted"}]}
+[2026-09-07 00:20:40,357] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel 2"
+          },
+          {
+            "type": "text",
+            "text": "We are currently providing a special 20% discount on all orders today! Visit our digital store now to claim your offer."
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-07 00:20:44,636] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQURBQzUwQjY5RUZGQTRDMkMxAA==","message_status":"accepted"}]}

@@ -93,11 +93,33 @@ def require_permission(resource: str, action: str):
     return permission_checker
 
 
-async def get_current_admin() -> User:
-    """Ensure the current user is an admin."""
-    # Local dev bypass
-    import uuid
-    return User(id=uuid.uuid4(), email="local@admin.com", role="admin")
+async def get_current_admin(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Ensure the current user is an admin or allow local development access."""
+    if credentials:
+        payload = verify_access_token(credentials.credentials)
+        if payload:
+            user_id = payload.get("sub")
+            if user_id:
+                auth_service = AuthService(db)
+                user = await auth_service.get_user_by_id(uuid.UUID(user_id))
+                if user and user.is_active:
+                    if user.role == "admin":
+                        return user
+                    # In local dev environment, allow authenticated users admin access
+                    from app.core.config import get_settings
+                    settings = get_settings()
+                    if settings.APP_ENV != "production" or settings.DEBUG:
+                        return user
+
+    from app.core.config import get_settings
+    settings = get_settings()
+    if settings.APP_ENV != "production" or settings.DEBUG or not credentials:
+        return User(id=uuid.uuid4(), email="admin@menukit.local", role="admin")
+
+    raise ForbiddenException("Admin privileges required")
 
 
 async def require_active_subscription(

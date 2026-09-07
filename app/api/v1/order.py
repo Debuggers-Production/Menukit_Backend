@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from app.database.session import get_db
 from app.core.deps import get_current_user, require_permission
-from app.schemas.order import OrderResponse, OrderStatusUpdate, PaymentStatusUpdate
+from app.schemas.order import OrderResponse, OrderStatusUpdate, PaymentStatusUpdate, OrderItemCancel, OrderItemReplace
 from app.services.order_service import OrderService
 from app.models.user import User
 
@@ -234,17 +234,43 @@ async def toggle_item_completion(
 async def toggle_item_cancel(
     order_id: str,
     item_id: str,
+    cancel_data: Optional[OrderItemCancel] = None,
     shop = Depends(require_permission("orders", "write")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Toggle individual item cancellation status (Cancelled vs Active)."""
+    """Toggle individual item cancellation status (Cancelled vs Active), adjust order total, and save reason."""
     import uuid
     await check_orders_subscription(shop, db)
     service = OrderService(db)
+    reason = cancel_data.reason if cancel_data else None
     order = await service.toggle_order_item_cancel(
         uuid.UUID(order_id),
         uuid.UUID(item_id),
-        shop.id
+        shop.id,
+        reason=reason,
+    )
+    await db.commit()
+    await db.refresh(order)
+    return OrderResponse.model_validate(order)
+
+
+@router.post("/{order_id}/items/{item_id}/replace", response_model=OrderResponse)
+async def replace_order_item(
+    order_id: str,
+    item_id: str,
+    replace_data: OrderItemReplace,
+    shop = Depends(require_permission("orders", "write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Atomically replace an order item with another item and recalculate totals."""
+    import uuid
+    await check_orders_subscription(shop, db)
+    service = OrderService(db)
+    order = await service.replace_order_item(
+        uuid.UUID(order_id),
+        uuid.UUID(item_id),
+        shop.id,
+        replace_data=replace_data,
     )
     await db.commit()
     await db.refresh(order)

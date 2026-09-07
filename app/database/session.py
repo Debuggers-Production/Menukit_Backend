@@ -41,6 +41,22 @@ async def init_db():
     try:
         async with engine.begin() as conn:
             await conn.execute(text("SELECT 1;"))
+            # Auto-migrate GST & Compliance columns if missing
+            gst_migrations = [
+                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS gst_enabled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS gstin VARCHAR(50);",
+                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS legal_name VARCHAR(255);",
+                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS fssai_license VARCHAR(50);",
+                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS cgst_rate FLOAT DEFAULT 2.5;",
+                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS sgst_rate FLOAT DEFAULT 2.5;",
+                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS inclusive_tax BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS tax_invoice_notes VARCHAR(500);",
+            ]
+            for stmt in gst_migrations:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as mig_err:
+                    print(f"Migration notice: {mig_err}")
     except Exception as e:
         print(f"Database startup info: {e}")
 

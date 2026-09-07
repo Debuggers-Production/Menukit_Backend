@@ -76,6 +76,15 @@ class ShopSettingsUpdate(BaseModel):
     beneficiary_name: Optional[str] = None
     bank_account_number: Optional[str] = None
     ifsc_code: Optional[str] = None
+    # GST & Compliances
+    gst_enabled: Optional[bool] = None
+    gstin: Optional[str] = None
+    legal_name: Optional[str] = None
+    fssai_license: Optional[str] = None
+    cgst_rate: Optional[float] = None
+    sgst_rate: Optional[float] = None
+    inclusive_tax: Optional[bool] = None
+    tax_invoice_notes: Optional[str] = None
 
 
 class ThemeSettingsUpdate(BaseModel):
@@ -138,6 +147,15 @@ class ShopSettingsResponse(BaseModel):
     razorpay_product_id: Optional[str] = None
     razorpay_route_status: Optional[str] = None
     online_payments_enabled: bool = True
+    # GST & Compliances
+    gst_enabled: bool = False
+    gstin: Optional[str] = None
+    legal_name: Optional[str] = None
+    fssai_license: Optional[str] = None
+    cgst_rate: float = 2.5
+    sgst_rate: float = 2.5
+    inclusive_tax: bool = False
+    tax_invoice_notes: Optional[str] = None
 
     class Config:
         from_attributes = True

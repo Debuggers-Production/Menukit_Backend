@@ -125,3 +125,45 @@ class RevenueAnalyticsSummary(BaseModel):
     daily_sales: List[DailySalesReportPoint] = []
     recent_invoices: List[OrderSettlementInvoice] = []
 
+
+class GstInvoiceEntry(BaseModel):
+    """Single invoice tax entry for GSTR reporting."""
+    order_id: str
+    invoice_no: str
+    date: str
+    customer_name: str
+    customer_phone: Optional[str] = None
+    order_type: str
+    payment_method: str
+    payment_status: str
+    gross_amount: float
+    taxable_amount: float
+    cgst_amount: float
+    sgst_amount: float
+    total_tax_amount: float
+    cgst_rate: float
+    sgst_rate: float
+
+
+class GstComplianceInfo(BaseModel):
+    """Compliance and tax registration snapshot."""
+    gst_enabled: bool = False
+    gstin: Optional[str] = None
+    legal_name: Optional[str] = None
+    fssai_license: Optional[str] = None
+    cgst_rate: float = 2.5
+    sgst_rate: float = 2.5
+    inclusive_tax: bool = False
+
+
+class GstReportSummary(BaseModel):
+    """GST and tax compliance summary for analytics."""
+    total_gross_turnover: float
+    total_taxable_turnover: float
+    total_cgst_collected: float
+    total_sgst_collected: float
+    total_gst_collected: float
+    total_invoices_count: int
+    compliance: GstComplianceInfo
+    invoices: List[GstInvoiceEntry] = []
+

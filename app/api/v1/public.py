@@ -914,6 +914,13 @@ async def pay_public_order(
     if order.payment_status == "paid":
         raise HTTPException(status_code=400, detail="Order has already been paid")
 
+    # For dine-in orders, merchant must accept the order before customer can pay
+    if order.order_type == "dine_in" and order.order_status in ["PENDING_VENDOR", "PENDING", "pending"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Order is awaiting restaurant acceptance. Please wait for the restaurant to accept your order before completing payment."
+        )
+
     # Map currency symbol or code to standard 3-letter ISO code
     CURRENCY_MAP = {
         "₹": "INR", "INR": "INR",

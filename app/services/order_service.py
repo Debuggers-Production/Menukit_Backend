@@ -11,7 +11,7 @@ from app.models.order import Order, OrderItem
 from app.models.shop import Shop
 from app.models.shop_settings import ShopSettings
 from app.schemas.order import OrderCreate
-from typing import List, Optional
+from typing import List, Optional, Any
 
 
 def get_customer_user_id(phone: str) -> str:
@@ -845,7 +845,7 @@ class OrderService:
     async def toggle_order_item_cancel(
         self, order_id: uuid.UUID, item_id: uuid.UUID, shop_id: uuid.UUID, reason: Optional[str] = None
     ) -> Order:
-        """Cancel or restore an individual order item."""
+        """Cancel or restore an individual order item and recalculate total amount."""
         result = await self.db.execute(
             select(Order)
             .options(selectinload(Order.items))
@@ -859,13 +859,95 @@ class OrderService:
         if not item:
             raise HTTPException(status_code=404, detail="Order item not found")
 
+        item_amount = float(item.price or 0.0) * int(item.quantity or 1)
+
         # Toggle cancellation
         item.is_cancelled = not bool(item.is_cancelled)
         if item.is_cancelled:
             item.is_completed = False
-            item.cancellation_reason = reason or "Cancelled by merchant"
+            item.cancellation_reason = reason or "Cancelled by staff"
+            # Deduct from order total
+            order.total_amount = max(0.0, float(order.total_amount or 0.0) - item_amount)
         else:
             item.cancellation_reason = None
+            # Restore to order total
+            order.total_amount = float(order.total_amount or 0.0) + item_amount
+
+        # Automatic Order Status Transition:
+        # If all items in the order are now cancelled, automatically mark the whole order as CANCELLED.
+        active_items = [it for it in (order.items or []) if not it.is_cancelled]
+        if not active_items and len(order.items or []) > 0:
+            order.order_status = "CANCELLED"
+            order.cancellation_reason = reason or "All items cancelled"
+        elif active_items and order.order_status in ["CANCELLED", "cancelled"]:
+            # If an item was restored and order was previously marked CANCELLED, revert back to active state
+            order.order_status = "PREPARING" if order.order_type == "dine_in" else "ACCEPTED"
+            order.cancellation_reason = None
+
+        order.version = (order.version or 1) + 1
+        await self.db.flush()
+        return order
+
+    async def replace_order_item(
+        self,
+        order_id: uuid.UUID,
+        item_id: uuid.UUID,
+        shop_id: uuid.UUID,
+        replace_data: Any,
+    ) -> Order:
+        """Atomically cancel an order item with replacement note and append replacement item."""
+        result = await self.db.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(Order.id == order_id, Order.shop_id == shop_id)
+        )
+        order = result.scalar_one_or_none()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        if order.order_status in ["completed", "cancelled"]:
+            raise HTTPException(status_code=400, detail="Cannot modify items of a completed or cancelled order")
+
+        old_item = next((it for it in order.items if it.id == item_id), None)
+        if not old_item:
+            raise HTTPException(status_code=404, detail="Original order item not found")
+
+        # 1. Mark old item as cancelled with replacement note
+        old_amount = float(old_item.price or 0.0) * int(old_item.quantity or 1)
+        old_item.is_cancelled = True
+        old_item.is_completed = False
+        replace_reason = replace_data.reason or "Item replacement"
+        old_item.cancellation_reason = f"Replaced with {replace_data.name} ({replace_reason})"
+
+        # 2. Add new replacement item
+        new_quantity = int(replace_data.quantity or 1)
+        new_price = float(replace_data.price or 0.0)
+        new_amount = new_price * new_quantity
+
+        new_menu_item_id = (
+            uuid.UUID(str(replace_data.new_menu_item_id))
+            if isinstance(replace_data.new_menu_item_id, str)
+            else replace_data.new_menu_item_id
+        )
+
+        replacement_item = OrderItem(
+            id=uuid.uuid4(),
+            order_id=order.id,
+            menu_item_id=new_menu_item_id,
+            name=replace_data.name,
+            quantity=new_quantity,
+            price=new_price,
+            variant_info=replace_data.variant_info,
+            addons_info=replace_data.addons_info,
+            is_completed=False,
+            is_cancelled=False,
+            cancellation_reason=None,
+        )
+        self.db.add(replacement_item)
+
+        # 3. Recalculate order total amount
+        order.total_amount = max(0.0, float(order.total_amount or 0.0) - old_amount + new_amount)
+        order.version = (order.version or 1) + 1
 
         await self.db.flush()
         return order

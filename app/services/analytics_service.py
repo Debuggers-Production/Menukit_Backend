@@ -9,6 +9,8 @@ from sqlalchemy import select, func, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.shop import Shop
+from app.models.shop_settings import ShopSettings
+from app.models.order import Order
 from app.models.category import Category
 from app.models.menu_item import MenuItem
 from app.models.analytics import QRScan, MenuView, SearchHistory
@@ -535,5 +537,144 @@ class AnalyticsService:
             "top_ordered_categories": top_ordered_categories,
             "daily_sales": daily_sales,
             "recent_invoices": recent_invoices
+        }
+
+    async def get_gst_report(
+        self,
+        shop_id: uuid.UUID,
+        days: int = 30,
+        start_date: str | None = None,
+        end_date: str | None = None
+    ) -> dict:
+        """Calculate GST compliance metrics, taxable turnover, CGST/SGST collection, and invoice lines."""
+        from app.models.shop_settings import ShopSettings
+
+        # Fetch shop and settings
+        shop_settings_res = await self.db.execute(
+            select(ShopSettings).where(ShopSettings.shop_id == shop_id)
+        )
+        settings = shop_settings_res.scalar_one_or_none()
+
+        gst_enabled = getattr(settings, "gst_enabled", False) if settings else False
+        gstin = getattr(settings, "gstin", None) if settings else None
+        legal_name = getattr(settings, "legal_name", None) if settings else None
+        fssai_license = getattr(settings, "fssai_license", None) if settings else None
+        cgst_rate = float(getattr(settings, "cgst_rate", 2.5) or 2.5) if settings else 2.5
+        sgst_rate = float(getattr(settings, "sgst_rate", 2.5) or 2.5) if settings else 2.5
+        inclusive_tax = getattr(settings, "inclusive_tax", False) if settings else False
+
+        total_tax_rate = cgst_rate + sgst_rate
+
+        # Date range parsing
+        until = datetime.utcnow()
+        if end_date:
+            try:
+                until = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            except ValueError:
+                pass
+
+        if start_date:
+            try:
+                since = datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                since = until - timedelta(days=days)
+        else:
+            since = until - timedelta(days=days)
+
+        # Query non-cancelled completed or paid orders
+        orders_query = (
+            select(Order)
+            .where(
+                Order.shop_id == shop_id,
+                Order.created_at >= since,
+                Order.created_at <= until,
+                Order.order_status.notin_(["rejected", "cancelled", "REJECTED", "CANCELLED"])
+            )
+            .order_by(desc(Order.created_at))
+        )
+        orders_result = await self.db.execute(orders_query)
+        orders = orders_result.scalars().all()
+
+        total_gross_turnover = 0.0
+        total_taxable_turnover = 0.0
+        total_cgst_collected = 0.0
+        total_sgst_collected = 0.0
+        total_gst_collected = 0.0
+
+        invoices = []
+
+        for o in orders:
+            gross = float(o.total_amount or 0.0)
+            total_gross_turnover += gross
+
+            if total_tax_rate > 0:
+                if inclusive_tax:
+                    taxable = round(gross / (1.0 + (total_tax_rate / 100.0)), 2)
+                    total_tax = round(gross - taxable, 2)
+                    cgst_amt = round(total_tax * (cgst_rate / total_tax_rate), 2)
+                    sgst_amt = round(total_tax - cgst_amt, 2)
+                else:
+                    # Exclusive mode:
+                    # Compute items base amount
+                    items_sum = sum(float(it.price or 0.0) * float(it.quantity or 1) for it in (o.items or []) if not getattr(it, "is_cancelled", False))
+                    if items_sum > 0 and abs(gross - items_sum) < 0.05:
+                        # Pre-fix order where gross was only items subtotal
+                        taxable = round(gross, 2)
+                        cgst_amt = round(taxable * (cgst_rate / 100.0), 2)
+                        sgst_amt = round(taxable * (sgst_rate / 100.0), 2)
+                        total_tax = round(cgst_amt + sgst_amt, 2)
+                        gross = round(taxable + total_tax, 2)
+                    else:
+                        taxable = round(gross / (1.0 + (total_tax_rate / 100.0)), 2)
+                        cgst_amt = round(taxable * (cgst_rate / 100.0), 2)
+                        sgst_amt = round(taxable * (sgst_rate / 100.0), 2)
+                        total_tax = round(cgst_amt + sgst_amt, 2)
+            else:
+                taxable = gross
+                total_tax = 0.0
+                cgst_amt = 0.0
+                sgst_amt = 0.0
+
+            total_taxable_turnover += taxable
+            total_cgst_collected += cgst_amt
+            total_sgst_collected += sgst_amt
+            total_gst_collected += total_tax
+
+            inv_no = f"INV-{o.created_at.strftime('%Y%m%d')}-{str(o.id)[:6].upper()}"
+            invoices.append({
+                "order_id": str(o.id),
+                "invoice_no": inv_no,
+                "date": o.created_at.strftime("%Y-%m-%d %H:%M"),
+                "customer_name": o.customer_name or "Walk-in Guest",
+                "customer_phone": o.customer_phone or "",
+                "order_type": o.order_type or "dine_in",
+                "payment_method": (o.payment_method or "cash").upper(),
+                "payment_status": (o.payment_status or "pending").upper(),
+                "gross_amount": round(gross, 2),
+                "taxable_amount": round(taxable, 2),
+                "cgst_amount": round(cgst_amt, 2),
+                "sgst_amount": round(sgst_amt, 2),
+                "total_tax_amount": round(total_tax, 2),
+                "cgst_rate": round(cgst_rate, 2),
+                "sgst_rate": round(sgst_rate, 2),
+            })
+
+        return {
+            "total_gross_turnover": round(total_gross_turnover, 2),
+            "total_taxable_turnover": round(total_taxable_turnover, 2),
+            "total_cgst_collected": round(total_cgst_collected, 2),
+            "total_sgst_collected": round(total_sgst_collected, 2),
+            "total_gst_collected": round(total_gst_collected, 2),
+            "total_invoices_count": len(invoices),
+            "compliance": {
+                "gst_enabled": bool(gst_enabled),
+                "gstin": gstin,
+                "legal_name": legal_name,
+                "fssai_license": fssai_license,
+                "cgst_rate": round(cgst_rate, 2),
+                "sgst_rate": round(sgst_rate, 2),
+                "inclusive_tax": bool(inclusive_tax),
+            },
+            "invoices": invoices,
         }
 

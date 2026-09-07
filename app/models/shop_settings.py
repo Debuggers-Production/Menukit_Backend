@@ -44,5 +44,15 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     razorpay_route_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     online_payments_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # GST & Compliances settings
+    gst_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    gstin: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    fssai_license: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    cgst_rate: Mapped[float] = mapped_column(Float, default=2.5, nullable=False)
+    sgst_rate: Mapped[float] = mapped_column(Float, default=2.5, nullable=False)
+    inclusive_tax: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    tax_invoice_notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     # Relationships
     shop = relationship("Shop", back_populates="settings")

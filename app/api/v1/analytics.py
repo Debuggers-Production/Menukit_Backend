@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
 from app.core.deps import get_current_user, require_permission
-from app.schemas.analytics import AnalyticsResponse, OverviewStats, DailyReportResponse, RevenueAnalyticsSummary
+from app.schemas.analytics import AnalyticsResponse, OverviewStats, DailyReportResponse, RevenueAnalyticsSummary, GstReportSummary
 from app.services.analytics_service import AnalyticsService
 from app.models.user import User
 
@@ -124,3 +124,18 @@ async def get_top_customer_searches(
     service = AnalyticsService(db)
     searches = await service.get_top_searches(shop.id, limit=limit)
     return {"top_searches": searches}
+
+
+@router.get("/gst-report", response_model=GstReportSummary)
+async def get_gst_report(
+    days: int = 30,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    shop = Depends(require_permission("analytics", "read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get GST & Tax compliance metrics, CGST/SGST collection, and tax invoice registers."""
+    await check_analytics_subscription(shop, db)
+    service = AnalyticsService(db)
+    return await service.get_gst_report(shop.id, days=days, start_date=start_date, end_date=end_date)
+
