@@ -16,6 +16,7 @@ class Discount(Base, UUIDMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("menu_catalogs.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    code: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # "percentage", "flat", "bogo", "combo"
@@ -45,3 +46,53 @@ class Discount(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     menu_catalog = relationship("MenuCatalog", back_populates="discounts")
+    redemptions = relationship("DiscountRedemption", back_populates="discount", cascade="all, delete-orphan")
+
+
+class DiscountRedemption(Base, UUIDMixin, TimestampMixin):
+    """Tracks unique customer discount redemptions to prevent reuse."""
+    __tablename__ = "discount_redemptions"
+
+    discount_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("discounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    shop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    redeemed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    customer_identifier: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    redeemed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    order_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Relationships
+    discount = relationship("Discount", back_populates="redemptions")
+    shop = relationship("Shop")
+
+
+class CustomerDiscountCode(Base, UUIDMixin, TimestampMixin):
+    """Tracks unique discount codes assigned to individual customers."""
+    __tablename__ = "customer_discount_codes"
+
+    discount_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("discounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    shop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    customer_identifier: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    is_redeemed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    discount = relationship("Discount")
+    shop = relationship("Shop")
+    customer = relationship("Customer")

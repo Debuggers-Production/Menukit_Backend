@@ -56,5 +56,5 @@ icecream
 razorpay
 
 # MCP
-mcp
+mcp<2
 fastmcp

@@ -66,6 +66,17 @@ async def verify_mobile(
             return response
 
     # 2. Token invalid or missing, proceed with SMS OTP generation via MSG91
+    customer_service = CustomerService(db)
+    customer = await customer_service.get_customer_by_mobile(data.mobile_number)
+    is_global = customer is not None
+    is_mem = False
+    is_strict = False
+    if customer and data.shop_id:
+        membership = await customer_service.get_membership(customer.id, data.shop_id)
+        if membership:
+            is_mem = True
+            is_strict = membership.is_retailer_added
+
     verification_id = await sms_service.send_otp(data.mobile_number, country_code=data.country_code)
     if not verification_id:
         raise HTTPException(
@@ -83,7 +94,14 @@ async def verify_mobile(
     # Fallback/Debug print
     logger.info(f"📱 OTP Request sent for {data.mobile_number} | Verification ID: {verification_id}")
 
-    return MobileVerifyResponse(otp_required=True, message="OTP sent successfully")
+    return MobileVerifyResponse(
+        otp_required=True,
+        message="OTP sent successfully",
+        is_global_customer=is_global,
+        is_member=is_mem,
+        is_strict_member=is_strict,
+        customer_name=customer.name if customer else None
+    )
 
 
 @router.post("/verify-otp", response_model=OTPVerifyResponse)

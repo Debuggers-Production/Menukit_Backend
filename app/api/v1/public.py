@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from app.models.review import MenuItemReview
-from app.schemas.discount import DiscountResponse
+from app.schemas.discount import DiscountResponse, VerifyDiscountCodeRequest
 from app.schemas.review import ReviewCreate, ReviewResponse, ReviewSummary
 from datetime import datetime, timezone
 from app.schemas.shop import ShopResponse
@@ -190,6 +190,9 @@ async def list_public_shops(
             elif d.discount_type == 'combo':
                 if best_label is None:
                     best_label = "Combo Deal"
+            elif d.discount_type == 'free_item':
+                if best_label is None:
+                    best_label = "Free Item Offer"
 
         listing.append(PublicShopListing(
             id=str(shop.id),
@@ -609,10 +612,11 @@ async def get_active_discounts_public(
     shop_id: uuid.UUID,
     limit: int = 50,
     offset: int = 0,
+    customer_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     Authorization: Optional[str] = Header(None)
 ):
-    """Get active discounts for public display, filtering out hidden ones if unauthenticated."""
+    """Get active discounts for public display, assigning unique codes and filtering out redeemed ones."""
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
@@ -623,21 +627,206 @@ async def get_active_discounts_public(
     discounts = await service.get_active_discounts(shop.id)
 
     is_authenticated = False
+    cust_phone = None
     if Authorization:
         from app.core.security import verify_customer_token
         token = Authorization.replace("Bearer ", "") if "Bearer " in Authorization else Authorization
-        if verify_customer_token(token):
+        cust_phone = verify_customer_token(token)
+        if cust_phone:
             is_authenticated = True
+
+    # Filter out discounts that this customer has already claimed / redeemed
+    from app.models.discount import DiscountRedemption, CustomerDiscountCode
+    from sqlalchemy import or_
+
+    claimed_discount_ids = set()
+    token_filters = []
+    if customer_id and customer_id.strip():
+        cid = customer_id.strip().upper()
+        token_filters.append(func.upper(DiscountRedemption.customer_identifier) == cid)
+        token_filters.append(func.upper(DiscountRedemption.code).like(f"%-{cid}"))
+    if cust_phone:
+        last4 = cust_phone[-4:].upper()
+        token_filters.append(DiscountRedemption.customer_identifier == cust_phone)
+        token_filters.append(func.upper(DiscountRedemption.code).like(f"%-{last4}"))
+
+    if token_filters:
+        claimed_res = await db.execute(
+            select(DiscountRedemption.discount_id).where(
+                DiscountRedemption.shop_id == shop.id,
+                or_(*token_filters)
+            )
+        )
+        claimed_discount_ids = {str(did) for did in claimed_res.scalars().all()}
+
+    # Resolve customer object if phone is available
+    cust_identifier = (cust_phone or customer_id or "").strip()
+    customer_obj = None
+    if cust_identifier:
+        from app.models.customer import Customer
+        mobile_variants = _get_phone_variants(cust_identifier)
+        if mobile_variants:
+            c_res = await db.execute(select(Customer).where(Customer.mobile_number.in_(mobile_variants)))
+            customer_obj = c_res.scalars().first()
 
     from app.api.v1.discounts import _discount_response
 
     result = []
     for d in discounts:
+        if str(d.id) in claimed_discount_ids:
+            continue
         if not is_authenticated and d.visibility_type == 'members_only_hidden':
             continue
-        result.append(_discount_response(d))
+
+        d_resp = _discount_response(d)
+        if cust_identifier:
+            try:
+                assigned = await service.get_or_assign_code(
+                    shop.id, d, cust_identifier, customer_obj.id if customer_obj else None
+                )
+                d_resp.code = assigned.code
+            except Exception:
+                pass
+        result.append(d_resp)
 
     return result[offset : offset + limit]
+
+
+class AssignCodesRequest(BaseModel):
+    customer_phone: Optional[str] = None
+    customer_identifier: Optional[str] = None
+
+
+@router.post("/discounts/assign-codes")
+async def assign_customer_discount_codes(
+    shop_id: uuid.UUID,
+    data: Optional[AssignCodesRequest] = None,
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """Assign and return unique discount codes for all active discounts for this customer."""
+    from app.services.discount_service import DiscountService
+    from app.core.security import verify_customer_token
+    from app.models.customer import Customer
+
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_id(shop_id)
+    if not shop:
+        raise NotFoundException("Restaurant not found")
+
+    target_phone = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        target_phone = verify_customer_token(token)
+
+    if not target_phone and data:
+        target_phone = data.customer_phone or data.customer_identifier
+
+    if not target_phone:
+        raise HTTPException(status_code=400, detail="Customer identifier or login token required")
+
+    target_phone = target_phone.strip()
+    mobile_variants = _get_phone_variants(target_phone)
+    customer_obj = None
+    if mobile_variants:
+        c_res = await db.execute(select(Customer).where(Customer.mobile_number.in_(mobile_variants)))
+        customer_obj = c_res.scalars().first()
+
+    service = DiscountService(db)
+    active_discounts = await service.get_active_discounts(shop.id)
+
+    assigned_codes = []
+    for d in active_discounts:
+        assignment = await service.get_or_assign_code(
+            shop.id, d, target_phone, customer_obj.id if customer_obj else None
+        )
+        assigned_codes.append({
+            "discount_id": str(d.id),
+            "title": d.title,
+            "code": assignment.code,
+            "is_redeemed": assignment.is_redeemed
+        })
+
+    return {"codes": assigned_codes}
+
+
+@router.post("/discounts/verify-code", response_model=DiscountResponse)
+async def verify_discount_code(
+    shop_id: uuid.UUID,
+    data: VerifyDiscountCodeRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Verify and return discount by discount code."""
+    from app.models.discount import Discount, DiscountRedemption, CustomerDiscountCode
+    from app.api.v1.discounts import _discount_response
+    
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_id(shop_id)
+    if not shop or not shop.menu_catalog_id:
+        raise NotFoundException("Restaurant not found")
+
+    code_clean = data.code.strip().upper()
+    now = datetime.now(timezone.utc)
+    
+    # 0. Check if code has already been verified / redeemed in DiscountRedemption
+    redemption_res = await db.execute(
+        select(DiscountRedemption).where(
+            DiscountRedemption.shop_id == shop.id,
+            func.upper(DiscountRedemption.code) == code_clean
+        )
+    )
+    existing_redemption = redemption_res.scalar_one_or_none()
+    if existing_redemption:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"This discount code '{code_clean}' has already been redeemed on {existing_redemption.redeemed_at.strftime('%d %b %Y, %I:%M %p')} and cannot be reused."
+        )
+
+    # 1. Check CustomerDiscountCode table
+    assigned_res = await db.execute(
+        select(CustomerDiscountCode)
+        .options(selectinload(CustomerDiscountCode.discount))
+        .where(
+            CustomerDiscountCode.shop_id == shop.id,
+            func.upper(CustomerDiscountCode.code) == code_clean
+        )
+    )
+    assigned_obj = assigned_res.scalar_one_or_none()
+
+    discount = None
+    if assigned_obj:
+        if assigned_obj.is_redeemed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"This discount code '{code_clean}' was already redeemed on {assigned_obj.redeemed_at.strftime('%d %b %Y, %I:%M %p') if assigned_obj.redeemed_at else 'earlier'} and cannot be reused."
+            )
+        discount = assigned_obj.discount
+
+    # 2. Check merchant-defined static code
+    if not discount:
+        result = await db.execute(
+            select(Discount).where(
+                Discount.menu_catalog_id == shop.menu_catalog_id,
+                Discount.is_active == True,
+                func.upper(Discount.code) == code_clean
+            )
+        )
+        discount = result.scalar_one_or_none()
+
+    if not discount:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Discount code '{code_clean}' is invalid or has not been assigned to any customer."
+        )
+
+    if discount.start_date and discount.start_date > now:
+        raise HTTPException(status_code=400, detail="This discount offer has not started yet.")
+    if discount.end_date and discount.end_date < now:
+        raise HTTPException(status_code=400, detail="This discount offer has expired.")
+
+    resp = _discount_response(discount)
+    resp.code = code_clean
+    return resp
 
 
 # ── Reviews ────────────────────────────────────────────────────────────────────
@@ -1412,6 +1601,95 @@ async def get_customer_profile(
     }
 
 
+@router.get("/check-membership")
+async def check_membership_status(
+    shop_id: str,
+    mobile: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Check if a customer (extracted from Bearer token, or fallback mobile number) is an approved retailer member.
+    """
+    from app.core.security import verify_customer_token, create_customer_token
+    from app.models.customer import Customer
+    from app.models.membership import CustomerRetailerMembership
+
+    target_mobile = None
+    is_authenticated = False
+
+    # 1. Primary: Extract mobile number directly from the customer's logged-in token
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        extracted_mobile = verify_customer_token(token)
+        if extracted_mobile:
+            target_mobile = extracted_mobile
+            is_authenticated = True
+
+    # 2. Fallback if no token was provided but mobile parameter exists
+    if not target_mobile and mobile:
+        target_mobile = mobile.strip()
+
+    if not target_mobile:
+        return {
+            "authenticated": False,
+            "is_member": False,
+            "is_strict_member": False,
+            "name": None,
+            "mobile_number": "",
+            "message": "Customer token is missing or expired"
+        }
+
+    try:
+        shop_uuid = uuid.UUID(shop_id)
+    except Exception:
+        shop_uuid = None
+
+    if not shop_uuid:
+        return {
+            "authenticated": is_authenticated,
+            "is_member": False,
+            "is_strict_member": False,
+            "name": None,
+            "mobile_number": target_mobile,
+            "message": "Invalid shop identifier"
+        }
+
+    mobile_variants = _get_phone_variants(target_mobile)
+    c_result = await db.execute(select(Customer).where(Customer.mobile_number.in_(mobile_variants)))
+    customer_obj = c_result.scalars().first()
+
+    if not customer_obj:
+        return {
+            "authenticated": is_authenticated,
+            "is_member": False,
+            "is_strict_member": False,
+            "name": None,
+            "mobile_number": target_mobile,
+            "message": "Customer not found for this account"
+        }
+
+    m_result = await db.execute(
+        select(CustomerRetailerMembership).where(
+            CustomerRetailerMembership.customer_id == customer_obj.id,
+            CustomerRetailerMembership.shop_id == shop_uuid
+        )
+    )
+    membership = m_result.scalar_one_or_none()
+    is_strict = bool(membership and membership.is_retailer_added)
+    access_token = create_customer_token(customer_obj.mobile_number) if is_strict else None
+
+    return {
+        "authenticated": is_authenticated,
+        "is_member": membership is not None,
+        "is_strict_member": is_strict,
+        "name": customer_obj.name or "Customer",
+        "mobile_number": customer_obj.mobile_number,
+        "access_token": access_token
+    }
+
+
+
 @router.get("/customer-counts")
 async def get_customer_summary_counts(
     authorization: Optional[str] = Header(None),
@@ -1722,10 +2000,30 @@ async def get_customer_rewards(
     disc_res = await db.execute(query)
     discounts = disc_res.scalars().all()
 
+    from app.models.discount import DiscountRedemption
+    disc_ids = [d.id for d in discounts]
+    redeemed_codes = set()
+    if disc_ids:
+        red_res = await db.execute(
+            select(DiscountRedemption.code).where(
+                DiscountRedemption.discount_id.in_(disc_ids)
+            )
+        )
+        redeemed_codes = {r.upper() for r in red_res.scalars().all()}
+
     rewards_list = []
     for d in discounts:
         s_name = d.shop.name if d.shop else "Store Network"
-        desc = d.description or (f"Flat {d.discount_value}% OFF on your order" if d.discount_type == "percentage" else f"Flat ₹{d.discount_value} OFF")
+        desc = d.description or (
+            f"Flat {d.discount_value}% OFF on your order" if d.discount_type == "percentage"
+            else "Free complimentary item with your order" if d.discount_type == "free_item"
+            else f"Flat ₹{d.discount_value} OFF"
+        )
+        title_slug = "".join(filter(str.isalnum, d.title or "")).upper()[:6] or "OFFER"
+        disc_tok = str(d.id).replace("-", "")[:4].upper()
+        unique_code = getattr(d, "code", None) or f"{title_slug}-{disc_tok}-CUST"
+        is_used = unique_code.upper() in redeemed_codes or (d.code and d.code.upper() in redeemed_codes)
+
         rewards_list.append({
             "id": str(d.id),
             "shop_id": str(d.shop_id) if d.shop_id else None,
@@ -1733,8 +2031,9 @@ async def get_customer_rewards(
             "description": desc,
             "shopName": s_name,
             "rewardType": "Store Offer",
-            "code": getattr(d, "code", None),
-            "status": "READY TO USE"
+            "code": unique_code,
+            "is_redeemed": is_used,
+            "status": "REDEEMED" if is_used else "READY TO USE"
         })
 
     return {

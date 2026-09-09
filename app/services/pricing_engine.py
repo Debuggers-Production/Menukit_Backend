@@ -101,6 +101,7 @@ BASE_INR_PRICES = {
         "analytics-advanced": 129.0,
         "analytics-advanced-filters": 59.0,
         "analytics-customer-insights": 59.0,
+        "hide-discovery-badge": 49.0,
     }
 }
 
@@ -161,6 +162,13 @@ MODULE_METADATA = [
         "category": "Analytics",
         "description": "Access detailed reports on customer views and repeat visits.",
         "icon": "BarChart3"
+    },
+    {
+        "id": "hide-discovery-badge",
+        "name": "Featured Discovery (No Menu Badge)",
+        "category": "Discovery",
+        "description": "Keep your shop discoverable on the public map & search while removing the outward Discover label from your customer menu.",
+        "icon": "MapPin"
     }
 ]
 

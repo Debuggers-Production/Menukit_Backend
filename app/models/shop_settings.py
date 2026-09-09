@@ -21,6 +21,7 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     show_offers: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_discoverable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     show_menus_in_discovery: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    hide_discovery_badge: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Ordering & Payment settings
     delivery_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

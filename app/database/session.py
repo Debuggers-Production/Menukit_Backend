@@ -57,6 +57,30 @@ async def init_db():
                     await conn.execute(text(stmt))
                 except Exception as mig_err:
                     print(f"Migration notice: {mig_err}")
+
+            redemptions_migration = [
+                """
+                CREATE TABLE IF NOT EXISTS discount_redemptions (
+                    id UUID PRIMARY KEY,
+                    discount_id UUID NOT NULL REFERENCES discounts(id) ON DELETE CASCADE,
+                    shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+                    code VARCHAR(100) NOT NULL,
+                    redeemed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    customer_identifier VARCHAR(100),
+                    redeemed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                    order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+                """,
+                "CREATE INDEX IF NOT EXISTS ix_discount_redemptions_code ON discount_redemptions(code);",
+                "CREATE INDEX IF NOT EXISTS ix_discount_redemptions_shop_id ON discount_redemptions(shop_id);"
+            ]
+            for stmt in redemptions_migration:
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as red_err:
+                    print(f"Redemptions table migration notice: {red_err}")
     except Exception as e:
         print(f"Database startup info: {e}")
 

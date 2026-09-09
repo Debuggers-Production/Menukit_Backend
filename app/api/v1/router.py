@@ -8,7 +8,7 @@ from app.api.v1 import (
     customers, memberships, notifications, subscription, seo, order, contests, settlements, whatsapp, razorpay_webhook, mcp_web_auth,
     oauth, well_known, broadcasts, printer
 )
-
+from typing import Optional,List
 api_router = APIRouter()
 
 api_router.include_router(well_known.router)

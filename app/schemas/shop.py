@@ -60,6 +60,7 @@ class ShopSettingsUpdate(BaseModel):
     show_offers: Optional[bool] = None
     is_discoverable: Optional[bool] = None
     show_menus_in_discovery: Optional[bool] = None
+    hide_discovery_badge: Optional[bool] = None
     delivery_enabled: Optional[bool] = None
     base_delivery_charge: Optional[float] = None
     base_delivery_distance: Optional[float] = None
@@ -128,6 +129,7 @@ class ShopSettingsResponse(BaseModel):
     show_offers: bool
     is_discoverable: bool
     show_menus_in_discovery: bool
+    hide_discovery_badge: bool = False
     delivery_enabled: bool
     base_delivery_charge: float = 0.0
     base_delivery_distance: float = 0.0

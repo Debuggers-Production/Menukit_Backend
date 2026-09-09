@@ -360,6 +360,44 @@ async def get_paginated_members(
 
 
 
+class BatchConvertMembersRequest(BaseModel):
+    customer_ids: Optional[List[uuid.UUID]] = None
+
+
+
+@router.post("/retailer/{shop_id}/members/batch-convert")
+async def batch_convert_to_members(
+    shop_id: uuid.UUID,
+    data: Optional[BatchConvertMembersRequest] = None,
+    shop = Depends(require_permission("analytics", "write")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Convert multiple or all auto-registered members to manually verified members."""
+    if shop.id != shop_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this shop")
+
+    conditions = [
+        CustomerRetailerMembership.shop_id == shop_id,
+        CustomerRetailerMembership.is_retailer_added == False
+    ]
+    if data and data.customer_ids and len(data.customer_ids) > 0:
+        conditions.append(CustomerRetailerMembership.customer_id.in_(data.customer_ids))
+
+    stmt = select(CustomerRetailerMembership).where(*conditions)
+    result = await db.execute(stmt)
+    memberships = result.scalars().all()
+
+    if not memberships:
+        return {"message": "No unverified customers found to convert", "converted_count": 0}
+
+    for m in memberships:
+        m.is_retailer_added = True
+
+    await db.commit()
+    return {"message": f"Successfully verified and added {len(memberships)} customer(s)", "converted_count": len(memberships)}
+
+
+
 @router.post("/retailer/{shop_id}/members/{customer_id}/convert")
 async def convert_to_member(
     shop_id: uuid.UUID,

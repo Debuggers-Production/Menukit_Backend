@@ -9,8 +9,9 @@ from pydantic import BaseModel
 class DiscountCreate(BaseModel):
     """Create a new discount."""
     title: str
+    code: Optional[str] = None
     description: Optional[str] = None
-    discount_type: str = "percentage"  # "percentage" | "flat" | "bogo" | "combo"
+    discount_type: str = "percentage"  # "percentage" | "flat" | "bogo" | "combo" | "free_item"
     discount_value: Optional[Decimal] = None
     buy_quantity: Optional[int] = None
     get_quantity: Optional[int] = None
@@ -28,6 +29,7 @@ class DiscountCreate(BaseModel):
 class DiscountUpdate(BaseModel):
     """Update a discount."""
     title: Optional[str] = None
+    code: Optional[str] = None
     description: Optional[str] = None
     discount_type: Optional[str] = None
     discount_value: Optional[Decimal] = None
@@ -44,11 +46,48 @@ class DiscountUpdate(BaseModel):
     visibility_type: Optional[str] = None
 
 
+class VerifyDiscountCodeRequest(BaseModel):
+    """Request to verify discount code."""
+    code: str
+    redeem: bool = False
+
+
+class DiscountVerificationResponse(BaseModel):
+    """Response for discount code verification/redemption."""
+    valid: bool
+    is_redeemed: bool = False
+    redeemed_at: Optional[str] = None
+    discount: Optional["DiscountResponse"] = None
+    code: str
+    message: str
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+
+
+class RedeemDiscountCodeRequest(BaseModel):
+    """Request to redeem a discount code."""
+    code: str
+    customer_identifier: Optional[str] = None
+
+
+class DiscountRedemptionResponse(BaseModel):
+    """Discount redemption record response."""
+    id: str
+    discount_id: str
+    discount_title: str
+    discount_type: str
+    discount_value: Optional[str] = None
+    code: str
+    redeemed_at: str
+    customer_identifier: Optional[str] = None
+
+
 class DiscountResponse(BaseModel):
     """Discount response."""
     id: str
     shop_id: str
     title: str
+    code: Optional[str] = None
     description: Optional[str] = None
     discount_type: str
     discount_value: Optional[str] = None

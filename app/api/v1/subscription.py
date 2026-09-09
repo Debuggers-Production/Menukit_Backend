@@ -339,8 +339,14 @@ async def verify_payment(
         # If they explicitly bought all-access in this transaction
         subscription.is_all_access = True
     else:
-        # Check if they currently have all modules active
-        subscription.is_all_access = set(ALL_MARKETPLACE_MODULES).issubset(set(active_modules))
+        # Only true if they actually have a valid unexpired all-access payment transaction
+        stmt_aa = select(PaymentTransaction).where(
+            PaymentTransaction.shop_id == subscription.shop_id,
+            PaymentTransaction.status == "success",
+            PaymentTransaction.is_all_access == True
+        )
+        aa_res = await db.execute(stmt_aa)
+        subscription.is_all_access = aa_res.scalars().first() is not None
 
     subscription.is_trial = False
 
@@ -385,7 +391,7 @@ async def verify_payment(
 
 ALL_MARKETPLACE_MODULES = [
     "online-orders", "new-member", "member-count", "member-details", 
-    "search-data", "custom-theme", "analytics-advanced"
+    "search-data", "custom-theme", "analytics-advanced", "hide-discovery-badge"
 ]
 
 
@@ -539,11 +545,29 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
             "days_left": mod_days_left
         }
 
-    is_dynamic_all_access = set(ALL_MARKETPLACE_MODULES).issubset(set(dynamic_active_modules))
+    is_actual_all_access = is_trial
+    if not is_trial and getattr(subscription, "is_all_access", False):
+        stmt_aa = select(PaymentTransaction).where(
+            PaymentTransaction.shop_id == shop.id,
+            PaymentTransaction.status == "success",
+            PaymentTransaction.is_all_access == True
+        )
+        aa_res = await db.execute(stmt_aa)
+        is_actual_all_access = aa_res.scalars().first() is not None
+
+    # Calculate earliest remaining days among active modules
+    active_days_list = [
+        info["days_left"] for mod, info in formatted_module_expirations.items()
+        if mod in dynamic_active_modules and info.get("days_left") is not None
+    ]
+    core_days_left = min(active_days_list) if active_days_list else days_left
+
+    # If core modules / trial are expiring within 5 days, use core_days_left so banner intimates expiry
+    effective_days_left = core_days_left if (core_days_left <= 5 or is_trial) else days_left
 
     return {
         "is_active": is_active,
-        "is_all_access": is_dynamic_all_access if is_active else False,
+        "is_all_access": is_actual_all_access if is_active else False,
         "active_modules": dynamic_active_modules if is_active else [],
         "module_expirations": formatted_module_expirations if is_active else {},
         "current_period_end": subscription.current_period_end,
@@ -551,7 +575,10 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         "is_expired": is_expired,
         "is_grace_period": is_grace_period,
         "grace_days_left": grace_days_left,
-        "days_left": days_left,
+        "days_left": effective_days_left,
+        "core_days_left": core_days_left,
+        "max_days_left": days_left,
+        "has_expiring_modules": core_days_left <= 5,
         "free_trial_days": settings.FREE_TRIAL_DAYS,
         "grace_period_days": settings.GRACE_PERIOD_DAYS,
         "status_message": status_msg

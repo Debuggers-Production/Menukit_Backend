@@ -68,5 +68,6 @@ async def get_shop_subscription_permissions(shop_id: uuid.UUID, db: AsyncSession
         "member_details": has_mod("member-details"),
         "search_data": has_mod("search-data"),
         "analytics_advanced": has_mod("analytics-advanced") or has_mod("analytics-advanced-filters"),
-        "analytics_customer": has_mod("analytics-advanced") or has_mod("analytics-customer-insights")
+        "analytics_customer": has_mod("analytics-advanced") or has_mod("analytics-customer-insights"),
+        "hide_discovery_badge": has_mod("hide-discovery-badge")
     }
