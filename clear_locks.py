@@ -1,23 +1,43 @@
 import asyncio
-from sqlalchemy import text
-from app.database.session import engine
+import asyncpg
+from app.core.config import get_settings
 
 async def main():
-    async with engine.begin() as conn:
-        res = await conn.execute(text('''
-            SELECT pid, usename, state, query, wait_event_type, wait_event
-            FROM pg_stat_activity
-            WHERE state = 'idle in transaction' OR wait_event_type = 'Lock';
-        '''))
-        rows = res.fetchall()
-        if not rows:
-            print("No locks or idle transactions found.")
-        for row in rows:
-            print(dict(row._mapping))
-            # Kill the process
-            if row.pid != await conn.scalar(text('SELECT pg_backend_pid()')):
-                await conn.execute(text(f'SELECT pg_terminate_backend({row.pid})'))
-                print(f"Terminated pid {row.pid}")
+    settings = get_settings()
+    # convert postgresql+asyncpg:// to postgresql://
+    db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+    
+    print(f"Connecting to DB...")
+    conn = await asyncpg.connect(db_url, timeout=10)
+    
+    print("Finding all active/idle connections to terminate...")
+    rows = await conn.fetch('''
+        SELECT pid, state, wait_event_type, wait_event, query 
+        FROM pg_stat_activity 
+        WHERE datname = current_database() 
+          AND pid != pg_backend_pid();
+    ''')
+    
+    print(f"Found {len(rows)} connections.")
+    terminated = 0
+    for r in rows:
+        pid = r['pid']
+        state = r['state']
+        q = (r['query'] or '').strip().replace('\n', ' ')[:80]
+        print(f"Terminating PID {pid} [{state}]: {q}")
+        await conn.execute(f"SELECT pg_terminate_backend({pid});")
+        terminated += 1
+        
+    print(f"\nSuccessfully terminated {terminated} lingering connections and released all locks.")
+    
+    # Check current status
+    remaining = await conn.fetchval('''
+        SELECT count(*) FROM pg_stat_activity 
+        WHERE datname = current_database() AND pid != pg_backend_pid();
+    ''')
+    print(f"Remaining active connections: {remaining}")
+    
+    await conn.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

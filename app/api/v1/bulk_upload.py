@@ -19,6 +19,7 @@ from app.services.discount_service import DiscountService
 from app.schemas.category import CategoryCreate
 from app.schemas.menu_item import MenuItemCreate
 from app.schemas.discount import DiscountCreate
+from app.database.redis import invalidate_shop_cache
 
 router = APIRouter(prefix="/bulk-upload", tags=["Bulk Upload"])
 
@@ -82,7 +83,7 @@ async def confirm_bulk_import(
     menu_service = MenuService(db)
         
     # Get existing categories
-    categories = await menu_service.get_categories(shop.id)
+    categories, _, _ = await menu_service.get_categories(shop.id, limit=1000)
     category_map = {c.name.lower(): c.id for c in categories}
     
     categories_created = 0
@@ -104,6 +105,7 @@ async def confirm_bulk_import(
             # Create category
             max_cat_order += 1
             new_cat = await menu_service.create_category(
+                shop.id,
                 user.id, 
                 {"name": cat_name, "display_order": max_cat_order, "is_active": True}
             )
@@ -136,12 +138,13 @@ async def confirm_bulk_import(
                 "variants": [],
                 "addons": []
             }
-            await menu_service.create_menu_item(user.id, item_data)
+            await menu_service.create_menu_item(shop.id, user.id, item_data)
             existing_item_names.add(item.name.lower())
             items_created += 1
             
     # Commit changes from services
     await db.commit()
+    await invalidate_shop_cache(shop.id)
             
     return BulkImportResponse(
         message="Menu items imported successfully",
@@ -153,6 +156,7 @@ async def confirm_bulk_import(
 @router.post("/internal/categories")
 async def internal_bulk_categories(
     categories: List[CategoryCreate],
+    shop = Depends(require_permission("menu_categories", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -160,16 +164,18 @@ async def internal_bulk_categories(
     menu_service = MenuService(db)
     created_count = 0
     for cat in categories:
-        await menu_service.create_category(user.id, cat.model_dump())
+        await menu_service.create_category(shop.id, user.id, cat.model_dump())
         created_count += 1
     
     await db.commit()
+    await invalidate_shop_cache(shop.id)
     return {"message": f"Successfully created {created_count} categories", "count": created_count}
 
 
 @router.post("/internal/menus")
 async def internal_bulk_menus(
     menus: List[MenuItemCreate],
+    shop = Depends(require_permission("menu_items", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -177,16 +183,18 @@ async def internal_bulk_menus(
     menu_service = MenuService(db)
     created_count = 0
     for item in menus:
-        await menu_service.create_menu_item(user.id, item.model_dump())
+        await menu_service.create_menu_item(shop.id, user.id, item.model_dump())
         created_count += 1
     
     await db.commit()
+    await invalidate_shop_cache(shop.id)
     return {"message": f"Successfully created {created_count} menu items", "count": created_count}
 
 
 @router.post("/internal/discounts")
 async def internal_bulk_discounts(
     discounts: List[DiscountCreate],
+    shop = Depends(require_permission("discounts", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -194,8 +202,9 @@ async def internal_bulk_discounts(
     discount_service = DiscountService(db)
     created_count = 0
     for discount in discounts:
-        await discount_service.create_discount(user.id, discount.model_dump())
+        await discount_service.create_discount(shop.id, user.id, discount.model_dump())
         created_count += 1
     
     await db.commit()
+    await invalidate_shop_cache(shop.id)
     return {"message": f"Successfully created {created_count} discounts/combos", "count": created_count}

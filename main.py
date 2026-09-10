@@ -26,8 +26,8 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Lifecycle events for the FastAPI application."""
     # Startup
-    logger.info("Starting up SmartMenu QR backend with contest credits migration...")
-    await init_db()
+    logger.info("Starting up SmartMenu QR backend with migration...")
+    # await init_db()
     try:
         await init_redis()
         # Do not close immediately so it stays alive if intended, but keeping existing logic:

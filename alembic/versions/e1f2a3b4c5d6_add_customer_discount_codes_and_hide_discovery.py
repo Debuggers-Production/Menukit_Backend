@@ -24,6 +24,13 @@ def upgrade() -> None:
         sa.Column('hide_discovery_badge', sa.Boolean(), server_default=sa.text('false'), nullable=False)
     )
 
+    # 1b. Add code to discounts
+    op.add_column(
+        'discounts',
+        sa.Column('code', sa.String(length=50), nullable=True)
+    )
+    op.create_index(op.f('ix_discounts_code'), 'discounts', ['code'], unique=False)
+
     # 2. Create customer_discount_codes table
     op.create_table(
         'customer_discount_codes',
@@ -50,6 +57,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_index(op.f('ix_discounts_code'), table_name='discounts')
+    op.drop_column('discounts', 'code')
     op.drop_index(op.f('ix_customer_discount_codes_code'), table_name='customer_discount_codes')
     op.drop_index(op.f('ix_customer_discount_codes_customer_identifier'), table_name='customer_discount_codes')
     op.drop_index(op.f('ix_customer_discount_codes_customer_id'), table_name='customer_discount_codes')

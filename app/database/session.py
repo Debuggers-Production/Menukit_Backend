@@ -39,48 +39,8 @@ async def init_db():
     import app.models  # noqa: F401
 
     try:
-        async with engine.begin() as conn:
+        async with engine.connect() as conn:
             await conn.execute(text("SELECT 1;"))
-            # Auto-migrate GST & Compliance columns if missing
-            gst_migrations = [
-                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS gst_enabled BOOLEAN DEFAULT FALSE;",
-                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS gstin VARCHAR(50);",
-                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS legal_name VARCHAR(255);",
-                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS fssai_license VARCHAR(50);",
-                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS cgst_rate FLOAT DEFAULT 2.5;",
-                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS sgst_rate FLOAT DEFAULT 2.5;",
-                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS inclusive_tax BOOLEAN DEFAULT FALSE;",
-                "ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS tax_invoice_notes VARCHAR(500);",
-            ]
-            for stmt in gst_migrations:
-                try:
-                    await conn.execute(text(stmt))
-                except Exception as mig_err:
-                    print(f"Migration notice: {mig_err}")
-
-            redemptions_migration = [
-                """
-                CREATE TABLE IF NOT EXISTS discount_redemptions (
-                    id UUID PRIMARY KEY,
-                    discount_id UUID NOT NULL REFERENCES discounts(id) ON DELETE CASCADE,
-                    shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-                    code VARCHAR(100) NOT NULL,
-                    redeemed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    customer_identifier VARCHAR(100),
-                    redeemed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-                    order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                );
-                """,
-                "CREATE INDEX IF NOT EXISTS ix_discount_redemptions_code ON discount_redemptions(code);",
-                "CREATE INDEX IF NOT EXISTS ix_discount_redemptions_shop_id ON discount_redemptions(shop_id);"
-            ]
-            for stmt in redemptions_migration:
-                try:
-                    await conn.execute(text(stmt))
-                except Exception as red_err:
-                    print(f"Redemptions table migration notice: {red_err}")
     except Exception as e:
         print(f"Database startup info: {e}")
 

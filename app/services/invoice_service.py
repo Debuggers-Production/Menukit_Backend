@@ -13,7 +13,8 @@ MODULE_TITLES = {
     "custom-theme": "Custom Brand Themes",
     "analytics-advanced": "Advanced Analytics",
     "analytics-advanced-filters": "Advanced Analytics Filters",
-    "analytics-customer-insights": "Customer Retention Insights"
+    "analytics-customer-insights": "Customer Retention Insights",
+    "hide-discovery-badge": "Featured Discovery (No Menu Badge)"
 }
 
 MODULE_PRICES = {
@@ -25,7 +26,8 @@ MODULE_PRICES = {
     "custom-theme": 69.0,
     "analytics-advanced": 129.0,
     "analytics-advanced-filters": 59.0,
-    "analytics-customer-insights": 59.0
+    "analytics-customer-insights": 59.0,
+    "hide-discovery-badge": 49.0
 }
 
 
@@ -55,7 +57,7 @@ class InvoiceService:
         
         items = []
         if is_all_access:
-            base_price = 499.0 if billing_cycle == "monthly" else 3999.0
+            base_price = 449.0 if billing_cycle == "monthly" else 4490.0
             items.append({
                 "description": f"All-Access Package ({billing_cycle.capitalize()} Subscription)",
                 "amount": base_price

@@ -90,7 +90,7 @@ COUNTRIES_CONFIG: Dict[str, CountryConfig] = {
 
 # Master / Base Prices in INR (Monthly)
 BASE_INR_PRICES = {
-    "all_access": 399.0,
+    "all_access": 449.0,
     "modules": {
         "online-orders": 129.0,
         "new-member": 99.0,

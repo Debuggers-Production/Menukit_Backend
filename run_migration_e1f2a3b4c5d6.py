@@ -11,6 +11,13 @@ async def main():
             ADD COLUMN IF NOT EXISTS hide_discovery_badge BOOLEAN NOT NULL DEFAULT FALSE;
         """))
 
+        print("1b. Adding code column to discounts if not exists...")
+        await conn.execute(text("""
+            ALTER TABLE discounts 
+            ADD COLUMN IF NOT EXISTS code VARCHAR(50);
+        """))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_discounts_code ON discounts(code);"))
+
         print("2. Creating customer_discount_codes table if not exists...")
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS customer_discount_codes (
