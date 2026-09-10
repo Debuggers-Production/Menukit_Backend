@@ -23,6 +23,31 @@ router = APIRouter(prefix="/customers", tags=["Customers"])
 logger = logging.getLogger(__name__)
 
 
+def _get_m_v_id_keys(mobile_number: str) -> list[str]:
+    """Generate all variations of redis keys for a given mobile number to prevent format mismatches."""
+    keys = set()
+    raw = str(mobile_number).strip()
+    keys.add(f"m_v_id:{raw}")
+    digits = "".join(c for c in raw if c.isdigit())
+    if digits:
+        keys.add(f"m_v_id:{digits}")
+        keys.add(f"m_v_id:+{digits}")
+        if digits.startswith("91") and len(digits) > 2:
+            without_91 = digits[2:]
+            keys.add(f"m_v_id:{without_91}")
+            keys.add(f"m_v_id:+91{without_91}")
+            keys.add(f"m_v_id:91{without_91}")
+        else:
+            keys.add(f"m_v_id:91{digits}")
+            keys.add(f"m_v_id:+91{digits}")
+        if len(digits) >= 10:
+            last10 = digits[-10:]
+            keys.add(f"m_v_id:{last10}")
+            keys.add(f"m_v_id:+91{last10}")
+            keys.add(f"m_v_id:91{last10}")
+    return list(keys)
+
+
 @router.post("/verify-mobile", response_model=MobileVerifyResponse)
 async def verify_mobile(
     data: MobileVerifyRequest,
@@ -84,12 +109,9 @@ async def verify_mobile(
             detail="Failed to send OTP via SMS. Please try again later."
         )
     
-    # Store the verificationId in Redis linked to the mobile number (and clean number fallback)
-    redis_key = f"m_v_id:{data.mobile_number}"
-    clean_num = "".join(c for c in str(data.mobile_number) if c.isdigit())
-    await redis_client.setex(redis_key, 300, verification_id) # Valid for 5 mins
-    if clean_num and clean_num != data.mobile_number:
-        await redis_client.setex(f"m_v_id:{clean_num}", 300, verification_id)
+    # Store the verificationId in Redis across all phone format variations (10 mins TTL)
+    for key in _get_m_v_id_keys(data.mobile_number):
+        await redis_client.setex(key, 600, verification_id)
 
     # Fallback/Debug print
     logger.info(f"📱 OTP Request sent for {data.mobile_number} | Verification ID: {verification_id}")
@@ -111,14 +133,14 @@ async def verify_otp(
     redis_client: redis.Redis = Depends(get_redis)
 ):
     """Verify OTP and return customer/membership status."""
-    redis_key = f"m_v_id:{data.mobile_number}"
-    verification_id_bytes = await redis_client.get(redis_key)
+    keys_to_check = _get_m_v_id_keys(data.mobile_number)
+    verification_id_bytes = None
     
-    # Try sanitized phone key if not found with raw input
-    if not verification_id_bytes:
-        clean_num = "".join(c for c in str(data.mobile_number) if c.isdigit())
-        if clean_num:
-            verification_id_bytes = await redis_client.get(f"m_v_id:{clean_num}")
+    for key in keys_to_check:
+        val = await redis_client.get(key)
+        if val:
+            verification_id_bytes = val
+            break
 
     is_valid = False
     if sms_service.mock_mode and data.code == "123456":
@@ -128,7 +150,7 @@ async def verify_otp(
         verification_id = verification_id_bytes.decode('utf-8') if isinstance(verification_id_bytes, bytes) else str(verification_id_bytes)
         is_valid = await sms_service.verify_otp(verification_id, data.code, mobile_number=data.mobile_number)
     else:
-        logger.error(f"❌ OTP verification failed for {data.mobile_number}: Verification ID expired or not found in Redis (Key: {redis_key})")
+        logger.error(f"❌ OTP verification failed for {data.mobile_number}: Verification ID expired or not found in Redis (Checked keys: {keys_to_check})")
 
     if not is_valid:
         if verification_id_bytes:
@@ -138,9 +160,10 @@ async def verify_otp(
             detail="Invalid or expired OTP code."
         )
     
-    if is_valid and verification_id_bytes:
-        # Clear from redis after successful verification
-        await redis_client.delete(redis_key)
+    if is_valid:
+        # Clear all phone keys from redis after successful verification
+        for key in keys_to_check:
+            await redis_client.delete(key)
 
     customer_service = CustomerService(db)
     membership_service = MembershipService(db)

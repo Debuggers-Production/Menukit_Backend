@@ -37,8 +37,10 @@ class MockPipeline:
 
 class MockRedis:
     """In-memory mock for local dev without Redis."""
+    _store = {}
+
     def __init__(self):
-        self.store = {}
+        self.store = MockRedis._store
     
     def pipeline(self):
         return MockPipeline(self.store)
@@ -62,10 +64,13 @@ class MockRedis:
                 self.store.pop(key, None)
 
     async def flushdb(self):
-        self.store = {}
+        self.store.clear()
 
     async def flushall(self):
-        self.store = {}
+        self.store.clear()
+
+    async def close(self):
+        pass
 
 
 async def invalidate_shop_cache(shop_id: str, r_client=None):
@@ -84,35 +89,19 @@ async def invalidate_shop_cache(shop_id: str, r_client=None):
                     await r_client.delete(matched_keys)
     except Exception as e:
         logger.warning(f"Failed to invalidate shop cache for {shop_id}: {e}")
-        
-    def pipeline(self):
-        class Pipe:
-            def __init__(self, mock):
-                self.mock = mock
-            def incr(self, k):
-                val = self.mock.store.get(k, 0)
-                self.mock.store[k] = str(int(val) + 1)
-            def expire(self, k, t):
-                pass
-            async def execute(self):
-                pass
-        return Pipe(self)
-        
-    async def close(self):
-        pass
 
 
 async def init_redis() -> redis.Redis:
     """Initialize Redis connection."""
     global redis_client
     
-    # Create the client with 0.2s connection timeout for instant fallback if Redis server is down
+    # Create the client with 5.0s connection timeout for reliable cloud redis handshakes
     client = redis.from_url(
         settings.REDIS_URL,
         encoding="utf-8",
         decode_responses=True,
-        socket_connect_timeout=0.2,
-        socket_timeout=0.2,
+        socket_connect_timeout=5.0,
+        socket_timeout=5.0,
     )
     
     try:
@@ -134,19 +123,13 @@ async def get_redis():
 
 
 async def close_redis():
-    """Close Redis connections."""
+    """Close Redis connections cleanly without deleting data."""
     global redis_client
     if redis_client:
-        try:
-            if hasattr(redis_client, "flushall"):
-                await redis_client.flushall()
-            elif hasattr(redis_client, "flushdb"):
-                await redis_client.flushdb()
-        except Exception:
-            pass
         try:
             if hasattr(redis_client, "close"):
                 await redis_client.close()
         except Exception:
             pass
         redis_client = None
+
