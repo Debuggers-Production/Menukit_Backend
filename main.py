@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up SmartMenu QR backend with migration...")
     # await init_db()
     try:
-        await init_redis()
+        # await init_redis()
         # Do not close immediately so it stays alive if intended, but keeping existing logic:
         await close_redis()
 

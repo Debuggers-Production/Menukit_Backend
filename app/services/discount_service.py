@@ -122,7 +122,19 @@ class DiscountService:
         for key, value in data.items():
             if value is not None and hasattr(discount, key):
                 setattr(discount, key, value)
-            elif value is None and key in ("start_date", "end_date", "description", "target_ids", "buy_quantity", "get_quantity", "reward_target_ids", "discount_value"):
+            elif value is None and key in (
+                "code",
+                "description",
+                "discount_value",
+                "buy_quantity",
+                "get_quantity",
+                "reward_target_ids",
+                "target_ids",
+                "start_date",
+                "end_date",
+                "available_days",
+                "available_time_presets",
+            ):
                 # Allow explicit null clearing for optional fields
                 setattr(discount, key, None)
 

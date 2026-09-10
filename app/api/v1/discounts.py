@@ -60,6 +60,8 @@ async def create_discount(
     """Create a new discount."""
     service = DiscountService(db)
     discount = await service.create_discount(shop.id, user.id, data.model_dump())
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return _discount_response(discount)
 
 
@@ -90,6 +92,8 @@ async def update_discount(
     discount = await service.update_discount(
         shop.id, user.id, uuid.UUID(discount_id), data.model_dump(exclude_unset=True)
     )
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return _discount_response(discount)
 
 
@@ -130,6 +134,8 @@ async def delete_all_discounts(
         await db.delete(discount)
         
     await db.commit()
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return MessageResponse(message=f"Deleted {len(discounts)} discounts successfully")
 
 
@@ -143,6 +149,8 @@ async def delete_discount(
     """Delete a discount."""
     service = DiscountService(db)
     await service.delete_discount(shop.id, user.id, uuid.UUID(discount_id))
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return MessageResponse(message="Discount deleted successfully")
 
 
