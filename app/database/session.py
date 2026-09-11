@@ -55,10 +55,13 @@ async def init_chalkboard_table():
                     id UUID PRIMARY KEY,
                     shop_id UUID UNIQUE NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
                     is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    title VARCHAR(100),
                     message TEXT,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
+            """))
+            await conn.execute(text("""
                 CREATE UNIQUE INDEX IF NOT EXISTS ix_chalkboards_shop_id ON chalkboards(shop_id);
             """))
     except Exception as e:
