@@ -14,6 +14,7 @@ from app.schemas.shop import (
     RazorpayBankAccountUpdateRequest,
     RazorpayLinkedAccountCreateRequest,
 )
+from app.schemas.chalkboard import ChalkboardUpdate, ChalkboardResponse
 from app.services.shop_service import ShopService
 from app.models.user import User
 
@@ -170,6 +171,31 @@ async def update_theme(
     )
 
 
+@router.get("/me/chalkboard", response_model=ChalkboardResponse)
+async def get_chalkboard(
+    shop = Depends(require_permission("chalkboard", "read")),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get chalkboard settings for the merchant shop."""
+    chalkboard = await ShopService(db).get_chalkboard(shop.id)
+    return ChalkboardResponse.model_validate(chalkboard)
+
+
+@router.put("/me/chalkboard", response_model=ChalkboardResponse)
+async def update_chalkboard(
+    data: ChalkboardUpdate,
+    shop = Depends(require_permission("chalkboard", "write")),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update chalkboard settings for the merchant shop."""
+    chalkboard = await ShopService(db).update_chalkboard(
+        shop.id, user.id, data.model_dump(exclude_unset=True)
+    )
+    return ChalkboardResponse.model_validate(chalkboard)
+
+
 @router.put("/me/settings", response_model=ShopSettingsResponse)
 async def update_settings(
     data: ShopSettingsUpdate,
@@ -314,6 +340,9 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
             settings_dict["delivery_enabled"] = False
         settings_resp = ShopSettingsResponse(**settings_dict)
 
+    chalkboard_resp = None
+    if getattr(shop, "chalkboard", None):
+        chalkboard_resp = ChalkboardResponse.model_validate(shop.chalkboard)
 
     return ShopResponse(
         id=str(shop.id),
@@ -336,6 +365,7 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
         review_widget_code=shop.review_widget_code,
         settings=settings_resp,
         theme=theme_resp,
+        chalkboard=chalkboard_resp,
         created_at=str(shop.created_at),
     )
 
@@ -362,6 +392,10 @@ def _shop_to_response(shop) -> ShopResponse:
     if shop.settings:
         settings_resp = ShopSettingsResponse.model_validate(shop.settings)
 
+    chalkboard_resp = None
+    if getattr(shop, "chalkboard", None):
+        chalkboard_resp = ChalkboardResponse.model_validate(shop.chalkboard)
+
     return ShopResponse(
         id=str(shop.id),
         user_id=str(shop.user_id) if shop.user_id else None,
@@ -383,6 +417,7 @@ def _shop_to_response(shop) -> ShopResponse:
         review_widget_code=shop.review_widget_code,
         settings=settings_resp,
         theme=theme_resp,
+        chalkboard=chalkboard_resp,
         created_at=str(shop.created_at),
     )
 

@@ -47,6 +47,7 @@ class Shop(Base, UUIDMixin, TimestampMixin):
     item_overrides = relationship("BranchItemOverride", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     settings = relationship("ShopSettings", back_populates="shop", uselist=False, lazy="selectin", cascade="all, delete-orphan")
     theme = relationship("ThemeSettings", back_populates="shop", uselist=False, lazy="selectin", cascade="all, delete-orphan")
+    chalkboard = relationship("Chalkboard", back_populates="shop", uselist=False, lazy="selectin", cascade="all, delete-orphan")
     qr_scans = relationship("QRScan", back_populates="shop", lazy="dynamic")
     menu_views = relationship("MenuView", back_populates="shop", lazy="dynamic")
     search_history = relationship("SearchHistory", back_populates="shop", lazy="dynamic")

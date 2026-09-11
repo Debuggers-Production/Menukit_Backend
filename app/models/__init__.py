@@ -25,9 +25,11 @@ from app.models.employee import Employee
 from app.models.menu_catalog import MenuCatalog
 from app.models.branch_item_override import BranchItemOverride
 from app.models.broadcast import BroadcastCampaign
+from app.models.chalkboard import Chalkboard
 
 __all__ = [
     "BroadcastCampaign",
+    "Chalkboard",
     "User",
 
     "Employee",

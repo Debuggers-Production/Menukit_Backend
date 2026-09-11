@@ -12,6 +12,7 @@ import logging
 from app.models.shop import Shop
 from app.models.shop_settings import ShopSettings
 from app.models.theme_settings import ThemeSettings
+from app.models.chalkboard import Chalkboard
 from app.models.activity_log import ActivityLog
 from app.core.exceptions import NotFoundException, ConflictException
 
@@ -105,7 +106,7 @@ class ShopService:
         """Get the first shop owned by user."""
         result = await self.db.execute(
             select(Shop)
-            .options(selectinload(Shop.settings), selectinload(Shop.theme))
+            .options(selectinload(Shop.settings), selectinload(Shop.theme), selectinload(Shop.chalkboard))
             .where(Shop.user_id == user_id)
             .order_by(Shop.created_at.asc())
         )
@@ -120,7 +121,7 @@ class ShopService:
         
         owned_result = await self.db.execute(
             select(Shop)
-            .options(selectinload(Shop.settings), selectinload(Shop.theme))
+            .options(selectinload(Shop.settings), selectinload(Shop.theme), selectinload(Shop.chalkboard))
             .where(Shop.user_id == user_id)
         )
         owned_shops = owned_result.scalars().all()
@@ -132,6 +133,7 @@ class ShopService:
             select(Employee)
             .options(selectinload(Employee.shop).selectinload(Shop.settings))
             .options(selectinload(Employee.shop).selectinload(Shop.theme))
+            .options(selectinload(Employee.shop).selectinload(Shop.chalkboard))
             .where(Employee.email == user.email, Employee.status == "active")
         )
         employments = emp_result.scalars().all()
@@ -139,17 +141,15 @@ class ShopService:
         # Retroactively fix user_id if it's missing
         needs_commit = False
         for emp in employments:
-            if not emp.user_id:
+            if emp.user_id is None:
                 emp.user_id = user.id
                 needs_commit = True
-        
         if needs_commit:
             await self.db.commit()
-        
-        return {
-            "owned": owned_shops,
-            "employed": [{"shop": emp.shop, "permissions": emp.permissions} for emp in employments if emp.shop]
-        }
+
+        employed_shops = [emp.shop for emp in employments if emp.shop and emp.shop.is_active]
+
+        return {"owned": owned_shops, "employed": employed_shops}
 
     async def get_shop_by_slug(self, slug: str) -> Optional[Shop]:
         """Get shop by its URL slug."""
@@ -158,6 +158,7 @@ class ShopService:
             .options(
                 selectinload(Shop.settings),
                 selectinload(Shop.theme),
+                selectinload(Shop.chalkboard),
             )
             .where(Shop.slug == slug, Shop.is_active == True)
         )
@@ -170,6 +171,7 @@ class ShopService:
             .options(
                 selectinload(Shop.settings),
                 selectinload(Shop.theme),
+                selectinload(Shop.chalkboard),
             )
             .where(Shop.id == shop_id, Shop.is_active == True)
         )
@@ -244,6 +246,46 @@ class ShopService:
         await invalidate_shop_cache(str(shop.id))
         
         return shop.theme
+
+    async def get_chalkboard(self, shop_id: uuid.UUID) -> Chalkboard:
+        """Get or create shop chalkboard configuration."""
+        shop = await self.get_shop_by_id(shop_id)
+        if not shop:
+            raise NotFoundException("Shop not found")
+
+        if not shop.chalkboard:
+            chalkboard = Chalkboard(shop_id=shop.id, is_enabled=True, message=None)
+            self.db.add(chalkboard)
+            await self.db.flush()
+            await self.db.commit()
+            await self.db.refresh(chalkboard)
+            return chalkboard
+
+        return shop.chalkboard
+
+    async def update_chalkboard(self, shop_id: uuid.UUID, user_id: uuid.UUID, data: dict) -> Chalkboard:
+        """Update shop chalkboard configuration."""
+        shop = await self.get_shop_by_id(shop_id)
+        if not shop:
+            raise NotFoundException("Shop not found")
+
+        if not shop.chalkboard:
+            shop.chalkboard = Chalkboard(shop_id=shop.id, is_enabled=True, message=None)
+            self.db.add(shop.chalkboard)
+            await self.db.flush()
+
+        for key, value in data.items():
+            if hasattr(shop.chalkboard, key):
+                setattr(shop.chalkboard, key, value)
+
+        await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(shop.chalkboard)
+
+        from app.database.redis import invalidate_shop_cache
+        await invalidate_shop_cache(str(shop.id))
+
+        return shop.chalkboard
 
     async def update_settings(self, shop_id: uuid.UUID, user_id: uuid.UUID, data: dict) -> ShopSettings:
         """Update shop settings."""

@@ -45,6 +45,26 @@ async def init_db():
         print(f"Database startup info: {e}")
 
 
+async def init_chalkboard_table():
+    """Ensure chalkboards table exists in database."""
+    from sqlalchemy import text
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chalkboards (
+                    id UUID PRIMARY KEY,
+                    shop_id UUID UNIQUE NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+                    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    message TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS ix_chalkboards_shop_id ON chalkboards(shop_id);
+            """))
+    except Exception as e:
+        print(f"Chalkboard table initialization notice: {e}")
+
+
 async def close_db():
     """Close database connections."""
     await engine.dispose()

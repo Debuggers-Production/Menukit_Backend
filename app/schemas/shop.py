@@ -3,6 +3,7 @@
 import uuid
 from typing import Optional
 from pydantic import BaseModel, Field
+from app.schemas.chalkboard import ChalkboardResponse
 
 
 class ShopCreate(BaseModel):
@@ -189,6 +190,7 @@ class ShopResponse(BaseModel):
     review_widget_code: Optional[str] = None
     settings: Optional[ShopSettingsResponse] = None
     theme: Optional[ThemeSettingsResponse] = None
+    chalkboard: Optional[ChalkboardResponse] = None
     created_at: Optional[str] = None
     employee_permissions: Optional[dict] = None
 

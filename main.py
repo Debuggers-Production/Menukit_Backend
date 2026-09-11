@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.api.v1.router import api_router
-from app.database.session import init_db, close_db
+from app.database.session import init_db, close_db, init_chalkboard_table
 from app.database.redis import init_redis, close_redis, get_redis
 
 # Configure logging
@@ -27,7 +27,10 @@ async def lifespan(app: FastAPI):
     """Lifecycle events for the FastAPI application."""
     # Startup
     logger.info("Starting up SmartMenu QR backend with migration...")
-    # await init_db()
+    try:
+        await init_chalkboard_table()
+    except Exception as e:
+        logger.warning(f"Chalkboard table init failed: {e}")
     try:
         await init_redis()
         logger.info("Redis connected.")

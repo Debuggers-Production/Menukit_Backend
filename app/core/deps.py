@@ -86,6 +86,11 @@ def require_permission(resource: str, action: str):
             
         permissions = getattr(shop, "_employee_permissions", {})
         resource_actions = permissions.get(resource, [])
+        if not resource_actions and resource == "chalkboard":
+            resource_actions = permissions.get("settings", [])
+        if not resource_actions and resource in ("marketing", "campaigns"):
+            resource_actions = permissions.get("campaigns", []) or permissions.get("marketing", [])
+            
         if action not in resource_actions:
             raise ForbiddenException(f"Missing {action} permission for {resource}")
             
