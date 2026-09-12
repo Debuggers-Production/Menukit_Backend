@@ -774,8 +774,9 @@ async def verify_discount_code(
             DiscountRedemption.shop_id == shop.id,
             func.upper(DiscountRedemption.code) == code_clean
         )
+        .order_by(DiscountRedemption.redeemed_at.desc())
     )
-    existing_redemption = redemption_res.scalar_one_or_none()
+    existing_redemption = redemption_res.scalars().first()
     if existing_redemption:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -790,15 +791,18 @@ async def verify_discount_code(
             CustomerDiscountCode.shop_id == shop.id,
             func.upper(CustomerDiscountCode.code) == code_clean
         )
+        .order_by(CustomerDiscountCode.is_redeemed.desc(), CustomerDiscountCode.created_at.desc())
     )
-    assigned_obj = assigned_res.scalar_one_or_none()
+    assigned_objs = list(assigned_res.scalars().all())
+    assigned_obj = assigned_objs[0] if assigned_objs else None
 
     discount = None
     if assigned_obj:
-        if assigned_obj.is_redeemed:
+        redeemed_assigned = next((a for a in assigned_objs if a.is_redeemed), None)
+        if redeemed_assigned:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"This discount code '{code_clean}' was already redeemed on {assigned_obj.redeemed_at.strftime('%d %b %Y, %I:%M %p') if assigned_obj.redeemed_at else 'earlier'} and cannot be reused."
+                detail=f"This discount code '{code_clean}' was already redeemed on {redeemed_assigned.redeemed_at.strftime('%d %b %Y, %I:%M %p') if redeemed_assigned.redeemed_at else 'earlier'} and cannot be reused."
             )
         discount = assigned_obj.discount
 
@@ -810,8 +814,9 @@ async def verify_discount_code(
                 Discount.is_active == True,
                 func.upper(Discount.code) == code_clean
             )
+            .order_by(Discount.created_at.desc())
         )
-        discount = result.scalar_one_or_none()
+        discount = result.scalars().first()
 
     if not discount:
         raise HTTPException(

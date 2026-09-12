@@ -166,8 +166,9 @@ async def _find_discount_and_redemption(db: AsyncSession, shop, code_raw: str):
             DiscountRedemption.shop_id == shop.id,
             func.upper(DiscountRedemption.code) == code_clean
         )
+        .order_by(DiscountRedemption.redeemed_at.desc())
     )
-    existing_redemption = redemption_res.scalar_one_or_none()
+    existing_redemption = redemption_res.scalars().first()
 
     # 2. Check CustomerDiscountCode table for officially assigned code
     assigned_res = await db.execute(
@@ -180,23 +181,26 @@ async def _find_discount_and_redemption(db: AsyncSession, shop, code_raw: str):
             CustomerDiscountCode.shop_id == shop.id,
             func.upper(CustomerDiscountCode.code) == code_clean
         )
+        .order_by(CustomerDiscountCode.is_redeemed.desc(), CustomerDiscountCode.created_at.desc())
     )
-    assigned_obj = assigned_res.scalar_one_or_none()
+    assigned_objs = list(assigned_res.scalars().all())
+    assigned_obj = assigned_objs[0] if assigned_objs else None
 
     discount = None
     cust_id = None
     if assigned_obj:
         discount = assigned_obj.discount
         cust_id = assigned_obj.customer_identifier
-        if assigned_obj.is_redeemed and not existing_redemption:
+        redeemed_assigned = next((a for a in assigned_objs if a.is_redeemed), None)
+        if redeemed_assigned and not existing_redemption:
             existing_redemption = DiscountRedemption(
                 id=uuid.uuid4(),
-                discount_id=assigned_obj.discount_id,
-                shop_id=assigned_obj.shop_id,
-                code=assigned_obj.code,
-                redeemed_at=assigned_obj.redeemed_at or now,
-                customer_identifier=assigned_obj.customer_identifier,
-                discount=assigned_obj.discount
+                discount_id=redeemed_assigned.discount_id,
+                shop_id=redeemed_assigned.shop_id,
+                code=redeemed_assigned.code,
+                redeemed_at=redeemed_assigned.redeemed_at or now,
+                customer_identifier=redeemed_assigned.customer_identifier,
+                discount=redeemed_assigned.discount
             )
 
     # 3. If not in CustomerDiscountCode, check if it's an exact match on merchant-created static discount code
@@ -207,8 +211,9 @@ async def _find_discount_and_redemption(db: AsyncSession, shop, code_raw: str):
                 Discount.is_active == True,
                 func.upper(Discount.code) == code_clean
             )
+            .order_by(Discount.created_at.desc())
         )
-        discount = result.scalar_one_or_none()
+        discount = result.scalars().first()
 
     # 4. Resolve customer name and mobile number
     customer_name = None

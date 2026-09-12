@@ -193,8 +193,9 @@ class DiscountService:
                 CustomerDiscountCode.discount_id == discount.id,
                 CustomerDiscountCode.customer_identifier == customer_identifier
             )
+            .order_by(CustomerDiscountCode.created_at.desc())
         )
-        existing = res.scalar_one_or_none()
+        existing = res.scalars().first()
         if existing:
             return existing
 
@@ -204,8 +205,9 @@ class DiscountService:
                 CustomerDiscountCode.shop_id == shop_id,
                 func.upper(CustomerDiscountCode.code) == code_str.upper()
             )
+            .order_by(CustomerDiscountCode.created_at.desc())
         )
-        existing_code = res_code.scalar_one_or_none()
+        existing_code = res_code.scalars().first()
         if existing_code:
             return existing_code
 
