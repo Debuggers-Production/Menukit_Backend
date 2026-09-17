@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     
     # Subscription Trial & Grace Period Configs
     FREE_TRIAL_DAYS: int = 30
-    GRACE_PERIOD_DAYS: int = 7
+    GRACE_PERIOD_DAYS: int = 3
     # Mock Subscription State for Testing: "none" | "ending_soon" | "grace_period" | "expired"
     MOCK_SUBSCRIPTION_STATE: str = "none"
     

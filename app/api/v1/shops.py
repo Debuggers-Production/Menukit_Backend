@@ -103,6 +103,14 @@ async def get_my_shop(
                     shop = emp["shop"]
                     employee_permissions = emp["permissions"]
                     break
+        # Fallback if x_shop_id was stale / not found
+        if not shop:
+            if shops_info["owned"]:
+                shop = shops_info["owned"][0]
+            elif shops_info["employed"]:
+                emp = shops_info["employed"][0]
+                shop = emp["shop"]
+                employee_permissions = emp["permissions"]
     else:
         shop = await service.get_shop_by_user(user.id)
         if not shop:
@@ -332,7 +340,13 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
     settings_resp = None
     if shop.settings:
         settings_dict = ShopSettingsResponse.model_validate(shop.settings).model_dump()
-        if not perms["online_orders"]:
+        is_bank_verified = bool(shop.settings.bank_account_last4) and shop.settings.razorpay_route_status in ["activated", "active"]
+        if not is_bank_verified:
+            settings_dict["dinein_enabled"] = False
+            settings_dict["takeaway_enabled"] = False
+            settings_dict["delivery_enabled"] = False
+            settings_dict["online_payments_enabled"] = False
+        elif not perms["online_orders"]:
             # Automatic disable takeaway and delivery if online_orders is locked/expired
             settings_dict["allow_takeaway"] = False
             settings_dict["allow_delivery"] = False

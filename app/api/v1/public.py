@@ -62,6 +62,14 @@ class PublicShopListing(BaseModel):
     average_rating: Optional[float] = None
     total_reviews: int = 0
     show_menus_in_discovery: bool = True
+    delivery_enabled: bool = False
+    base_delivery_charge: float = 0.0
+    base_delivery_distance: float = 0.0
+    extra_delivery_distance_step: float = 1.0
+    extra_delivery_charge_per_step: float = 0.0
+    dinein_enabled: bool = False
+    takeaway_enabled: bool = False
+
 
 
 @shops_router.get("", response_model=List[PublicShopListing])
@@ -213,6 +221,13 @@ async def list_public_shops(
             average_rating=avg_rating,
             total_reviews=total_reviews or 0,
             show_menus_in_discovery=show_menus,
+            delivery_enabled=bool(shop.settings.delivery_enabled) if shop.settings else False,
+            base_delivery_charge=float(shop.settings.base_delivery_charge or 0.0) if shop.settings else 0.0,
+            base_delivery_distance=float(shop.settings.base_delivery_distance or 0.0) if shop.settings else 0.0,
+            extra_delivery_distance_step=float(shop.settings.extra_delivery_distance_step or 1.0) if shop.settings else 1.0,
+            extra_delivery_charge_per_step=float(shop.settings.extra_delivery_charge_per_step or 0.0) if shop.settings else 0.0,
+            dinein_enabled=bool(shop.settings.dinein_enabled) if shop.settings else False,
+            takeaway_enabled=bool(shop.settings.takeaway_enabled) if shop.settings else False,
         ))
 
     # Calculate distance if lat/lng provided
@@ -1334,7 +1349,6 @@ async def verify_public_order_payment(
             payment_status="paid",
             payment_method="online",
             order_status="PAID",
-            total_amount=paid_total,
             razorpay_order_id=razorpay_order_id,
             payment_session_id=razorpay_payment_id,
             version=Order.version + 1

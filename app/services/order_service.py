@@ -46,7 +46,11 @@ class OrderService:
         if not settings:
             raise HTTPException(status_code=400, detail="Ordering is not configured for this restaurant")
 
-        # 2. Check channel availability
+        # 2. Check channel availability & bank verification
+        is_bank_verified = bool(settings.bank_account_last4) and settings.razorpay_route_status in ["activated", "active"]
+        if not is_bank_verified:
+            raise HTTPException(status_code=400, detail="Ordering is temporarily unavailable as restaurant settlement account verification is pending.")
+
         if data.order_type == "delivery" and not settings.delivery_enabled:
             raise HTTPException(status_code=400, detail="Delivery option is not available")
         if data.order_type == "takeaway" and not settings.takeaway_enabled:
@@ -384,24 +388,11 @@ class OrderService:
             if status_filter == "new":
                 conditions.append(Order.order_status.in_(["PENDING_VENDOR", "pending"]))
             elif status_filter == "awaiting_payment":
-                # Takeaway & online/delivery orders waiting for payment
-                conditions.append(
-                    and_(
-                        Order.order_status.in_(["PAYMENT_PENDING"]),
-                        Order.order_type != "dine_in"
-                    )
-                )
+                # All orders waiting for customer payment
+                conditions.append(Order.order_status.in_(["PAYMENT_PENDING"]))
             elif status_filter in ["preparing", "awaiting_complete", "accepted"]:
-                # Awaiting complete includes accepted dine-in orders (guests eat first) and paid takeaway/delivery orders
-                conditions.append(
-                    or_(
-                        Order.order_status.in_(["PAID", "accepted", "ACCEPTED", "PREPARING", "READY"]),
-                        and_(
-                            Order.order_type == "dine_in",
-                            Order.order_status.in_(["PAYMENT_PENDING", "ACCEPTED", "accepted"])
-                        )
-                    )
-                )
+                # Awaiting complete includes paid/accepted orders being prepared or served
+                conditions.append(Order.order_status.in_(["PAID", "accepted", "ACCEPTED", "PREPARING", "READY"]))
             elif status_filter == "completed":
                 conditions.append(Order.order_status.in_(["DELIVERED", "COMPLETED", "completed"]))
             elif status_filter == "cancelled":
@@ -496,11 +487,7 @@ class OrderService:
             if s in ["PENDING_VENDOR", "PENDING"]:
                 new_count += count_val
             elif s == "PAYMENT_PENDING":
-                if t == "dine_in":
-                    # Dine-in accepted orders are active tickets awaiting completion
-                    awaiting_complete_count += count_val
-                else:
-                    awaiting_payment_count += count_val
+                awaiting_payment_count += count_val
             elif s in ["PAID", "ACCEPTED", "PREPARING", "READY"]:
                 awaiting_complete_count += count_val
             elif s in ["DELIVERED", "COMPLETED"]:
@@ -613,10 +600,9 @@ class OrderService:
         }
 
         
-        # We don't enforce strict transitions if current_status is not in our map (legacy)
-        # But we do enforce payment checks for takeaway/delivery
-        if status == "PREPARING" and order.payment_status.lower() != "paid" and order.payment_method.lower() != "cash" and order.order_type != "dine_in":
-            raise HTTPException(status_code=400, detail="Cannot start preparation until payment is confirmed.")
+        # Enforce that online orders must be paid before proceeding with preparation or completion
+        if status in ["PREPARING", "READY", "COMPLETED", "DELIVERED"] and order.payment_status.lower() != "paid" and order.payment_method.lower() not in ["cash", "cash_on_delivery", "counter"]:
+            raise HTTPException(status_code=400, detail="Cannot proceed with order preparation until customer payment is confirmed.")
 
 
         order.order_status = status

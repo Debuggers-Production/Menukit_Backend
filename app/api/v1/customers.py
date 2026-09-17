@@ -60,13 +60,20 @@ async def verify_mobile(
     # 1. Check if valid token matches the mobile number
     if data.token:
         token_mobile = verify_customer_token(data.token)
-        if token_mobile and token_mobile == data.mobile_number:
+        clean_token_mobile = "".join(c for c in token_mobile if c.isdigit())[-10:] if token_mobile else ""
+        clean_req_mobile = "".join(c for c in data.mobile_number if c.isdigit())[-10:] if data.mobile_number else ""
+        
+        if clean_token_mobile and clean_token_mobile == clean_req_mobile:
             # Token is valid! Bypass OTP and return customer status
             customer_service = CustomerService(db)
             membership_service = MembershipService(db)
             customer = await customer_service.get_customer_by_mobile(data.mobile_number)
             
-            response = MobileVerifyResponse(otp_required=False, message="Verified via token")
+            response = MobileVerifyResponse(
+                otp_required=False,
+                message="Verified via token",
+                access_token=data.token
+            )
             
             if data.shop_id:
                 await membership_service.log_event(data.shop_id, "token_verified")
@@ -88,6 +95,7 @@ async def verify_mobile(
                         await customer_service.add_membership(customer.id, data.shop_id, is_retailer_added=False)
                         await membership_service.log_event(data.shop_id, "member_matched", customer.id)
             
+            await db.commit()
             return response
 
     # 2. Token invalid or missing, proceed with SMS OTP generation via MSG91

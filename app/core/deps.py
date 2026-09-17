@@ -64,7 +64,15 @@ async def get_current_shop_context(
                 emp["shop"]._employee_permissions = emp["permissions"]
                 return emp["shop"]
                 
-        raise ForbiddenException("You do not have access to this shop context")
+        # If x_shop_id is stale / not found, fallback to user's first available shop
+        if shops_info["owned"]:
+            return shops_info["owned"][0]
+        if shops_info["employed"]:
+            emp = shops_info["employed"][0]
+            emp["shop"]._employee_permissions = emp["permissions"]
+            return emp["shop"]
+            
+        raise ForbiddenException("No shop found for user")
         
     shop = await shop_service.get_shop_by_user(current_user.id)
     if not shop:

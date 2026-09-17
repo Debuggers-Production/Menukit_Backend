@@ -2,6 +2,7 @@ import hmac
 import hashlib
 import uuid
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 
@@ -410,22 +411,53 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
             created_at = created_at.replace(tzinfo=timezone.utc)
         trial_end = created_at + timedelta(days=settings.FREE_TRIAL_DAYS)
         
+        initial_expirations = {
+            mod: trial_end.isoformat() for mod in ALL_MARKETPLACE_MODULES
+        }
+        
         subscription = Subscription(
             shop_id=shop.id,
             is_active=True,
             is_all_access=True,
             is_trial=True,
             active_modules=ALL_MARKETPLACE_MODULES,
+            module_expirations=initial_expirations,
             current_period_end=trial_end
         )
         db.add(subscription)
         await db.commit()
         await db.refresh(subscription)
 
-    # 2. Expiration & Grace Period Calculations
-    period_end = subscription.current_period_end
-    if period_end and period_end.tzinfo is None:
-        period_end = period_end.replace(tzinfo=timezone.utc)
+    # 2. Extract and parse module expirations
+    raw_exp = dict(getattr(subscription, "module_expirations", {}) or {})
+    parsed_expirations: Dict[str, datetime] = {}
+    tracked_dts = []
+    
+    for k, v in raw_exp.items():
+        if isinstance(v, str):
+            try:
+                dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                parsed_expirations[k] = dt
+                tracked_dts.append(dt)
+            except Exception:
+                pass
+        elif isinstance(v, datetime):
+            dt = v
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            parsed_expirations[k] = dt
+            tracked_dts.append(dt)
+
+    # 3. Determine overall period_end
+    # If module expirations exist, the subscription period end is determined by module expirations
+    if tracked_dts:
+        period_end = max(tracked_dts)
+    else:
+        period_end = subscription.current_period_end
+        if period_end and period_end.tzinfo is None:
+            period_end = period_end.replace(tzinfo=timezone.utc)
 
     if not period_end:
         created_at = subscription.created_at or now
@@ -433,10 +465,8 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
             created_at = created_at.replace(tzinfo=timezone.utc)
         period_end = created_at + timedelta(days=settings.FREE_TRIAL_DAYS)
 
-    grace_end = period_end + timedelta(days=settings.GRACE_PERIOD_DAYS)
-
-    days_left = max(0, (period_end - now).days)
-    grace_days_left = max(0, (grace_end - now).days)
+    grace_period_days = settings.GRACE_PERIOD_DAYS
+    grace_end = period_end + timedelta(days=grace_period_days)
 
     is_trial = getattr(subscription, "is_trial", False)
     is_active = True
@@ -448,17 +478,23 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         is_active = True
         is_expired = False
         is_grace_period = False
-        status_msg = f"Free Trial active ({days_left} days left)" if is_trial else f"Active subscription ({days_left} days left)"
+        days_left = max(0, int(math.ceil((period_end - now).total_seconds() / 86400)))
+        grace_days_left = grace_period_days
+        status_msg = f"Free Trial active ({days_left} day{'s' if days_left != 1 else ''} left)" if is_trial else f"Active subscription ({days_left} day{'s' if days_left != 1 else ''} left)"
     elif now <= grace_end:
         is_active = True  # Grace period allows continued use with banner warning
         is_expired = False
         is_grace_period = True
-        status_msg = f"Subscription ended. Grace period active ({grace_days_left} days left)."
+        days_left = 0
+        grace_days_left = max(0, int(math.ceil((grace_end - now).total_seconds() / 86400)))
+        status_msg = f"Free Trial ended. Grace period active ({grace_days_left} day{'s' if grace_days_left != 1 else ''} left)." if is_trial else f"Subscription ended. Grace period active ({grace_days_left} day{'s' if grace_days_left != 1 else ''} left)."
     else:
         is_active = False
         is_expired = True
         is_grace_period = False
-        status_msg = "Subscription ended. Features locked. Please renew to continue."
+        days_left = 0
+        grace_days_left = 0
+        status_msg = "Free Trial ended. Features locked. Please renew to continue." if is_trial else "Subscription ended. Features locked. Please renew to continue."
 
     # Environment Mock Override for UI Banner Testing
     mock_state = (getattr(settings, "MOCK_SUBSCRIPTION_STATE", "none") or "none").lower()
@@ -467,14 +503,15 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         is_expired = False
         is_grace_period = False
         days_left = 2
+        grace_days_left = grace_period_days
         status_msg = "Mock: Free Trial / Subscription Ending Soon (2 days left)"
     elif mock_state == "grace_period":
         is_active = True
         is_expired = False
         is_grace_period = True
         days_left = 0
-        grace_days_left = 4
-        status_msg = "Mock: Grace Period Active (4 days left)"
+        grace_days_left = min(grace_period_days, 2)
+        status_msg = f"Mock: Grace Period Active ({grace_days_left} days left)"
     elif mock_state == "expired":
         is_active = False
         is_expired = True
@@ -483,77 +520,59 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         grace_days_left = 0
         status_msg = "Mock: Subscription Ended. Features Locked."
 
-    if subscription.is_active != is_active and mock_state == "none":
-        subscription.is_active = is_active
-        await db.commit()
-
-    # Format per-module expiration details for granular frontend display
-    raw_exp = dict(getattr(subscription, "module_expirations", {}) or {})
-    formatted_module_expirations = {}
-    
-    # Re-evaluate which modules are actually active based on granular expiration
-    tracked_dts = []
-    for v in raw_exp.values():
-        if isinstance(v, str):
-            try:
-                dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                tracked_dts.append(dt)
-            except Exception:
-                pass
-        elif isinstance(v, datetime):
-            dt = v
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            tracked_dts.append(dt)
-
-    fallback_dt = min(tracked_dts) if tracked_dts else period_end
-
+    # 4. Format per-module expiration details and dynamic active modules
+    fallback_dt = period_end
     dynamic_active_modules = []
-    
+    formatted_module_expirations = {}
+
     db_active_mods = subscription.active_modules if subscription.active_modules else ALL_MARKETPLACE_MODULES
-    
-    for mod in db_active_mods:
-        mod_exp_str = raw_exp.get(mod)
-        mod_exp_dt = None
-        if mod_exp_str:
-            try:
-                mod_exp_dt = datetime.fromisoformat(mod_exp_str.replace("Z", "+00:00"))
-            except Exception:
-                mod_exp_dt = fallback_dt
+    all_eval_mods = list(dict.fromkeys(list(raw_exp.keys()) + list(db_active_mods)))
+    if not all_eval_mods:
+        all_eval_mods = ALL_MARKETPLACE_MODULES
+
+    for mod in all_eval_mods:
+        mod_exp_dt = parsed_expirations.get(mod, fallback_dt)
+        mod_grace_end = mod_exp_dt + timedelta(days=grace_period_days)
+        
+        if now <= mod_exp_dt:
+            mod_days_left = max(0, int(math.ceil((mod_exp_dt - now).total_seconds() / 86400)))
+            is_mod_active = True
+        elif now <= mod_grace_end:
+            mod_days_left = 0
+            is_mod_active = True
         else:
-            mod_exp_dt = fallback_dt
-            
-        if mod_exp_dt and mod_exp_dt.tzinfo is None:
-            mod_exp_dt = mod_exp_dt.replace(tzinfo=timezone.utc)
-            
-        mod_days_left = max(0, (mod_exp_dt - now).days) if mod_exp_dt else days_left
-        
-        # Consider grace period. If global is_active is True due to grace period, we shouldn't necessarily
-        # lock modules individually, but we should check if this specific module has grace period.
-        grace_dt = mod_exp_dt + timedelta(days=settings.GRACE_PERIOD_DAYS) if mod_exp_dt else grace_end
-        mod_grace_days_left = max(0, (grace_dt - now).days)
-        
-        is_mod_active = mod_days_left > 0 or mod_grace_days_left > 0
-        
+            mod_days_left = 0
+            is_mod_active = False
+
         if is_mod_active and is_active:
             dynamic_active_modules.append(mod)
-            
+
         formatted_module_expirations[mod] = {
             "expires_at": mod_exp_dt.isoformat() if mod_exp_dt else None,
             "days_left": mod_days_left
         }
 
-    is_actual_all_access = is_trial
-    if not is_trial and getattr(subscription, "is_all_access", False):
-        stmt_aa = select(PaymentTransaction).where(
-            PaymentTransaction.shop_id == shop.id,
-            PaymentTransaction.status == "success",
-            PaymentTransaction.is_all_access == True
-        )
-        aa_res = await db.execute(stmt_aa)
-        is_actual_all_access = aa_res.scalars().first() is not None
+    # If all modules expired past grace period, ensure global is_active is False
+    if not dynamic_active_modules and not is_grace_period:
+        is_active = False
+        is_expired = True
+        status_msg = "Free Trial ended. Features locked. Please renew to continue." if is_trial else "Subscription ended. Features locked. Please renew to continue."
+
+    # Check actual All-Access
+    if is_expired:
+        is_actual_all_access = False
+    elif is_trial:
+        is_actual_all_access = is_active
+    else:
+        is_actual_all_access = False
+        if getattr(subscription, "is_all_access", False) and is_active:
+            stmt_aa = select(PaymentTransaction).where(
+                PaymentTransaction.shop_id == shop.id,
+                PaymentTransaction.status == "success",
+                PaymentTransaction.is_all_access == True
+            )
+            aa_res = await db.execute(stmt_aa)
+            is_actual_all_access = aa_res.scalars().first() is not None
 
     # Calculate earliest remaining days among active modules
     active_days_list = [
@@ -562,15 +581,23 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
     ]
     core_days_left = min(active_days_list) if active_days_list else days_left
 
-    # If core modules / trial are expiring within 5 days, use core_days_left so banner intimates expiry
-    effective_days_left = core_days_left if (core_days_left <= 5 or is_trial) else days_left
+    effective_days_left = core_days_left if (not is_grace_period and not is_expired and (core_days_left <= 5 or is_trial)) else days_left
+
+    # Sync back to subscription model if needed
+    if (subscription.is_active != is_active or 
+        subscription.current_period_end != period_end or 
+        subscription.active_modules != dynamic_active_modules) and mock_state == "none":
+        subscription.is_active = is_active
+        subscription.current_period_end = period_end
+        subscription.active_modules = dynamic_active_modules
+        await db.commit()
 
     return {
         "is_active": is_active,
-        "is_all_access": is_actual_all_access if is_active else False,
+        "is_all_access": is_actual_all_access,
         "active_modules": dynamic_active_modules if is_active else [],
         "module_expirations": formatted_module_expirations if is_active else {},
-        "current_period_end": subscription.current_period_end,
+        "current_period_end": period_end.isoformat() if period_end else None,
         "is_trial": is_trial,
         "is_expired": is_expired,
         "is_grace_period": is_grace_period,
@@ -578,7 +605,7 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         "days_left": effective_days_left,
         "core_days_left": core_days_left,
         "max_days_left": days_left,
-        "has_expiring_modules": core_days_left <= 5,
+        "has_expiring_modules": (core_days_left <= 5 and not is_expired and not is_grace_period),
         "free_trial_days": settings.FREE_TRIAL_DAYS,
         "grace_period_days": settings.GRACE_PERIOD_DAYS,
         "status_message": status_msg
