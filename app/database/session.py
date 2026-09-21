@@ -64,8 +64,14 @@ async def init_chalkboard_table():
             await conn.execute(text("""
                 CREATE UNIQUE INDEX IF NOT EXISTS ix_chalkboards_shop_id ON chalkboards(shop_id);
             """))
+            await conn.execute(text("""
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS daily_order_number INTEGER;
+            """))
+            await conn.execute(text("""
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS whatsapp_sent BOOLEAN DEFAULT FALSE;
+            """))
     except Exception as e:
-        print(f"Chalkboard table initialization notice: {e}")
+        print(f"Database table initialization notice: {e}")
 
 
 async def close_db():

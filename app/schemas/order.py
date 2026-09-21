@@ -74,6 +74,7 @@ class OrderResponse(OrderBase):
     shop_id: uuid.UUID
     order_status: str
     payment_status: str
+    daily_order_number: Optional[int] = None
     cashfree_order_id: Optional[str] = None
     payment_session_id: Optional[str] = None
     razorpay_order_id: Optional[str] = None
@@ -82,6 +83,7 @@ class OrderResponse(OrderBase):
     refund_id: Optional[str] = None
     cancellation_reason: Optional[str] = None
     payment_expires_at: Optional[datetime] = None
+    whatsapp_sent: Optional[bool] = False
     created_at: datetime
     updated_at: datetime
     items: List[OrderItemResponse] = []

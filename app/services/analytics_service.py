@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
-from sqlalchemy import select, func, desc, text
+from sqlalchemy import select, func, desc, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.shop import Shop
@@ -159,11 +159,19 @@ class AnalyticsService:
 
         return [{"term": row.search_term, "count": row.count} for row in result]
 
-    async def get_activity_log(self, user_id: uuid.UUID, limit: int = 20) -> List[ActivityLog]:
+    async def get_activity_log(self, user_id: uuid.UUID, limit: int = 20, search: Optional[str] = None) -> List[ActivityLog]:
         """Get recent activity logs."""
+        conditions = [ActivityLog.user_id == user_id]
+        if search:
+            search_term = f"%{search}%"
+            conditions.append(or_(
+                ActivityLog.action.ilike(search_term),
+                ActivityLog.details.ilike(search_term)
+            ))
+            
         result = await self.db.execute(
             select(ActivityLog)
-            .where(ActivityLog.user_id == user_id)
+            .where(*conditions)
             .order_by(desc(ActivityLog.created_at))
             .limit(limit)
         )

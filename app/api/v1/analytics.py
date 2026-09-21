@@ -139,3 +139,32 @@ async def get_gst_report(
     service = AnalyticsService(db)
     return await service.get_gst_report(shop.id, days=days, start_date=start_date, end_date=end_date)
 
+
+
+@router.get("/activities")
+async def get_recent_activities(
+    search: str | None = None,
+    limit: int = 25,
+    shop = Depends(require_permission("analytics", "read")),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get recent activities with search."""
+    service = AnalyticsService(db)
+    
+    from app.services.subscription_helper import get_shop_subscription_permissions
+    perms = await get_shop_subscription_permissions(shop.id, db)
+    has_orders_perm = perms.get("online_orders", False)
+    
+    raw_activities = await service.get_activity_log(user.id, limit=limit, search=search)
+    recent_activities = []
+    for act in raw_activities:
+        if not has_orders_perm and act.action and (act.action.startswith("order_") or "Order " in (act.details or "")):
+            continue
+        recent_activities.append({
+            "id": str(act.id),
+            "action": act.action,
+            "details": act.details,
+            "created_at": str(act.created_at)
+        })
+    return {"recent_activities": recent_activities}

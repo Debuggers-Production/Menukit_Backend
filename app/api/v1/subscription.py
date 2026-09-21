@@ -340,14 +340,8 @@ async def verify_payment(
         # If they explicitly bought all-access in this transaction
         subscription.is_all_access = True
     else:
-        # Only true if they actually have a valid unexpired all-access payment transaction
-        stmt_aa = select(PaymentTransaction).where(
-            PaymentTransaction.shop_id == subscription.shop_id,
-            PaymentTransaction.status == "success",
-            PaymentTransaction.is_all_access == True
-        )
-        aa_res = await db.execute(stmt_aa)
-        subscription.is_all_access = aa_res.scalars().first() is not None
+        # If they bought individual modules, their current subscription plan is no longer All-Access
+        subscription.is_all_access = False
 
     subscription.is_trial = False
 
@@ -568,11 +562,11 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         if getattr(subscription, "is_all_access", False) and is_active:
             stmt_aa = select(PaymentTransaction).where(
                 PaymentTransaction.shop_id == shop.id,
-                PaymentTransaction.status == "success",
-                PaymentTransaction.is_all_access == True
-            )
+                PaymentTransaction.status == "success"
+            ).order_by(PaymentTransaction.created_at.desc())
             aa_res = await db.execute(stmt_aa)
-            is_actual_all_access = aa_res.scalars().first() is not None
+            latest_tx = aa_res.scalars().first()
+            is_actual_all_access = latest_tx.is_all_access if latest_tx else False
 
     # Calculate earliest remaining days among active modules
     active_days_list = [
@@ -585,9 +579,11 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
 
     # Sync back to subscription model if needed
     if (subscription.is_active != is_active or 
+        subscription.is_all_access != is_actual_all_access or
         subscription.current_period_end != period_end or 
         subscription.active_modules != dynamic_active_modules) and mock_state == "none":
         subscription.is_active = is_active
+        subscription.is_all_access = is_actual_all_access
         subscription.current_period_end = period_end
         subscription.active_modules = dynamic_active_modules
         await db.commit()
@@ -664,6 +660,7 @@ async def get_billing_history(
 @router.get("/invoices/{transaction_id}")
 async def get_invoice_details(
     transaction_id: str,
+    current_user: User = Depends(get_current_user),
     shop: Shop = Depends(get_current_shop_context),
     db: AsyncSession = Depends(get_db)
 ):

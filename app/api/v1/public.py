@@ -1940,6 +1940,7 @@ async def get_customer_orders(
     for o in orders_obj:
         orders_list.append({
             "id": str(o.id),
+            "daily_order_number": o.daily_order_number,
             "shop_id": str(o.shop_id) if o.shop_id else shop_id,
             "shop_name": o.shop.name if o.shop else "Store Network",
             "order_status": o.order_status,
@@ -1951,7 +1952,9 @@ async def get_customer_orders(
                 {
                     "name": getattr(item, "name", "Item"),
                     "quantity": getattr(item, "quantity", 1),
-                    "price": float(getattr(item, "price", 0))
+                    "price": float(getattr(item, "price", 0)),
+                    "is_cancelled": getattr(item, "is_cancelled", False),
+                    "cancellation_reason": getattr(item, "cancellation_reason", None)
                 }
                 for item in o.items
             ]

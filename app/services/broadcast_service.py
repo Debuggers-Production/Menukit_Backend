@@ -40,14 +40,27 @@ class BroadcastService:
         """
         Fetch distinct target customer recipients with name and valid mobile number.
         Segments:
-          - 'all': All customers with registered membership at this shop
-          - 'new': Members registered in the last 7 days
-          - 'min_visits': Members with at least `min_visits` visits/orders at this shop
+          - 'all': All customers with registered membership at this shop OR who placed an order
+          - 'new': Members registered or ordered in the last 7 days
+          - 'min_visits': Customers with at least `min_visits` visits/orders at this shop
         """
         recipients_map: Dict[str, str] = {}  # phone -> name
 
         if target_audience == "min_visits":
-            # 1. Distinct event dates at this shop for registered members
+            # 1. Check orders (frequency of unique days ordered)
+            o_stmt = (
+                select(Order.customer_phone, func.max(Order.customer_name))
+                .where(Order.shop_id == shop_id)
+                .group_by(Order.customer_phone)
+                .having(func.count(func.distinct(func.date(Order.created_at))) >= min_visits)
+            )
+            o_res = await self.db.execute(o_stmt)
+            for row in o_res.all():
+                phone = self._normalize_phone(row[0])
+                if phone:
+                    recipients_map[phone] = row[1] or "Customer"
+
+            # 2. Distinct event dates at this shop for registered members
             event_subq = (
                 select(
                     Customer.mobile_number,
@@ -66,31 +79,23 @@ class BroadcastService:
             res = await self.db.execute(event_subq)
             for row in res.all():
                 phone = self._normalize_phone(row[0])
-                if phone:
+                if phone and phone not in recipients_map:
                     recipients_map[phone] = row[1] or "Customer"
-
-            # 2. Also check if member has placed >= min_visits orders at this shop
-            member_stmt = (
-                select(Customer.mobile_number, Customer.name)
-                .join(CustomerRetailerMembership, CustomerRetailerMembership.customer_id == Customer.id)
-                .where(CustomerRetailerMembership.shop_id == shop_id)
-            )
-            m_res = await self.db.execute(member_stmt)
-            for m_row in m_res.all():
-                clean_p = self._normalize_phone(m_row[0])
-                if clean_p and clean_p not in recipients_map:
-                    # Check order count for this member
-                    last10 = clean_p[-10:]
-                    o_cnt_stmt = select(func.count(Order.id)).where(
-                        Order.shop_id == shop_id,
-                        Order.customer_phone.ilike(f"%{last10}%")
-                    )
-                    o_cnt_res = await self.db.execute(o_cnt_stmt)
-                    if (o_cnt_res.scalar() or 0) >= min_visits:
-                        recipients_map[clean_p] = m_row[1] or "Customer"
 
         elif target_audience == "new":
             seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+            # 1. Orders
+            o_stmt = select(Order.customer_phone, Order.customer_name).where(
+                Order.shop_id == shop_id,
+                Order.created_at >= seven_days_ago
+            )
+            o_res = await self.db.execute(o_stmt)
+            for row in o_res.all():
+                phone = self._normalize_phone(row[0])
+                if phone:
+                    recipients_map[phone] = row[1] or "Customer"
+            
+            # 2. Memberships
             stmt = (
                 select(Customer.mobile_number, Customer.name)
                 .join(CustomerRetailerMembership, CustomerRetailerMembership.customer_id == Customer.id)
@@ -102,11 +107,20 @@ class BroadcastService:
             res = await self.db.execute(stmt)
             for row in res.all():
                 phone = self._normalize_phone(row[0])
-                if phone:
+                if phone and phone not in recipients_map:
                     recipients_map[phone] = row[1] or "Customer"
 
         else:
-            # 'all' registered members of this shop
+            # 'all'
+            # 1. Orders
+            o_stmt = select(Order.customer_phone, Order.customer_name).where(Order.shop_id == shop_id)
+            o_res = await self.db.execute(o_stmt)
+            for row in o_res.all():
+                phone = self._normalize_phone(row[0])
+                if phone:
+                    recipients_map[phone] = row[1] or "Customer"
+            
+            # 2. Memberships
             stmt = (
                 select(Customer.mobile_number, Customer.name)
                 .join(CustomerRetailerMembership, CustomerRetailerMembership.customer_id == Customer.id)
@@ -115,11 +129,10 @@ class BroadcastService:
             res = await self.db.execute(stmt)
             for row in res.all():
                 phone = self._normalize_phone(row[0])
-                if phone:
+                if phone and phone not in recipients_map:
                     recipients_map[phone] = row[1] or "Customer"
 
         return [{"phone": phone, "name": name} for phone, name in recipients_map.items()]
-
 
     async def calculate_audience_count(
         self,

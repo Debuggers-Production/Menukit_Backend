@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
 from app.core.deps import require_permission, get_current_user
+from app.services.subscription_helper import get_shop_subscription_permissions
 from app.models.user import User
 
 from app.schemas.broadcast import (
@@ -235,14 +236,29 @@ async def delete_broadcast_media_image(
     return {"success": True, "message": "Image deleted from storage and media library"}
 
 
+async def check_broadcast_subscription(shop_id: uuid.UUID, db: AsyncSession):
+    """Enforce CRM / Members subscription for broadcast marketing features."""
+    perms = await get_shop_subscription_permissions(shop_id, db)
+    if perms.get("is_expired"):
+        raise HTTPException(
+            status_code=403,
+            detail="Subscription expired: An active CRM & Members module subscription is required. Please renew your plan."
+        )
+    if not (perms.get("member_count") or perms.get("member_details")):
+        raise HTTPException(
+            status_code=403,
+            detail="Subscription required: Your plan does not include the CRM & Members module. Access to WhatsApp broadcast campaigns, audience counts, and campaign history is locked by the backend. Please upgrade in Subscription Marketplace."
+        )
+
+
 @router.post("/audience-count", response_model=AudienceCountResponse)
 async def get_audience_count(
     data: AudienceCountRequest,
     shop = Depends(require_permission("marketing", "read")),
     db: AsyncSession = Depends(get_db),
-
 ):
     """Calculate live target audience recipient count for a given filter."""
+    await check_broadcast_subscription(shop.id, db)
     service = BroadcastService(db)
     count = await service.calculate_audience_count(
         shop.id, data.target_audience, data.min_visits or 2
@@ -261,6 +277,8 @@ async def send_test_broadcast(
     db: AsyncSession = Depends(get_db),
 ):
     """Send an immediate test campaign message to a single WhatsApp number."""
+    await check_broadcast_subscription(shop.id, db)
+
     if not data.phone_number:
         raise HTTPException(status_code=400, detail="Phone number is required")
     if not data.message:
@@ -299,6 +317,8 @@ async def create_broadcast_campaign(
     db: AsyncSession = Depends(get_db),
 ):
     """Create and dispatch (or schedule) a new WhatsApp marketing broadcast campaign."""
+    await check_broadcast_subscription(shop.id, db)
+
     if not data.message:
         raise HTTPException(status_code=400, detail="Campaign message is required")
 
@@ -360,6 +380,7 @@ async def list_broadcast_campaigns(
     db: AsyncSession = Depends(get_db),
 ):
     """List broadcast campaigns and scheduled jobs with search, date filtering, and pagination."""
+    await check_broadcast_subscription(shop.id, db)
     service = BroadcastService(db)
     campaigns, total = await service.list_campaigns(
         shop_id=shop.id,

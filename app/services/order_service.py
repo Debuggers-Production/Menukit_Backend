@@ -174,9 +174,27 @@ class OrderService:
             cp_digits = "".join(filter(str.isdigit, data.customer_phone))
             order_phone = f"+91{cp_digits}" if len(cp_digits) == 10 else data.customer_phone.strip()
 
+        # Calculate daily order number (Reset at midnight IST)
+        from datetime import datetime, timezone
+        import pytz
+        from sqlalchemy import func
+        ist_tz = pytz.timezone('Asia/Kolkata')
+        now_ist = datetime.now(ist_tz)
+        today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start_utc = today_start_ist.astimezone(timezone.utc)
+        
+        max_order_result = await self.db.execute(
+            select(func.max(Order.daily_order_number))
+            .where(Order.shop_id == shop.id)
+            .where(Order.created_at >= today_start_utc)
+        )
+        max_daily_num = max_order_result.scalar() or 0
+        new_daily_num = max_daily_num + 1
+
         order = Order(
             id=order_id,
             shop_id=shop.id,
+            daily_order_number=new_daily_num,
             customer_name=data.customer_name or "Walk-in",
             customer_phone=order_phone,
             order_type=data.order_type,
@@ -569,11 +587,39 @@ class OrderService:
 
         order.payment_status = payment_status
         
-        # If manually marked as paid, advance the order status automatically
-        if payment_status.lower() == "paid" and order.order_status == "PAYMENT_PENDING":
-            order.order_status = "PAID"
-            order.payment_expires_at = None
+        # If manually marked as paid, advance the order status if pending, and notify WhatsApp
+        if payment_status.lower() == "paid":
+            if order.order_status == "PAYMENT_PENDING":
+                order.order_status = "PAID"
+                order.payment_expires_at = None
+
             await self._send_order_status_whatsapp_notification(order)
+
+            # Broadcast to shop and create notification
+            try:
+                from app.services.notification_service import NotificationService
+                from app.services.websocket_manager import manager
+                from app.schemas.order import OrderResponse
+
+                order_ref = f"#{order.daily_order_number}" if order.daily_order_number else f"#{order.id.hex[:8]}"
+                notif_service = NotificationService(self.db)
+                await notif_service.create_notification(
+                    shop_id=shop_id,
+                    type="NEW_ORDER",
+                    title="Order Paid",
+                    message=f"Order {order_ref} marked as paid.",
+                    metadata={"order_id": str(order.id)}
+                )
+                ws_msg = {
+                    "event": "NEW_ORDER",
+                    "type": "NEW_ORDER",
+                    "data": OrderResponse.model_validate(order).model_dump(mode="json"),
+                    "title": "Order Paid",
+                    "message": f"Order {order_ref} marked as paid."
+                }
+                await manager.broadcast_to_shop(str(shop_id), ws_msg)
+            except Exception as e:
+                print(f"Failed to broadcast shop paid event: {e}")
             
         return order
 
@@ -670,20 +716,33 @@ class OrderService:
         return order
 
     async def _send_order_status_whatsapp_notification(self, order: Order, shop_name: Optional[str] = None):
-        """Send 'menukit_order_created' WhatsApp template to customer ONLY when order is BOTH Completed AND Paid."""
+        """Send 'menukit_order_created' WhatsApp template to customer when order is Paid."""
         if not order or not order.customer_phone:
             return
 
-        # STRICT GUARD: Only send WhatsApp message if order is BOTH Completed AND Paid
-        is_paid = str(order.payment_status or "").lower() == "paid"
-        is_completed = str(order.order_status or "").upper() in ["COMPLETED", "DELIVERED"]
-
-        if not (is_paid and is_completed):
+        # STRICT GUARD 1: Prevent duplicate notifications for the same order
+        if getattr(order, "whatsapp_sent", False):
             return
 
+        # STRICT GUARD 2: Only send WhatsApp message if order payment is confirmed ('paid')
+        is_paid = str(order.payment_status or "").lower() == "paid"
+        if not is_paid:
+            return
+
+        # STRICT GUARD 3: Do not send for cancelled or rejected orders
+        status = str(order.order_status or "").upper()
+        if status in ["CANCELLED", "REJECTED"]:
+            return
+
+        # Mark as sent immediately to avoid duplicate triggers across concurrent events
+        order.whatsapp_sent = True
+        try:
+            self.db.add(order)
+            await self.db.flush()
+        except Exception as e:
+            print(f"Failed to flush order.whatsapp_sent: {e}")
 
         try:
-
             if not shop_name:
                 if hasattr(order, "shop") and order.shop and getattr(order.shop, "name", None):
                     shop_name = order.shop.name
@@ -701,7 +760,7 @@ class OrderService:
 
             amt_val = float(order.total_amount or 0.0)
             formatted_amount = f"₹{int(amt_val)}" if amt_val.is_integer() else f"₹{amt_val:.2f}"
-            bill_id = order.id.hex[:8].upper()
+            bill_id = f"#{order.daily_order_number}" if order.daily_order_number else order.id.hex[:8].upper()
             customer_name = order.customer_name or "Customer"
             customer_url = "https://menukit.debuggerstechnologies.com/customer/"
 

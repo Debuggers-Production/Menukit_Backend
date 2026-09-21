@@ -28,9 +28,11 @@ class Order(Base, UUIDMixin, TimestampMixin):
     payment_status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False, index=True)  # 'pending', 'paid', 'failed'
     payment_method: Mapped[str] = mapped_column(String(50), default="cash", nullable=False)  # 'cash', 'online'
     total_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    daily_order_number: Mapped[int | None] = mapped_column(nullable=True)
     cashfree_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     payment_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     credits_rewarded: Mapped[bool | None] = mapped_column(Boolean, default=False, nullable=True)
+    whatsapp_sent: Mapped[bool | None] = mapped_column(Boolean, default=False, nullable=True)
     razorpay_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     
     # Settlement fields
