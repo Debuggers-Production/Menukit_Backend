@@ -1,6 +1,6 @@
 """Main API router."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter,Query
 
 from app.api.v1 import (
     auth, shops, categories, menu_items, employees,

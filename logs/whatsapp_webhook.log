@@ -2563,3 +2563,790 @@
   }
 }
 [2026-09-21 23:41:44,095] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRUNDMTY5MTc1M0U3M0VBQ0ZCAA==","message_status":"accepted"}]}
+[2026-09-27 12:51:41,704] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918015329201",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "We are currently providing a special 20% discount on all orders today! Visit our digital store now to claim your offer."
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-27 12:51:44,021] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918015329201","wa_id":"918015329201"}],"messages":[{"id":"wamid.HBgMOTE4MDE1MzI5MjAxFQIAERgSOTVFOTIwMjU0NkRBOEVDNDRFAA==","message_status":"accepted"}]}
+[2026-09-27 15:51:47,429] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "#7"
+          },
+          {
+            "type": "text",
+            "text": "\u20b949.50"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-27 15:51:49,347] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQjJEMkMwMjQzMjI2RDg3QzBFAA==","message_status":"accepted"}]}
+[2026-09-27 18:23:08,220] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "13"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "Item 'Test Wala' cancelled (Product price refund)"
+          },
+          {
+            "type": "text",
+            "text": "1"
+          },
+          {
+            "type": "text",
+            "text": "#13"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a/order/a7101ef6-20d5-48cc-b707-31064a7d4c83"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-27 18:23:09,422] INFO - 📥 WhatsApp Meta API Response (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_refund_template) does not exist in en"},"fbtrace_id":"APKEoXrxNcI64A7TQaB78sX"}}
+[2026-09-27 18:23:09,424] ERROR - WhatsApp API Error (404): 404 Client Error: Not Found for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_refund_template) does not exist in en"},"fbtrace_id":"APKEoXrxNcI64A7TQaB78sX"}}
+[2026-09-27 18:33:19,395] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "14"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "Item 'Test Wala' cancelled (Product price refund)"
+          },
+          {
+            "type": "text",
+            "text": "1"
+          },
+          {
+            "type": "text",
+            "text": "#14"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a/order/436f2ff4-da25-4507-baa5-ff7076603d13"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-27 18:33:21,063] INFO - 📥 WhatsApp Meta API Response (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_refund_template) does not exist in en"},"fbtrace_id":"AHK69LrF996fv1Dl19zxq0i"}}
+[2026-09-27 18:33:21,065] ERROR - WhatsApp API Error (404): 404 Client Error: Not Found for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_refund_template) does not exist in en"},"fbtrace_id":"AHK69LrF996fv1Dl19zxq0i"}}
+[2026-09-27 19:12:28,464] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "15"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.06"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a/order/e3e76adf-b83b-4b26-8d3a-274e0017cd0c"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-27 19:12:30,056] INFO - 📥 WhatsApp Meta API Response (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_accepted_payment_required_template) does not exist in en"},"fbtrace_id":"APf014QBK1Swe1DwegUPYKm"}}
+[2026-09-27 19:12:30,057] ERROR - WhatsApp API Error (404): 404 Client Error: Not Found for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_accepted_payment_required_template) does not exist in en"},"fbtrace_id":"APf014QBK1Swe1DwegUPYKm"}}
+[2026-09-27 19:12:48,379] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "15"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "\u20b9160.06"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a/order/e3e76adf-b83b-4b26-8d3a-274e0017cd0c"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-27 19:12:49,930] INFO - 📥 WhatsApp Meta API Response (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_accepted_payment_required_template) does not exist in en"},"fbtrace_id":"AgNEGPkVUNMMa_vEGt2XTWa"}}
+[2026-09-27 19:12:49,933] ERROR - WhatsApp API Error (404): 404 Client Error: Not Found for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_accepted_payment_required_template) does not exist in en"},"fbtrace_id":"AgNEGPkVUNMMa_vEGt2XTWa"}}
+[2026-09-27 21:36:58,969] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "#16"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.06"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-27 21:37:01,036] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSOTYwRDQxQjQ1MEI5MzlDM0E4AA==","message_status":"accepted"}]}
+[2026-09-27 21:38:37,225] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "#8"
+          },
+          {
+            "type": "text",
+            "text": "\u20b994.50"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-27 21:38:39,346] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRjEzMzBBNjI1NTMxNjUzNDBGAA==","message_status":"accepted"}]}
+[2026-09-28 12:15:14,481] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Vaishnavi"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "#1"
+          },
+          {
+            "type": "text",
+            "text": "\u20b953.55"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-28 12:15:16,639] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919677639292","wa_id":"919677639292"}],"messages":[{"id":"wamid.HBgMOTE5Njc3NjM5MjkyFQIAERgSQURCQzU4MEI1QUY4QzBDOTIzAA==","message_status":"accepted"}]}
+[2026-09-28 12:23:34,740] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Vaishnavi"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "#2"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.06"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-28 12:23:36,578] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919677639292","wa_id":"919677639292"}],"messages":[{"id":"wamid.HBgMOTE5Njc3NjM5MjkyFQIAERgSMTUyM0U2NkFFQjlBQzREM0JGAA==","message_status":"accepted"}]}
+[2026-09-28 13:13:36,430] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Vaishnavi"
+          },
+          {
+            "type": "text",
+            "text": "4"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a/order/be345ee1-5f24-48ba-97fe-19779e919428"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-28 13:13:38,086] INFO - 📥 WhatsApp Meta API Response (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_accepted_payment_required_template) does not exist in en"},"fbtrace_id":"AtjVCA5el9Z74tU2setbMXw"}}
+[2026-09-28 13:13:38,090] ERROR - WhatsApp API Error (404): 404 Client Error: Not Found for url: https://graph.facebook.com/v23.0/1209211872274267/messages | Response: {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_accepted_payment_required_template) does not exist in en"},"fbtrace_id":"AtjVCA5el9Z74tU2setbMXw"}}
+[2026-09-28 13:17:40,457] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Vaishnavi"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "#4"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-28 13:17:42,567] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919677639292","wa_id":"919677639292"}],"messages":[{"id":"wamid.HBgMOTE5Njc3NjM5MjkyFQIAERgSNDZFRDhDM0M4OEEzRTU3NjZCAA==","message_status":"accepted"}]}
+[2026-09-28 14:17:02,712] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Vaishnavi"
+          },
+          {
+            "type": "text",
+            "text": "5"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "\u20b93000"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a/order/5cefda70-5692-4ae3-b2cd-1ca5f8e9fe5e"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-28 14:17:04,519] ERROR - WhatsApp API Error (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_accepted_payment_required_template) does not exist in en"},"fbtrace_id":"A3W_a3_THfEU-oSISkqc32x"}}
+[2026-09-28 14:18:49,069] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Vaishnavi"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "#5"
+          },
+          {
+            "type": "text",
+            "text": "\u20b93000"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-28 14:18:50,768] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919677639292","wa_id":"919677639292"}],"messages":[{"id":"wamid.HBgMOTE5Njc3NjM5MjkyFQIAERgSNjVEQ0Y1MDcyQzlGNTFGNzREAA==","message_status":"accepted"}]}
+[2026-09-28 14:29:46,997] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Vaishnavi"
+          },
+          {
+            "type": "text",
+            "text": "8"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "\u20b93002.10"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a/order/9da80060-4b2f-49dd-8957-d41ca0218bca"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-28 14:29:48,658] ERROR - WhatsApp API Error (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_accepted_payment_required_template) does not exist in en"},"fbtrace_id":"A1DhxYElj3arTzjB-EamAku"}}
+[2026-09-28 14:40:33,182] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Vaishnavi"
+          },
+          {
+            "type": "text",
+            "text": "10"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/50ad42ed-b9ff-446b-9f4c-7c15183ca84a/order/09140a02-32e0-4636-8c4a-de940c05b28a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-28 14:40:34,840] ERROR - WhatsApp API Error (404): {"error":{"message":"(#132001) Template name does not exist in the translation","code":132001,"type":"OAuthException","error_data":{"messaging_product":"whatsapp","details":"template name (menukit_order_accepted_payment_required_template) does not exist in en"},"fbtrace_id":"A-LeirYmRAhhmZp5kKlXMy0"}}
+[2026-09-28 14:40:36,558] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "919677639292",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Vaishnavi"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "#10"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-09-28 14:40:41,114] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"919677639292","wa_id":"919677639292"}],"messages":[{"id":"wamid.HBgMOTE5Njc3NjM5MjkyFQIAERgSQzczM0NBODg2NkQwOTYwMUNCAA==","message_status":"accepted"}]}

@@ -70,6 +70,18 @@ async def init_chalkboard_table():
             await conn.execute(text("""
                 ALTER TABLE orders ADD COLUMN IF NOT EXISTS whatsapp_sent BOOLEAN DEFAULT FALSE;
             """))
+            await conn.execute(text("""
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
+            """))
+            await conn.execute(text("""
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN NOT NULL DEFAULT FALSE;
+            """))
+            await conn.execute(text("""
+                ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS max_delivery_distance FLOAT DEFAULT 0.0;
+            """))
+            await conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_users_phone ON users(phone);
+            """))
     except Exception as e:
         print(f"Database table initialization notice: {e}")
 

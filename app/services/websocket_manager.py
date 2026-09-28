@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from typing import Dict, Set
 from fastapi import WebSocket
 
@@ -29,16 +30,20 @@ class ConnectionManager:
         await websocket.send_text(message)
 
     async def broadcast_to_shop(self, shop_id: str, message: dict):
-        """Sends a JSON message to all active websocket connections for a specific shop."""
-        if shop_id in self.active_connections:
-            message_text = json.dumps(message)
+        """Sends a JSON message instantaneously to all active websocket connections for a specific shop."""
+        if shop_id in self.active_connections and self.active_connections[shop_id]:
+            message_text = json.dumps(message, default=str)
             dead_connections = set()
-            for connection in self.active_connections[shop_id]:
+            
+            async def _send(ws: WebSocket):
                 try:
-                    await connection.send_text(message_text)
+                    await ws.send_text(message_text)
                 except Exception as e:
                     logger.error(f"Failed to send WS message to shop {shop_id}: {str(e)}")
-                    dead_connections.add(connection)
+                    dead_connections.add(ws)
+
+            # Broadcast concurrently to all sockets for 0 delay
+            await asyncio.gather(*[_send(ws) for ws in list(self.active_connections[shop_id])], return_exceptions=True)
             
             # Cleanup dead connections
             for dead_conn in dead_connections:
@@ -55,7 +60,7 @@ class CustomerConnectionManager:
         if customer_id not in self.active_connections:
             self.active_connections[customer_id] = set()
         self.active_connections[customer_id].add(websocket)
-        logger.info(f"Customer WebSocket connected for ID: {customer_id}")
+        logger.info(f"Customer WebSocket connected for ID: {customer_id}. Total active: {len(self.active_connections[customer_id])}")
 
     def disconnect(self, customer_id: str, websocket: WebSocket):
         if customer_id in self.active_connections:
@@ -66,15 +71,19 @@ class CustomerConnectionManager:
         logger.info(f"Customer WebSocket disconnected for ID: {customer_id}")
 
     async def broadcast_to_customer(self, customer_id: str, message: dict):
-        if customer_id in self.active_connections:
-            message_text = json.dumps(message)
+        """Broadcasts real-time order update instantaneously to customer socket."""
+        if customer_id in self.active_connections and self.active_connections[customer_id]:
+            message_text = json.dumps(message, default=str)
             dead_connections = set()
-            for connection in self.active_connections[customer_id]:
+
+            async def _send(ws: WebSocket):
                 try:
-                    await connection.send_text(message_text)
+                    await ws.send_text(message_text)
                 except Exception as e:
-                    logger.error(f"Failed to send customer WS message: {str(e)}")
-                    dead_connections.add(connection)
+                    logger.error(f"Failed to send customer WS message for {customer_id}: {str(e)}")
+                    dead_connections.add(ws)
+
+            await asyncio.gather(*[_send(ws) for ws in list(self.active_connections[customer_id])], return_exceptions=True)
             
             for dead_conn in dead_connections:
                 self.disconnect(customer_id, dead_conn)

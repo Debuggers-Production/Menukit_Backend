@@ -68,6 +68,9 @@ class EmailService:
         subject = f"You're invited to join {shop_name} on SmartMenu"
         verify_url = f"{settings.FRONTEND_URL}/verify-employee?token={token}"
         
+        # Always log employee verification URL via logger for easy development & audit tracking
+        logger.info(f"🔗 [EMPLOYEE VERIFICATION URL] Email: {email} | Shop: {shop_name} | URL: {verify_url}")
+        
         html_content = f"""
         <html>
         <body style="font-family: 'Inter', system-ui, -apple-system, sans-serif; padding: 40px; background: #f8fafc; color: #1e293b;">
@@ -86,7 +89,6 @@ class EmailService:
         """
 
         if self.mock_mode or settings.EMAIL_BACKEND in ("console", "mock"):
-            logger.info(f"💌 [MOCK EMAIL] Employee Invite to {email}: {verify_url}")
             print(f"\n\033[94m{'=' * 55}\033[0m")
             print(f"\033[94m💌 EMPLOYEE INVITE EMAIL to: \033[1m{email}\033[0m")
             print(f"\033[96m🔗 Verify URL: \033[1m{verify_url}\033[0m")

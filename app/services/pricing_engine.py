@@ -99,8 +99,6 @@ BASE_INR_PRICES = {
         "search-data": 69.0,
         "custom-theme": 69.0,
         "analytics-advanced": 129.0,
-        "analytics-advanced-filters": 59.0,
-        "analytics-customer-insights": 59.0,
         "hide-discovery-badge": 49.0,
     }
 }
@@ -147,20 +145,6 @@ MODULE_METADATA = [
         "name": "Advanced Analytics",
         "category": "Analytics",
         "description": "Unlock 7-day, 30-day, Custom Date range filters, and detailed customer insights reports.",
-        "icon": "BarChart3"
-    },
-    {
-        "id": "analytics-advanced-filters",
-        "name": "Advanced Analytics Filters",
-        "category": "Analytics",
-        "description": "Unlock 7-day, 30-day, and Custom Date range filters for your dashboard.",
-        "icon": "BarChart3"
-    },
-    {
-        "id": "analytics-customer-insights",
-        "name": "Customer Insights Report",
-        "category": "Analytics",
-        "description": "Access detailed reports on customer views and repeat visits.",
         "icon": "BarChart3"
     },
     {
@@ -345,7 +329,12 @@ class PricingEngine:
             calc = await cls.calculate_price(BASE_INR_PRICES["all_access"], config.code, billing_cycle)
             base_subtotal = calc["selected_price"]
         else:
-            for mod_id in selected_modules:
+            # If member-details is chosen, member-count is already included and not billed separately
+            effective_modules = list(selected_modules or [])
+            if "member-details" in effective_modules and "member-count" in effective_modules:
+                effective_modules = [m for m in effective_modules if m != "member-count"]
+
+            for mod_id in effective_modules:
                 base_inr = BASE_INR_PRICES["modules"].get(mod_id, 99.0)
                 calc = await cls.calculate_price(base_inr, config.code, billing_cycle)
                 base_subtotal += calc["selected_price"]

@@ -221,6 +221,15 @@ class ShopService:
         await self.db.flush()
         await self.db.commit()
         await self.db.refresh(shop)
+
+        # Invalidate Redis public cache
+        try:
+            from app.database.redis import get_redis
+            r_client = await get_redis()
+            await r_client.delete(f"public:shop:{str(shop.id)}")
+        except Exception:
+            pass
+
         return shop
 
     async def update_theme(self, shop_id: uuid.UUID, user_id: uuid.UUID, data: dict) -> ThemeSettings:

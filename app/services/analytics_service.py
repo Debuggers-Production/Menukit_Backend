@@ -552,9 +552,12 @@ class AnalyticsService:
         shop_id: uuid.UUID,
         days: int = 30,
         start_date: str | None = None,
-        end_date: str | None = None
+        end_date: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        limit: int = 20
     ) -> dict:
-        """Calculate GST compliance metrics, taxable turnover, CGST/SGST collection, and invoice lines."""
+        """Calculate GST compliance metrics, taxable turnover, CGST/SGST collection, and invoice lines with backend search and pagination."""
         from app.models.shop_settings import ShopSettings
 
         # Fetch shop and settings
@@ -667,13 +670,34 @@ class AnalyticsService:
                 "sgst_rate": round(sgst_rate, 2),
             })
 
+        # Apply backend search filter if provided
+        if search and search.strip():
+            st = search.strip().lower()
+            invoices = [
+                inv for inv in invoices
+                if st in inv["invoice_no"].lower()
+                or st in inv["order_id"].lower()
+                or st in inv["customer_name"].lower()
+                or st in inv["customer_phone"].lower()
+                or st in inv["payment_method"].lower()
+            ]
+
+        total_invoices_count = len(invoices)
+        limit_val = max(1, limit)
+        page_val = max(1, page)
+        total_pages = max(1, (total_invoices_count + limit_val - 1) // limit_val)
+        start_idx = (page_val - 1) * limit_val
+        end_idx = start_idx + limit_val
+        paginated_invoices = invoices[start_idx:end_idx]
+        has_more = page_val < total_pages
+
         return {
             "total_gross_turnover": round(total_gross_turnover, 2),
             "total_taxable_turnover": round(total_taxable_turnover, 2),
             "total_cgst_collected": round(total_cgst_collected, 2),
             "total_sgst_collected": round(total_sgst_collected, 2),
             "total_gst_collected": round(total_gst_collected, 2),
-            "total_invoices_count": len(invoices),
+            "total_invoices_count": total_invoices_count,
             "compliance": {
                 "gst_enabled": bool(gst_enabled),
                 "gstin": gstin,
@@ -683,6 +707,10 @@ class AnalyticsService:
                 "sgst_rate": round(sgst_rate, 2),
                 "inclusive_tax": bool(inclusive_tax),
             },
-            "invoices": invoices,
+            "invoices": paginated_invoices,
+            "page": page_val,
+            "limit": limit_val,
+            "total_pages": total_pages,
+            "has_more": has_more,
         }
 

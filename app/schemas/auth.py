@@ -44,6 +44,8 @@ class UserResponse(BaseModel):
     """User profile response."""
     id: str
     email: str
+    phone: str | None = None
+    phone_verified: bool = False
     role: str
     is_active: bool
     last_login: str | None = None
@@ -51,6 +53,16 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class PhoneOTPRequest(BaseModel):
+    """Request OTP for mobile number verification."""
+    phone: str
+    country_code: str = "+91"
+
+class PhoneOTPVerify(BaseModel):
+    """Verify OTP for mobile number."""
+    phone: str
+    code: str
 
 class ChangeEmailRequest(BaseModel):
     """Change email request with OTPs."""

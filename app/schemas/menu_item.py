@@ -2,7 +2,7 @@
 
 from typing import Optional, List
 from decimal import Decimal
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class MenuImageResponse(BaseModel):
@@ -54,6 +54,35 @@ class MenuItemCreate(BaseModel):
     custom_time_from: Optional[str] = None
     custom_time_to: Optional[str] = None
 
+    @model_validator(mode="after")
+    def validate_offer_prices(self):
+        if self.offer_price is not None and self.price is not None:
+            if self.offer_price >= self.price:
+                raise ValueError(f"Offer price ({self.offer_price}) must always be less than regular price ({self.price}).")
+
+        eff_online = self.online_price if self.online_price is not None else self.price
+        if self.online_offer_price is not None and eff_online is not None:
+            if self.online_offer_price >= eff_online:
+                raise ValueError(f"Online offer price ({self.online_offer_price}) must always be less than online price ({eff_online}).")
+
+        if self.variants:
+            for v in self.variants:
+                try:
+                    vp = Decimal(str(v.price))
+                    if v.offer_price:
+                        vop = Decimal(str(v.offer_price))
+                        if vop >= vp:
+                            raise ValueError(f"Variant '{v.name}': Offer price ({vop}) must always be less than regular price ({vp}).")
+                    v_eff_online = Decimal(str(v.online_price)) if v.online_price else vp
+                    if v.online_offer_price:
+                        voop = Decimal(str(v.online_offer_price))
+                        if voop >= v_eff_online:
+                            raise ValueError(f"Variant '{v.name}': Online offer price ({voop}) must always be less than online price ({v_eff_online}).")
+                except (ValueError, TypeError) as e:
+                    if "must always be less" in str(e):
+                        raise e
+        return self
+
 
 class MenuItemUpdate(BaseModel):
     """Update a menu item."""
@@ -76,6 +105,35 @@ class MenuItemUpdate(BaseModel):
     available_time_presets: Optional[List[str]] = None
     custom_time_from: Optional[str] = None
     custom_time_to: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_offer_prices(self):
+        if self.offer_price is not None and self.price is not None:
+            if self.offer_price >= self.price:
+                raise ValueError(f"Offer price ({self.offer_price}) must always be less than regular price ({self.price}).")
+
+        eff_online = self.online_price if self.online_price is not None else self.price
+        if self.online_offer_price is not None and eff_online is not None:
+            if self.online_offer_price >= eff_online:
+                raise ValueError(f"Online offer price ({self.online_offer_price}) must always be less than online price ({eff_online}).")
+
+        if self.variants:
+            for v in self.variants:
+                try:
+                    vp = Decimal(str(v.price))
+                    if v.offer_price:
+                        vop = Decimal(str(v.offer_price))
+                        if vop >= vp:
+                            raise ValueError(f"Variant '{v.name}': Offer price ({vop}) must always be less than regular price ({vp}).")
+                    v_eff_online = Decimal(str(v.online_price)) if v.online_price else vp
+                    if v.online_offer_price:
+                        voop = Decimal(str(v.online_offer_price))
+                        if voop >= v_eff_online:
+                            raise ValueError(f"Variant '{v.name}': Online offer price ({voop}) must always be less than online price ({v_eff_online}).")
+                except (ValueError, TypeError) as e:
+                    if "must always be less" in str(e):
+                        raise e
+        return self
 
 
 class MenuItemReorder(BaseModel):

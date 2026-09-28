@@ -28,6 +28,12 @@ async def create_shop(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new shop profile (strictly limited to 1 shop per user)."""
+    if not user.phone or not user.phone_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication phone verification required. Please link and verify your mobile number before creating a shop."
+        )
+
     service = ShopService(db)
     shops_info = await service.get_shops_for_user(user.id)
     if len(shops_info["owned"]) >= 1:
@@ -131,6 +137,16 @@ async def get_my_shop(
     return response
 
 
+async def invalidate_shop_cache(shop_id: uuid.UUID):
+    """Invalidate Redis public shop cache."""
+    try:
+        from app.database.redis import get_redis
+        r_client = await get_redis()
+        await r_client.delete(f"public:shop:{str(shop_id)}")
+    except Exception:
+        pass
+
+
 @router.put("/me", response_model=ShopResponse)
 async def update_my_shop(
     data: ShopUpdate,
@@ -142,6 +158,7 @@ async def update_my_shop(
     service = ShopService(db)
     shop_updated = await service.update_shop(shop.id, user.id, data.model_dump(exclude_unset=True))
     await db.commit()
+    await invalidate_shop_cache(shop.id)
     return await format_shop_response_with_subscription_checks(shop_updated, db)
 
 
@@ -164,6 +181,7 @@ async def update_theme(
             
     theme = await ShopService(db).update_theme(shop.id, user.id, data.model_dump(exclude_none=True))
     await db.commit()
+    await invalidate_shop_cache(shop.id)
     return ThemeSettingsResponse(
         id=str(theme.id),
         theme=theme.theme,
@@ -201,6 +219,8 @@ async def update_chalkboard(
     chalkboard = await ShopService(db).update_chalkboard(
         shop.id, user.id, data.model_dump(exclude_unset=True)
     )
+    await db.commit()
+    await invalidate_shop_cache(shop.id)
     return ChalkboardResponse.model_validate(chalkboard)
 
 
@@ -370,6 +390,10 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
         phone=shop.phone,
         whatsapp=shop.whatsapp,
         address=shop.address,
+        category=getattr(shop, "category", None),
+        cuisine=getattr(shop, "cuisine", None),
+        city=getattr(shop, "city", None),
+        area=getattr(shop, "area", None),
         opening_time=shop.opening_time,
         closing_time=shop.closing_time,
         is_active=shop.is_active,
@@ -422,6 +446,10 @@ def _shop_to_response(shop) -> ShopResponse:
         phone=shop.phone,
         whatsapp=shop.whatsapp,
         address=shop.address,
+        category=getattr(shop, "category", None),
+        cuisine=getattr(shop, "cuisine", None),
+        city=getattr(shop, "city", None),
+        area=getattr(shop, "area", None),
         opening_time=shop.opening_time,
         closing_time=shop.closing_time,
         is_active=shop.is_active,

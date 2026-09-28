@@ -34,40 +34,41 @@ class WhatsAppClient:
 
 
     def _post(self, payload: dict) -> dict:
-        """Internal POST helper with safe error handling and payload logging."""
+        """Internal POST helper with safe error handling and colorized terminal logging."""
+        to_phone = payload.get("to", "Unknown")
+        template_name = payload.get("template", {}).get("name") or payload.get("type", "text")
+        
+        # Color logging for WhatsApp dispatch
+        print(f"\033[95m\033[1m📱 [WHATSAPP DISPATCH] ➔ To: {to_phone} | Template: {template_name}\033[0m")
+        
         formatted_payload = json.dumps(payload, indent=2)
         logger.info(f"📤 Outgoing WhatsApp Payload:\n{formatted_payload}")
-        try:
-            print("📤 [WhatsApp Outgoing Payload]:", formatted_payload)
-        except Exception:
-            print("[WhatsApp Outgoing Payload]:", formatted_payload.encode('ascii', 'replace').decode('ascii'))
-
-        response = requests.post(
-            self.base_url,
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=30,
-        )
-        
-        logger.info(f"📥 WhatsApp Meta API Response ({response.status_code}): {response.text}")
-        try:
-            print(f"📥 [WhatsApp Meta Response {response.status_code}]:", response.text)
-        except Exception:
-            print(f"[WhatsApp Meta Response {response.status_code}]:", response.text.encode('ascii', 'replace').decode('ascii'))
 
         try:
-            response.raise_for_status()
-            return response.json()
+            response = requests.post(
+                self.base_url,
+                headers={
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=30,
+            )
+            
+            if response.status_code in (200, 201):
+                resp_json = response.json()
+                msg_id = (resp_json.get("messages") or [{}])[0].get("id", "N/A")
+                print(f"\033[92m\033[1m✅ [WHATSAPP SENT SUCCESS] ➔ To: {to_phone} | Status: {response.status_code} | MsgID: {msg_id}\033[0m")
+                logger.info(f"📥 WhatsApp Meta API Response ({response.status_code}): {response.text}")
+                return resp_json
+            else:
+                print(f"\033[91m\033[1m❌ [WHATSAPP FAILED] ➔ To: {to_phone} | Status: {response.status_code} | Error: {response.text}\033[0m")
+                logger.error(f"WhatsApp API Error ({response.status_code}): {response.text}")
+                return {"error": response.text, "status_code": response.status_code}
         except Exception as err:
-            logger.error(f"WhatsApp API Error ({response.status_code}): {err} | Response: {response.text}")
-            try:
-                print(f"WhatsApp API warning ({response.status_code}): {err}")
-            except Exception:
-                pass
-            return {"error": str(err), "status_code": response.status_code}
+            print(f"\033[91m\033[1m❌ [WHATSAPP NETWORK ERROR] ➔ To: {to_phone} | Error: {err}\033[0m")
+            logger.error(f"WhatsApp Request Error: {err}")
+            return {"error": str(err), "status_code": 500}
 
 
     def send_text_message(
@@ -138,7 +139,7 @@ class WhatsAppClient:
           {{1}} = shop_name       (e.g. "Siva Shop")
           {{2}} = contest_type    (e.g. "Drawing")
           {{3}} = reward_value    (e.g. "Free Family Combo")
-          {{4}} = url_domain      (e.g. "menukit.debuggers.co.in")
+          {{4}} = url_domain      (e.g. "menukit.debuggerstechnologies.com")
 
         Dynamic CTA button:
           Base URL: https://menukit.debuggerstechnologies.com
@@ -239,7 +240,179 @@ class WhatsAppClient:
                 ],
             },
         }
-        return self._post(payload)
+    def send_order_refund_template(
+        self,
+        phone_number: str,
+        customer_name: str,
+        order_number: str,
+        shop_name: str,
+        items_summary: str,
+        cancel_reason: str,
+        refund_amount: str,
+        order_id_tag: str,
+        refund_method: str = "Online",
+        timeline_days: str = "5-7",
+        shop_id: Optional[str] = None,
+        order_id: Optional[str] = None,
+    ) -> dict:
+        """
+        Sends the 'menukit_order_refund_template' WhatsApp template message.
+
+        Body variables:
+          {{1}} = customer_name (e.g. "Siva")
+          {{2}} = order_number  (e.g. "1")
+          {{3}} = shop_name     (e.g. "Siva Hotel")
+          {{4}} = items_summary (e.g. "Parotta x 1 = ₹200")
+          {{5}} = cancel_reason (e.g. "Stock not found")
+          {{6}} = refund_amount (e.g. "200")
+          {{7}} = order_id_tag  (e.g. "1")
+          {{8}} = refund_method (e.g. "Online")
+          {{9}} = timeline_days (e.g. "5-7")
+
+        CTA Button:
+          'View Order' button with URL suffix (e.g. "shop/{shop_id}/order/{order_id}")
+        """
+        clean_phone = "".join(filter(str.isdigit, str(phone_number)))
+        if len(clean_phone) == 10:
+            clean_phone = f"91{clean_phone}"
+
+        button_suffix = f"shop/{str(shop_id)}/order/{str(order_id)}" if shop_id and order_id else "customer/"
+
+        # Ensure currency symbol or numeric formatting is clean for refund amount
+        clean_refund_amt = str(refund_amount).replace("₹", "").replace("$", "").replace("€", "").replace("AED", "").strip()
+
+        components = [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": self._clean_param(customer_name, "Customer")},
+                    {"type": "text", "text": self._clean_param(str(order_number), "1")},
+                    {"type": "text", "text": self._clean_param(shop_name, "Restaurant")},
+                    {"type": "text", "text": self._clean_param(items_summary, "Order Items")},
+                    {"type": "text", "text": self._clean_param(cancel_reason, "Cancelled by request")},
+                    {"type": "text", "text": self._clean_param(clean_refund_amt, "0")},
+                    {"type": "text", "text": self._clean_param(str(order_id_tag).replace("#", ""), "1")},
+                    {"type": "text", "text": self._clean_param(refund_method, "Online")},
+                    {"type": "text", "text": self._clean_param(str(timeline_days), "5-7")},
+                ],
+            }
+        ]
+
+        if button_suffix:
+            components.append({
+                "type": "button",
+                "sub_type": "url",
+                "index": "0",
+                "parameters": [
+                    {
+                        "type": "text",
+                        "text": button_suffix,
+                    }
+                ],
+            })
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": clean_phone,
+            "type": "template",
+            "template": {
+                "name": "menukit_order_refund_template",
+                "language": {
+                    "code": "en",
+                },
+                "components": components,
+            },
+        }
+
+        res = self._post(payload)
+        # If error occurs due to button parameter format mismatch, retry without button component
+        if isinstance(res, dict) and ("error" in res or res.get("status_code", 200) >= 400):
+            err_msg = str(res.get("error", "")).lower()
+            if "button" in err_msg or "parameter" in err_msg or res.get("status_code") == 400:
+                payload["template"]["components"] = [
+                    c for c in payload["template"]["components"] if c.get("type") != "button"
+                ]
+                res = self._post(payload)
+
+        return res
+
+    def send_order_accepted_payment_required_template(
+        self,
+        phone_number: str,
+        customer_name: str,
+        order_number: str,
+        shop_name: str,
+        order_amount: str,
+        shop_id: Optional[str] = None,
+        order_id: Optional[str] = None,
+    ) -> dict:
+        """
+        Sends the 'menukit_order_accepted_payment_required_template' WhatsApp template message.
+
+        Body variables:
+          {{1}} = customer_name (e.g. "Siva")
+          {{2}} = order_number  (e.g. "1")
+          {{3}} = shop_name     (e.g. "siva hotel")
+          {{4}} = order_amount  (e.g. "₹200")
+
+        CTA Button:
+          'Pay' button with dynamic URL suffix: "shop/{shop_id}/order/{order_id}"
+        """
+        clean_phone = "".join(filter(str.isdigit, str(phone_number)))
+        if len(clean_phone) == 10:
+            clean_phone = f"91{clean_phone}"
+
+        button_suffix = f"shop/{str(shop_id)}/order/{str(order_id)}" if shop_id and order_id else "customer/"
+
+        components = [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": self._clean_param(customer_name, "Customer")},
+                    {"type": "text", "text": self._clean_param(str(order_number).replace("#", ""), "1")},
+                    {"type": "text", "text": self._clean_param(shop_name, "Restaurant")},
+                    {"type": "text", "text": self._clean_param(order_amount, "₹0")},
+                ],
+            }
+        ]
+
+        if button_suffix:
+            components.append({
+                "type": "button",
+                "sub_type": "url",
+                "index": "0",
+                "parameters": [
+                    {
+                        "type": "text",
+                        "text": button_suffix,
+                    }
+                ],
+            })
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": clean_phone,
+            "type": "template",
+            "template": {
+                "name": "menukit_order_accepted_payment_required_template",
+                "language": {
+                    "code": "en",
+                },
+                "components": components,
+            },
+        }
+
+        res = self._post(payload)
+        # If error occurs due to button parameter format mismatch, retry without button component
+        if isinstance(res, dict) and ("error" in res or res.get("status_code", 200) >= 400):
+            err_msg = str(res.get("error", "")).lower()
+            if "button" in err_msg or "parameter" in err_msg or res.get("status_code") == 400:
+                payload["template"]["components"] = [
+                    c for c in payload["template"]["components"] if c.get("type") != "button"
+                ]
+                res = self._post(payload)
+
+        return res
 
     def send_order_create_template(
         self,

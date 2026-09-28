@@ -1,7 +1,7 @@
 """Analytics API endpoints."""
 
 import uuid
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends,Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
@@ -131,13 +131,24 @@ async def get_gst_report(
     days: int = 30,
     start_date: str | None = None,
     end_date: str | None = None,
+    search: str | None = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=10000),
     shop = Depends(require_permission("analytics", "read")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get GST & Tax compliance metrics, CGST/SGST collection, and tax invoice registers."""
+    """Get GST & Tax compliance metrics, CGST/SGST collection, and tax invoice registers with backend search and pagination."""
     await check_analytics_subscription(shop, db)
     service = AnalyticsService(db)
-    return await service.get_gst_report(shop.id, days=days, start_date=start_date, end_date=end_date)
+    return await service.get_gst_report(
+        shop.id,
+        days=days,
+        start_date=start_date,
+        end_date=end_date,
+        search=search,
+        page=page,
+        limit=limit
+    )
 
 
 

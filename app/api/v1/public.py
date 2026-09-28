@@ -1075,6 +1075,57 @@ async def create_public_order(
     return OrderResponse.model_validate(order)
 
 
+@router.get("/occupied-tables")
+async def get_occupied_tables(
+    shop_id: uuid.UUID,
+    phone: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get list of currently occupied dine-in tables for this shop.
+    An occupied table has an active order (not COMPLETED, not CANCELLED, not REJECTED, and payment_status != 'paid').
+    """
+    from app.models.order import Order
+    from sqlalchemy import func
+    
+    stmt = (
+        select(Order)
+        .where(
+            Order.shop_id == shop_id,
+            func.lower(Order.order_type) == "dine_in",
+            Order.table_number.isnot(None),
+            func.lower(Order.order_status).notin_(["completed", "cancelled", "rejected", "delivered"])
+        )
+    )
+    result = await db.execute(stmt)
+    active_orders = result.scalars().all()
+    
+    clean_req_phone = "".join(filter(str.isdigit, phone or ""))
+    
+    occupied = []
+    for ord in active_orders:
+        clean_ord_phone = "".join(filter(str.isdigit, ord.customer_phone or ""))
+        is_my_table = False
+        if clean_req_phone and clean_ord_phone:
+            if clean_req_phone[-10:] == clean_ord_phone[-10:]:
+                is_my_table = True
+
+        phone_last4 = clean_ord_phone[-4:] if len(clean_ord_phone) >= 4 else ""
+        
+        occupied.append({
+            "table_number": ord.table_number,
+            "order_id": str(ord.id),
+            "daily_order_number": ord.daily_order_number,
+            "order_status": ord.order_status,
+            "customer_name": ord.customer_name,
+            "customer_phone_last4": phone_last4,
+            "is_my_table": is_my_table,
+            "total_amount": float(ord.total_amount or 0.0),
+        })
+    
+    return occupied
+
+
 @router.get("/orders/{order_id}", response_model=OrderResponse)
 async def get_public_order(
     shop_id: uuid.UUID,
@@ -1111,7 +1162,9 @@ async def pay_public_order(
     settings = get_settings()
 
     result = await db.execute(
-        select(Order).where(Order.id == order_id, Order.shop_id == shop_id)
+        select(Order)
+        .options(selectinload(Order.items))
+        .where(Order.id == order_id, Order.shop_id == shop_id)
     )
     order = result.scalar_one_or_none()
     if not order:
@@ -1123,8 +1176,8 @@ async def pay_public_order(
     if order.payment_status == "paid":
         raise HTTPException(status_code=400, detail="Order has already been paid")
 
-    # For dine-in orders, merchant must accept the order before customer can pay
-    if order.order_type == "dine_in" and order.order_status in ["PENDING_VENDOR", "PENDING", "pending"]:
+    # Merchant must accept the order before customer can initiate payment
+    if order.order_status in ["PENDING_VENDOR", "PENDING", "pending"]:
         raise HTTPException(
             status_code=400,
             detail="Order is awaiting restaurant acceptance. Please wait for the restaurant to accept your order before completing payment."
@@ -1148,7 +1201,14 @@ async def pay_public_order(
     target_currency = CURRENCY_MAP.get(raw_curr, "INR")
     curr_symbol = raw_curr if raw_curr in ["₹", "$", "€", "£", "¥", "A$", "C$", "S$", "AED", "SAR", "RM"] else target_currency
 
-    base_total = float(order.total_amount)
+    # Replaced items credit deduction: minus previously paid replaced items amount
+    replaced_credit = sum(
+        float(it.price or 0.0) * int(it.quantity or 1)
+        for it in (order.items or [])
+        if it.is_cancelled and str(it.cancellation_reason or "").startswith("Replaced with")
+    )
+
+    base_total = max(0.0, float(order.total_amount) - replaced_credit) if replaced_credit > 0 else float(order.total_amount)
     platform_fee = round(base_total * 0.02, 2)
     pg_fee = round(base_total * 0.03, 2)
     gst_on_fee = round(pg_fee * 0.18, 2)
@@ -1302,23 +1362,64 @@ async def verify_public_order_payment(
     if not is_valid:
         raise HTTPException(status_code=400, detail="Payment verification failed. Invalid signature.")
 
-    # Optimistic Concurrency Control Check
-    if order.order_status == "CANCELLED":
-        # The order was cancelled (likely by the payment timeout background job).
-        # We must trigger an automatic refund!
-        if not settings.MOCK_PAYMENT_MODE:
+    # Optimistic Concurrency Control Check — handles race condition where admin cancels while customer pays
+    if order.order_status.upper() in ["CANCELLED", "REJECTED"]:
+        # The order was cancelled (by admin or payment timeout) while payment was in flight.
+        # Money was captured by Razorpay — must refund immediately!
+        order_ref = f"#{order.daily_order_number or order.id.hex[:8]}"
+        refund_done = False
+
+        if not settings.MOCK_PAYMENT_MODE and not razorpay_payment_id.startswith("pay_mock_"):
+            print(f"\033[91m\033[1m🚨 [RACE CONDITION] Order {order_ref} already CANCELLED/REJECTED but payment {razorpay_payment_id} was captured. Auto-refunding ₹{float(order.total_amount):.2f}...\033[0m")
             try:
-                import razorpay
-                client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-                client.payment.refund(razorpay_payment_id, {
-                    "amount": int(order.total_amount * 100)
+                import razorpay as _rzp
+                rzp_client = _rzp.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+                rzp_client.payment.refund(razorpay_payment_id, {
+                    "amount": int(float(order.total_amount) * 100),
+                    "notes": {"order_id": str(order.id), "reason": "Order cancelled before payment completed"}
                 })
-                print(f"Auto-refunded {razorpay_payment_id} because order {order.id} was already cancelled.")
+                refund_done = True
+                print(f"\033[92m\033[1m✅ [RACE REFUND SUCCESS] Order {order_ref} → ₹{float(order.total_amount):.2f} refunded (Razorpay: {razorpay_payment_id})\033[0m")
+
+                # Send WhatsApp notification in background thread — don't block the response
+                if order.customer_phone:
+                    import asyncio as _asyncio
+                    def _send_refund_wa():
+                        try:
+                            from app.services.whatsapp_service import WhatsAppClient
+                            wa = WhatsAppClient()
+                            order_num = str(order.daily_order_number or order.id.hex[:8]).upper()
+                            wa.send_order_refund_template(
+                                phone_number=order.customer_phone,
+                                customer_name=order.customer_name or "Customer",
+                                order_number=order_num,
+                                shop_name="Restaurant",
+                                items_summary="Order was cancelled — your payment has been refunded",
+                                refund_amount=f"{float(order.total_amount):.2f}",
+                                order_id_tag=f"#{order_num}",
+                                refund_method="Online",
+                                timeline_days="5-7",
+                                shop_id=str(shop_id),
+                                order_id=str(order.id),
+                            )
+                            print(f"\033[96m\033[1m📱 [WHATSAPP REFUND] Sent refund notification to {order.customer_phone} for order {order_ref}\033[0m")
+                        except Exception as wa_e:
+                            print(f"\033[91m[WHATSAPP] Refund notification failed for order {order_ref}: {wa_e}\033[0m")
+                    try:
+                        loop = _asyncio.get_running_loop()
+                        loop.run_in_executor(None, _send_refund_wa)
+                    except RuntimeError:
+                        _send_refund_wa()
+
             except Exception as e:
-                print(f"Failed to auto-refund cancelled order {order.id}: {e}")
-        
-        # We still return the response so the frontend knows, but it's fundamentally cancelled
-        order.payment_status = "refunded"
+                print(f"\033[91m\033[1m❌ [RACE REFUND FAILED] Order {order_ref} → {e}\033[0m")
+        else:
+            # Mock mode — treat as refunded
+            refund_done = True
+            print(f"\033[93m[MOCK] Order {order_ref} cancelled — simulating refund of ₹{float(order.total_amount):.2f}\033[0m")
+
+        # Only mark as "refunded" if refund actually went through; else flag for manual review
+        order.payment_status = "refunded" if refund_done else "refund_pending"
         order.payment_session_id = razorpay_payment_id
         await db.commit()
         return OrderResponse.model_validate(order)
@@ -1381,30 +1482,13 @@ async def verify_public_order_payment(
         metadata={"order_id": str(order.id)}
     )
 
-    # Broadcast websocket event to merchant dashboard
-    from app.services.websocket_manager import manager, customer_manager
-    from app.services.order_service import get_customer_user_id
-    
-    ws_msg = {
-        "event": "NEW_ORDER",
-        "type": "NEW_ORDER",
-        "data": OrderResponse.model_validate(order).model_dump(mode="json"),
-        "title": "New Paid Order Received",
-        "message": f"New paid order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})"
-    }
-    await manager.broadcast_to_shop(str(shop_id), ws_msg)
-    
-    # Broadcast to customer websocket
-    cust_msg = {
-        "type": "order_update",
-        "order_id": str(order.id),
-        "status": order.order_status,
-        "payment_status": order.payment_status,
-        "customer_phone": order.customer_phone,
-    }
-    clean_phone = "".join(filter(str.isdigit, order.customer_phone))
-    customer_ws_id = get_customer_user_id(clean_phone)
-    await customer_manager.broadcast_to_customer(customer_ws_id, cust_msg)
+    # Broadcast live to shop and customer with 0 delay
+    await order_service._broadcast_order_live(
+        order=order,
+        event_type="NEW_ORDER",
+        title="New Paid Order Received",
+        message=f"New paid order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})"
+    )
 
     # Send WhatsApp template notification 'menukit_order_create'
     await order_service._send_order_status_whatsapp_notification(order)
@@ -1463,35 +1547,107 @@ def _get_phone_variants(phone: Optional[str]) -> list[str]:
 async def get_my_orders(
     shop_id: uuid.UUID,
     token: str,
+    limit: int = Query(default=10, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    channel: Optional[str] = Query(default=None),
+    order_type: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    payment_status: Optional[str] = Query(default=None),
+    payment_method: Optional[str] = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get all past orders placed by the customer in this shop using their customer token."""
+    """Get all past orders placed by the customer in this shop using their customer token with pagination and backend filters."""
     from app.core.security import verify_customer_token
     mobile_number = verify_customer_token(token)
     if not mobile_number:
         raise HTTPException(status_code=401, detail="Invalid customer token")
         
     from app.models.order import Order
-    from sqlalchemy import select, not_, and_
+    from sqlalchemy import select, and_, func
     from sqlalchemy.orm import selectinload
     
     mobile_variants = _get_phone_variants(mobile_number)
+    conditions = [
+        Order.shop_id == shop_id,
+        Order.customer_phone.in_(mobile_variants),
+    ]
+
+    selected_channel = channel or order_type
+    if selected_channel and selected_channel.strip().lower() != "all":
+        conditions.append(func.lower(Order.order_type) == selected_channel.strip().lower())
+
+    if status and status.strip().lower() != "all":
+        st = status.strip().lower()
+        if st in ["cooking", "preparing"]:
+            conditions.append(func.lower(Order.order_status).in_(["preparing", "cooking"]))
+        elif st == "accepted":
+            conditions.append(func.lower(Order.order_status).in_(["accepted", "paid", "pending", "pending_vendor"]))
+        elif st == "completed":
+            conditions.append(func.lower(Order.order_status).in_(["completed", "delivered", "ready"]))
+        elif st in ["cancelled", "rejected"]:
+            conditions.append(func.lower(Order.order_status).in_(["cancelled", "rejected"]))
+        else:
+            conditions.append(func.lower(Order.order_status) == st)
+
+    if payment_status and payment_status.strip().lower() != "all":
+        ps = payment_status.strip().lower()
+        if ps == "paid":
+            conditions.append(func.lower(Order.payment_status) == "paid")
+        elif ps in ["unpaid", "pending", "not_paid", "not paid"]:
+            conditions.append(func.lower(Order.payment_status).in_(["pending", "unpaid", "failed"]))
+
+    if payment_method and payment_method.strip().lower() != "all":
+        pm = payment_method.strip().lower()
+        if pm in ["cash", "cod", "cash_on_delivery"]:
+            conditions.append(func.lower(Order.payment_method).in_(["cash", "cash_on_delivery", "counter"]))
+        elif pm in ["online", "pay_online", "upi", "card"]:
+            conditions.append(func.lower(Order.payment_method).in_(["online", "pay_online", "upi", "card"]))
+
     result = await db.execute(
         select(Order)
         .options(selectinload(Order.items))
-        .where(
-            Order.shop_id == shop_id,
-            Order.customer_phone.in_(mobile_variants)
-        )
+        .where(and_(*conditions))
         .order_by(Order.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
-    orders = result.scalars().all()
+    orders = list(result.scalars().all())
+    for o in orders:
+        if (o.total_amount is None or float(o.total_amount) <= 0.0) and o.items:
+            active_items = [it for it in o.items if not it.is_cancelled]
+            if active_items:
+                active_subtotal = sum(float(it.price or 0.0) * int(it.quantity or 1) for it in active_items)
+                from app.models.shop_settings import ShopSettings
+                st_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == o.shop_id))
+                st = st_res.scalar_one_or_none()
+                tax_amt = 0.0
+                if st and st.gst_enabled and not st.inclusive_tax:
+                    cgst = float(st.cgst_rate or 0.0)
+                    sgst = float(st.sgst_rate or 0.0)
+                    tax_amt = round(active_subtotal * ((cgst + sgst) / 100.0), 2)
+                o.total_amount = round(active_subtotal + tax_amt, 2)
+                await db.flush()
+
     return [OrderResponse.model_validate(o) for o in orders]
 
 
 @router.websocket("/ws/customer/{customer_id}")
 async def customer_websocket_endpoint(websocket: WebSocket, customer_id: str):
-    """Connect a customer to their live order updates stream using secure customer user ID."""
+    """Connect a customer to their live order updates stream using secure customer user ID or order ID."""
+    from app.services.websocket_manager import customer_manager
+    await customer_manager.connect(customer_id, websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        customer_manager.disconnect(customer_id, websocket)
+
+
+@shops_router.websocket("/ws/customer/{customer_id}")
+async def generic_customer_websocket_endpoint(websocket: WebSocket, customer_id: str):
+    """Generic customer websocket endpoint."""
     from app.services.websocket_manager import customer_manager
     await customer_manager.connect(customer_id, websocket)
     try:

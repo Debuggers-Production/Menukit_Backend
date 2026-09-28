@@ -144,9 +144,10 @@ async def reconcile_missed_payments(db: AsyncSession):
                     if successful_payments:
                         payment_id = successful_payments[0]["id"]
                         
-                        # Issue refund
+                        # Issue refund with reverse_all: 1
                         refund = client.payment.refund(payment_id, {
-                            "amount": int(order.total_amount * 100)
+                            "amount": int(order.total_amount * 100),
+                            "reverse_all": 1
                         })
                         
                         refund_id = refund.get("id")

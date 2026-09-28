@@ -29,8 +29,10 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     base_delivery_distance: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     extra_delivery_distance_step: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     extra_delivery_charge_per_step: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    max_delivery_distance: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     takeaway_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     dinein_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    dinein_tables_count: Mapped[int] = mapped_column(default=10, nullable=False)
     auto_accept_orders: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     cashfree_app_id: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     cashfree_secret_key: Mapped[str] = mapped_column(String(255), default="", nullable=False)
@@ -44,6 +46,9 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     razorpay_product_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     razorpay_route_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     online_payments_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    online_payments_dinein_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    online_payments_takeaway_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    online_payments_delivery_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # GST & Compliances settings
     gst_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

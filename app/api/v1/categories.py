@@ -5,6 +5,9 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+
+from app.models.menu_item import MenuItem
 
 from app.database.session import get_db
 from app.database.redis import get_redis
@@ -43,12 +46,15 @@ async def get_categories(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=1000),
     search: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
     shop = Depends(require_permission("menu_categories", "read")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get all categories for the user's shop with pagination and backend search."""
+    """Get all categories for the user's shop with pagination, status filtering, and backend search."""
     service = MenuService(db)
-    categories, total_count, has_more = await service.get_categories(shop.id, skip=skip, limit=limit, search=search)
+    categories, total_count, has_more = await service.get_categories(
+        shop.id, skip=skip, limit=limit, search=search, is_active=is_active
+    )
     response.headers["x-total-count"] = str(total_count)
     response.headers["x-has-more"] = "true" if has_more else "false"
     return [_category_response(c) for c in categories]
@@ -113,20 +119,30 @@ async def delete_all_categories(
 @router.delete("/{category_id}", response_model=MessageResponse)
 async def delete_category(
     category_id: str,
-    code: str = Query(..., description="OTP verification code received via email"),
+    code: Optional[str] = Query(None, description="OTP verification code received via email (required only if category has menu items)"),
     shop = Depends(require_permission("menu_categories", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),
 ):
-    """Delete a category and all its menu items after OTP verification."""
-    otp_service = OTPService(redis)
-    is_valid = await otp_service.verify_otp(user.email, code)
-    if not is_valid:
-        raise HTTPException(status_code=400, detail="Invalid or expired deletion OTP code")
+    """Delete a category. If it contains menu items, email OTP verification is required. If empty, delete directly."""
+    cat_uuid = uuid.UUID(category_id)
+
+    # Check item count in this category
+    count_stmt = select(func.count()).select_from(MenuItem).where(MenuItem.category_id == cat_uuid)
+    count_res = await db.execute(count_stmt)
+    item_count = count_res.scalar() or 0
+
+    if item_count > 0:
+        if not code:
+            raise HTTPException(status_code=400, detail="Deletion OTP code is required because this category contains menu items.")
+        otp_service = OTPService(redis)
+        is_valid = await otp_service.verify_otp(user.email, code)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail="Invalid or expired deletion OTP code")
 
     service = MenuService(db)
-    await service.delete_category(shop.id, user.id, uuid.UUID(category_id))
+    await service.delete_category(shop.id, user.id, cat_uuid)
     await db.commit()
     from app.database.redis import invalidate_shop_cache
     await invalidate_shop_cache(shop.id)

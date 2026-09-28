@@ -17,7 +17,10 @@ from app.models.shop import Shop
 from app.models.employee import Employee
 from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeResponse
 from app.schemas.common import MessageResponse
+import logging
 from app.services.email_service import EmailService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/employees", tags=["Team Management"])
 
@@ -182,6 +185,7 @@ async def verify_employee(
             user.role = "employee"
 
     await db.commit()
+    logger.info(f"✅ Employee verified successfully: {employee.email} (Shop ID: {employee.shop_id})")
     return {"message": "Email verified successfully. You can log in now."}
 
 

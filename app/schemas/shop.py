@@ -67,10 +67,15 @@ class ShopSettingsUpdate(BaseModel):
     base_delivery_distance: Optional[float] = None
     extra_delivery_distance_step: Optional[float] = None
     extra_delivery_charge_per_step: Optional[float] = None
+    max_delivery_distance: Optional[float] = None
     takeaway_enabled: Optional[bool] = None
     dinein_enabled: Optional[bool] = None
+    dinein_tables_count: Optional[int] = None
     auto_accept_orders: Optional[bool] = None
     online_payments_enabled: Optional[bool] = None
+    online_payments_dinein_enabled: Optional[bool] = None
+    online_payments_takeaway_enabled: Optional[bool] = None
+    online_payments_delivery_enabled: Optional[bool] = None
     cashfree_app_id: Optional[str] = None
     cashfree_secret_key: Optional[str] = None
     cashfree_sandbox: Optional[bool] = None
@@ -136,8 +141,10 @@ class ShopSettingsResponse(BaseModel):
     base_delivery_distance: float = 0.0
     extra_delivery_distance_step: float = 1.0
     extra_delivery_charge_per_step: float = 0.0
+    max_delivery_distance: float = 0.0
     takeaway_enabled: bool
     dinein_enabled: bool
+    dinein_tables_count: int = 10
     auto_accept_orders: bool
     cashfree_app_id: str
     cashfree_secret_key: str
@@ -150,6 +157,9 @@ class ShopSettingsResponse(BaseModel):
     razorpay_product_id: Optional[str] = None
     razorpay_route_status: Optional[str] = None
     online_payments_enabled: bool = True
+    online_payments_dinein_enabled: bool = True
+    online_payments_takeaway_enabled: bool = True
+    online_payments_delivery_enabled: bool = True
     # GST & Compliances
     gst_enabled: bool = False
     gstin: Optional[str] = None

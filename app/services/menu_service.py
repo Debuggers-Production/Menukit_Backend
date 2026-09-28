@@ -56,11 +56,14 @@ class MenuService:
         return category
 
     async def get_categories(
-        self, shop_id: uuid.UUID, skip: int = 0, limit: int = 100, search: Optional[str] = None
+        self, shop_id: uuid.UUID, skip: int = 0, limit: int = 100, search: Optional[str] = None, is_active: Optional[bool] = None
     ) -> tuple[List[Category], int, bool]:
-        """Get all categories for a shop's catalog with backend search and pagination."""
+        """Get all categories for a shop's catalog with backend search, status filtering, and pagination."""
         catalog_id = await self._get_catalog_id(shop_id)
         conditions = [Category.menu_catalog_id == catalog_id]
+
+        if is_active is not None:
+            conditions.append(Category.is_active == is_active)
 
         if search and search.strip():
             term = f"%{search.strip()}%"

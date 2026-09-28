@@ -88,7 +88,7 @@ def create_app() -> FastAPI:
 
     
     
-    # ALLOWED_ORIGINS=[settings.FRONTEND_URL, "http://localhost:5173/", "http://127.0.0.1:8002","http://localhost:5174/","http://localhost:5174/landing/","https://menukit.debuggers.co.in/","https://menukit.debuggers.co.in/landing/"]
+    # ALLOWED_ORIGINS=[settings.FRONTEND_URL, "http://localhost:5173/", "http://127.0.0.1:8002","http://localhost:5174/","http://localhost:5174/landing/","https://menukit.debuggerstechnologies.com/","https://menukit.debuggerstechnologies.com/landing/"]
     ALLOWED_ORIGINS=["*"]
     app.add_middleware(
         CORSMiddleware,

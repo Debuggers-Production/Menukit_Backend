@@ -175,14 +175,21 @@ async def verify_topup_payment(
         if generated_signature != request.razorpay_signature:
             raise HTTPException(status_code=400, detail="Invalid Razorpay payment signature.")
 
-    # Update transaction record
+    # Update transaction record and generate invoice
+    from app.services.invoice_service import InvoiceService
+    from app.services.email_service import EmailService
+
     tx_stmt = select(PaymentTransaction).where(PaymentTransaction.razorpay_order_id == request.razorpay_order_id)
     tx_res = await db.execute(tx_stmt)
     tx = tx_res.scalar_one_or_none()
+
+    inv_number = InvoiceService.generate_invoice_number(request.razorpay_order_id)
+
     if tx:
         tx.status = "success"
         tx.razorpay_payment_id = request.razorpay_payment_id
         tx.razorpay_signature = request.razorpay_signature
+        tx.invoice_number = getattr(tx, "invoice_number", None) or inv_number
     else:
         tx = PaymentTransaction(
             shop_id=shop.id,
@@ -195,20 +202,47 @@ async def verify_topup_payment(
             is_all_access=False,
             purchased_modules=[f"broadcast-credits-{request.credits}"],
             billing_cycle="one-time",
+            invoice_number=inv_number,
         )
         db.add(tx)
-
 
     # Add credits to shop
     shop.broadcast_credits = (shop.broadcast_credits or 0) + request.credits
     await db.commit()
     await db.refresh(shop)
 
+    # Send Official Invoice Email to Shop Owner
+    try:
+        owner_email = None
+        if getattr(shop, "owner_id", None):
+            user_stmt = select(User).where(User.id == shop.owner_id)
+            user_res = await db.execute(user_stmt)
+            owner_user = user_res.scalar_one_or_none()
+            if owner_user:
+                owner_email = owner_user.email
+
+        if not owner_email:
+            owner_email = getattr(shop, "contact_email", None) or getattr(shop, "email", None)
+
+        if owner_email:
+            invoice_data = InvoiceService.build_invoice_data(
+                transaction=tx,
+                user_email=owner_email,
+                shop_name=shop.name or "Menukit Store",
+                invoice_number=tx.invoice_number or inv_number
+            )
+            email_svc = EmailService()
+            await email_svc.send_subscription_invoice_email(owner_email, invoice_data)
+    except Exception as e:
+        print(f"Failed to dispatch campaign topup invoice email: {e}")
+
     return {
         "success": True,
         "message": f"Successfully recharged {request.credits} broadcast credits!",
         "available_credits": shop.broadcast_credits,
         "credits_added": request.credits,
+        "invoice_number": tx.invoice_number or inv_number,
+        "transaction_id": str(tx.id) if getattr(tx, "id", None) else None,
     }
 
 

@@ -1,8 +1,33 @@
-"""Invoice service for generating subscription invoices and printable HTML."""
-
+import os
 import uuid
+import base64
 from datetime import datetime, timezone
 from typing import Dict, Any, List
+
+_CACHED_LOGO_B64 = None
+
+def get_logo_data_uri() -> str:
+    """Retrieve self-contained base64 data URI of the Menukit brand logo."""
+    global _CACHED_LOGO_B64
+    if _CACHED_LOGO_B64 is not None:
+        return _CACHED_LOGO_B64
+
+    possible_paths = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../Menukit_Frontend/public/menukit-logo.svg")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../Menukit_Frontend/src/assets/menukit-logo.svg")),
+    ]
+    for p in possible_paths:
+        if os.path.exists(p):
+            try:
+                with open(p, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                    _CACHED_LOGO_B64 = f"data:image/svg+xml;base64,{b64}"
+                    return _CACHED_LOGO_B64
+            except Exception:
+                pass
+
+    _CACHED_LOGO_B64 = "/menukit-logo.svg"
+    return _CACHED_LOGO_B64
 
 MODULE_TITLES = {
     "online-orders": "Online Ordering System",
@@ -66,14 +91,26 @@ class InvoiceService:
         else:
             base_amount = 0.0
             for mod in purchased:
-                price = MODULE_PRICES.get(mod, 99.0)
-                if billing_cycle == "yearly":
-                    price = price * 10.0 # Yearly discount multiplier
-                base_amount += price
-                items.append({
-                    "description": f"{MODULE_TITLES.get(mod, mod)} ({billing_cycle.capitalize()})",
-                    "amount": price
-                })
+                if str(mod).startswith("broadcast-credits-"):
+                    cnt_str = str(mod).replace("broadcast-credits-", "")
+                    try:
+                        price = float(cnt_str)
+                    except ValueError:
+                        price = float(getattr(transaction, "amount", 0.0))
+                    base_amount += price
+                    items.append({
+                        "description": f"WhatsApp Marketing Campaign Credits ({cnt_str} Credits Recharge)",
+                        "amount": price
+                    })
+                else:
+                    price = MODULE_PRICES.get(mod, 99.0)
+                    if billing_cycle == "yearly":
+                        price = price * 10.0 # Yearly discount multiplier
+                    base_amount += price
+                    items.append({
+                        "description": f"{MODULE_TITLES.get(mod, mod)} ({billing_cycle.capitalize()})",
+                        "amount": price
+                    })
             if not items:
                 base_amount = getattr(transaction, "amount", 0.0)
                 items.append({
@@ -87,8 +124,25 @@ class InvoiceService:
         total_gateway_fee = round(raw_pg_fee + gst_on_fee, 2)
         total_amount = round(base_amount + total_gateway_fee, 2)
 
-        paid_at = getattr(transaction, "updated_at", None) or datetime.now(timezone.utc)
-        paid_at_str = paid_at.strftime("%B %d, %Y %H:%M UTC") if isinstance(paid_at, datetime) else str(paid_at)
+        paid_at = getattr(transaction, "updated_at", None) or getattr(transaction, "created_at", None) or datetime.now(timezone.utc)
+        paid_at_iso = ""
+        try:
+            from zoneinfo import ZoneInfo
+            ist_tz = ZoneInfo("Asia/Kolkata")
+            if isinstance(paid_at, datetime):
+                if paid_at.tzinfo is None:
+                    paid_at_utc = paid_at.replace(tzinfo=timezone.utc)
+                else:
+                    paid_at_utc = paid_at.astimezone(timezone.utc)
+                paid_at_ist = paid_at_utc.astimezone(ist_tz)
+                paid_at_str = paid_at_ist.strftime("%B %d, %Y %I:%M %p")
+                paid_at_iso = paid_at_utc.isoformat()
+            else:
+                paid_at_str = str(paid_at)
+                paid_at_iso = str(paid_at)
+        except Exception:
+            paid_at_str = paid_at.strftime("%B %d, %Y %I:%M %p") if isinstance(paid_at, datetime) else str(paid_at)
+            paid_at_iso = str(paid_at)
 
         return {
             "invoice_number": inv_num,
@@ -99,6 +153,7 @@ class InvoiceService:
             "currency": getattr(transaction, "currency", "INR"),
             "billing_cycle": billing_cycle,
             "paid_at": paid_at_str,
+            "paid_at_iso": paid_at_iso,
             "items": items,
             "base_amount": base_amount,
             "gateway_fee": total_gateway_fee,
@@ -108,6 +163,7 @@ class InvoiceService:
     @staticmethod
     def render_invoice_html(data: Dict[str, Any]) -> str:
         """Render a clean, responsive, printable HTML invoice."""
+        logo_uri = get_logo_data_uri()
         items_html = ""
         for item in data["items"]:
             items_html += f"""
@@ -121,7 +177,7 @@ class InvoiceService:
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Invoice {data['invoice_number']} - SmartMenu QR</title>
+    <title>Invoice {data['invoice_number']} - Menukit</title>
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -142,7 +198,7 @@ class InvoiceService:
         .header {{
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             border-bottom: 2px solid #f1f5f9;
             padding-bottom: 20px;
             margin-bottom: 24px;
@@ -240,9 +296,13 @@ class InvoiceService:
 <body>
     <div class="invoice-card">
         <div class="header">
-            <div>
-                <div class="brand">SmartMenu QR</div>
-                <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Official Payment Invoice</div>
+            <div style="display: flex; align-items: center; gap: 14px;">
+                <img src="{logo_uri}" alt="Menukit" style="height: 38px; width: auto; max-width: 160px; object-fit: contain; display: block;" onerror="this.style.display='none'; document.getElementById('fallback-brand-text').style.display='block';" />
+                <div id="fallback-brand-text" class="brand" style="display: none;">Menukit</div>
+                <div style="border-left: 2px solid #e2e8f0; padding-left: 14px; display: flex; flex-direction: column; justify-content: center;">
+                    <div style="font-size: 13px; font-weight: 800; color: #0f172a; letter-spacing: -0.2px;">Tax Invoice</div>
+                    <div style="font-size: 11px; color: #64748b; font-weight: 600;">Official Payment Receipt</div>
+                </div>
             </div>
             <div style="text-align: right;">
                 <span class="badge">PAID</span>
@@ -258,7 +318,7 @@ class InvoiceService:
             </div>
             <div class="meta-box" style="text-align: right;">
                 <label>Date & Payment ID</label>
-                <span>{data['paid_at']}</span>
+                <span id="invoice-paid-date" data-iso="{data.get('paid_at_iso', '')}">{data['paid_at']}</span>
                 <div style="color: #64748b; font-weight: 500; font-size: 12px;">Payment ID: {data['payment_id']}</div>
             </div>
         </div>
@@ -292,5 +352,31 @@ class InvoiceService:
 
         <button class="print-btn" onclick="window.print()">🖨️ Print / Save Invoice as PDF</button>
     </div>
+
+    <script>
+        (function() {{
+            try {{
+                var dateEl = document.getElementById('invoice-paid-date');
+                if (dateEl && dateEl.getAttribute('data-iso')) {{
+                    var d = new Date(dateEl.getAttribute('data-iso'));
+                    if (!isNaN(d.getTime())) {{
+                        dateEl.textContent = d.toLocaleDateString(undefined, {{
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        }});
+                    }}
+                }}
+            }} catch (e) {{}}
+        }})();
+
+        window.addEventListener('load', function() {{
+            setTimeout(function() {{
+                window.print();
+            }}, 300);
+        }});
+    </script>
 </body>
 </html>"""

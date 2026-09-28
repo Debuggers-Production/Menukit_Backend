@@ -51,7 +51,7 @@ payload = {
                     },
                     {
                         "type": "text",
-                        "text": f"https://menukit.debuggers.co.in/{unique_id}"
+                        "text": f"https://menukit.debuggerstechnologies.com/{unique_id}"
                     }
                 ]
             },

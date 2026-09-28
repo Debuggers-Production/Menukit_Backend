@@ -166,4 +166,8 @@ class GstReportSummary(BaseModel):
     total_invoices_count: int
     compliance: GstComplianceInfo
     invoices: List[GstInvoiceEntry] = []
+    page: int = 1
+    limit: int = 20
+    total_pages: int = 1
+    has_more: bool = False
 
