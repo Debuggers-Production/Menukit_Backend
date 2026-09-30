@@ -103,6 +103,7 @@ class DiscountResponse(BaseModel):
     is_active: bool
     visibility_type: str
     display_order: int
+    is_already_used: Optional[bool] = False
     created_at: str
     updated_at: str
 

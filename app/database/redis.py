@@ -95,13 +95,13 @@ async def init_redis() -> redis.Redis:
     """Initialize Redis connection."""
     global redis_client
     
-    # Create the client with 5.0s connection timeout for reliable cloud redis handshakes
+    # Create the client with 1.5s connection timeout for snappy startup
     client = redis.from_url(
         settings.REDIS_URL,
         encoding="utf-8",
         decode_responses=True,
-        socket_connect_timeout=5.0,
-        socket_timeout=5.0,
+        socket_connect_timeout=1.5,
+        socket_timeout=1.5,
     )
     
     try:

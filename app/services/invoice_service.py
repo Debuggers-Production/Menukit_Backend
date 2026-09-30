@@ -119,10 +119,10 @@ class InvoiceService:
                 })
 
         # Gateway Fee Breakdown
-        raw_pg_fee = round(base_amount * 0.03, 2)
-        gst_on_fee = round(raw_pg_fee * 0.18, 2)
-        total_gateway_fee = round(raw_pg_fee + gst_on_fee, 2)
-        total_amount = round(base_amount + total_gateway_fee, 2)
+        from app.core.pricing import calculate_order_pricing
+        pricing = calculate_order_pricing(base_amount, is_online=True)
+        total_gateway_fee = pricing.total_pg_fee
+        total_amount = pricing.total_payable
 
         paid_at = getattr(transaction, "updated_at", None) or getattr(transaction, "created_at", None) or datetime.now(timezone.utc)
         paid_at_iso = ""

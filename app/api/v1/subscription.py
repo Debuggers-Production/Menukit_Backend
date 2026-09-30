@@ -353,9 +353,33 @@ async def verify_payment(
     # Global subscription end is max among all active module expiration dates
     if module_expirations:
         subscription.current_period_end = max(module_expirations.values())
-    else:
-        subscription.current_period_end = now + timedelta(days=duration_days)
-            
+
+    # Sync subscription across all shops owned by the user
+    try:
+        shop_stmt = select(Shop).where(Shop.id == transaction.shop_id)
+        shop_res = await db.execute(shop_stmt)
+        curr_shop = shop_res.scalar_one_or_none()
+        if curr_shop and curr_shop.user_id:
+            all_user_shops_res = await db.execute(
+                select(Shop).where(Shop.user_id == curr_shop.user_id, Shop.id != curr_shop.id)
+            )
+            other_shops = all_user_shops_res.scalars().all()
+            for o_shop in other_shops:
+                o_sub_stmt = select(Subscription).where(Subscription.shop_id == o_shop.id)
+                o_sub_res = await db.execute(o_sub_stmt)
+                o_sub = o_sub_res.scalar_one_or_none()
+                if not o_sub:
+                    o_sub = Subscription(shop_id=o_shop.id)
+                    db.add(o_sub)
+                o_sub.active_modules = subscription.active_modules
+                o_sub.is_active = subscription.is_active
+                o_sub.is_all_access = subscription.is_all_access
+                o_sub.is_trial = subscription.is_trial
+                o_sub.module_expirations = subscription.module_expirations
+                o_sub.current_period_end = subscription.current_period_end
+    except Exception as sync_err:
+        logger.warning(f"Failed to sync subscription across shops: {sync_err}")
+
     await db.commit()
     
     # Send Invoice Email
@@ -398,26 +422,49 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
     
     now = datetime.now(timezone.utc)
     
-    # 1. If shop has no subscription yet, create default 1-Month Free Trial Subscription!
+    # 1. If shop has no subscription yet, check if user's primary shop has one to inherit!
     if not subscription:
-        created_at = shop.created_at or now
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        trial_end = created_at + timedelta(days=settings.FREE_TRIAL_DAYS)
-        
-        initial_expirations = {
-            mod: trial_end.isoformat() for mod in ALL_MARKETPLACE_MODULES
-        }
-        
-        subscription = Subscription(
-            shop_id=shop.id,
-            is_active=True,
-            is_all_access=True,
-            is_trial=True,
-            active_modules=ALL_MARKETPLACE_MODULES,
-            module_expirations=initial_expirations,
-            current_period_end=trial_end
-        )
+        # Check if user has a primary shop with active subscription
+        primary_sub = None
+        if shop.user_id:
+            user_sub_stmt = (
+                select(Subscription)
+                .join(Shop, Subscription.shop_id == Shop.id)
+                .where(Shop.user_id == shop.user_id, Shop.id != shop.id)
+                .order_by(Shop.created_at.asc())
+            )
+            user_sub_res = await db.execute(user_sub_stmt)
+            primary_sub = user_sub_res.scalars().first()
+
+        if primary_sub:
+            subscription = Subscription(
+                shop_id=shop.id,
+                is_active=primary_sub.is_active,
+                is_all_access=primary_sub.is_all_access,
+                is_trial=primary_sub.is_trial,
+                active_modules=primary_sub.active_modules,
+                module_expirations=primary_sub.module_expirations,
+                current_period_end=primary_sub.current_period_end
+            )
+        else:
+            created_at = shop.created_at or now
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            trial_end = created_at + timedelta(days=settings.FREE_TRIAL_DAYS)
+            
+            initial_expirations = {
+                mod: trial_end.isoformat() for mod in ALL_MARKETPLACE_MODULES
+            }
+            
+            subscription = Subscription(
+                shop_id=shop.id,
+                is_active=True,
+                is_all_access=True,
+                is_trial=True,
+                active_modules=ALL_MARKETPLACE_MODULES,
+                module_expirations=initial_expirations,
+                current_period_end=trial_end
+            )
         db.add(subscription)
         await db.commit()
         await db.refresh(subscription)

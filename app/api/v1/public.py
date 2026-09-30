@@ -31,11 +31,27 @@ from app.core.exceptions import NotFoundException
 from app.api.v1.shops import _shop_to_response
 from app.api.v1.categories import _category_response
 from app.api.v1.menu_items import _item_response
+from app.core.pricing import calculate_order_pricing
 
 
 class PublicCategoryResponse(CategoryResponse):
     """Public category response with menu items."""
     items: List[MenuItemResponse] = []
+
+
+def round_strict(val: float) -> float:
+    """Strict 2-decimal rounding: only rounds up if 3rd decimal digit > 5."""
+    import math
+    if val == 0:
+        return 0.0
+    sgn = 1.0 if val >= 0 else -1.0
+    abs_v = abs(val)
+    shifted = abs_v * 1000.0
+    third_digit = int(shifted + 1e-9) % 10
+    if third_digit > 5:
+        return sgn * (math.ceil(abs_v * 100.0 - 1e-9) / 100.0)
+    else:
+        return sgn * (math.floor(abs_v * 100.0 + 1e-9) / 100.0)
 
 
 router = APIRouter(prefix="/public/shop/{shop_id}", tags=["Public Menu"])
@@ -412,8 +428,16 @@ async def get_public_items(
                 cat_uuids = [uuid.UUID(str(tid)) for tid in disc.target_ids if tid]
                 query = query.where(MenuItem.category_id.in_(cat_uuids))
             elif disc.applies_to == "items" and disc.target_ids:
-                item_uuids = [uuid.UUID(str(tid)) for tid in disc.target_ids if tid]
-                query = query.where(MenuItem.id.in_(item_uuids))
+                item_uuids = set()
+                for tid in disc.target_ids:
+                    if tid:
+                        raw_id = str(tid).split("::")[0]
+                        try:
+                            item_uuids.add(uuid.UUID(raw_id))
+                        except Exception:
+                            pass
+                if item_uuids:
+                    query = query.where(MenuItem.id.in_(list(item_uuids)))
     
     if search:
         query = query.where(func.lower(MenuItem.name).contains(search.lower()))
@@ -652,27 +676,61 @@ async def get_active_discounts_public(
 
     # Filter out discounts that this customer has already claimed / redeemed
     from app.models.discount import DiscountRedemption, CustomerDiscountCode
+    from app.models.order import Order
     from sqlalchemy import or_
 
     claimed_discount_ids = set()
     token_filters = []
-    if customer_id and customer_id.strip():
-        cid = customer_id.strip().upper()
-        token_filters.append(func.upper(DiscountRedemption.customer_identifier) == cid)
-        token_filters.append(func.upper(DiscountRedemption.code).like(f"%-{cid}"))
+    all_phone_variants = set()
+
     if cust_phone:
+        all_phone_variants.update(_get_phone_variants(cust_phone))
         last4 = cust_phone[-4:].upper()
         token_filters.append(DiscountRedemption.customer_identifier == cust_phone)
         token_filters.append(func.upper(DiscountRedemption.code).like(f"%-{last4}"))
 
+    if customer_id and customer_id.strip():
+        cid = customer_id.strip().upper()
+        token_filters.append(func.upper(DiscountRedemption.customer_identifier) == cid)
+        token_filters.append(func.upper(DiscountRedemption.code).like(f"%-{cid}"))
+        all_phone_variants.update(_get_phone_variants(customer_id.strip()))
+
+    for pv in all_phone_variants:
+        token_filters.append(DiscountRedemption.customer_identifier == pv)
+        if len(pv) >= 4:
+            token_filters.append(func.upper(DiscountRedemption.code).like(f"%-{pv[-4:].upper()}"))
+
     if token_filters:
         claimed_res = await db.execute(
-            select(DiscountRedemption.discount_id).where(
+            select(DiscountRedemption.discount_id)
+            .outerjoin(Order, DiscountRedemption.order_id == Order.id)
+            .where(
                 DiscountRedemption.shop_id == shop.id,
+                DiscountRedemption.status == "active",
+                or_(
+                    DiscountRedemption.order_id.is_(None),
+                    func.lower(Order.order_status).notin_(["cancelled", "rejected"])
+                ),
                 or_(*token_filters)
             )
         )
-        claimed_discount_ids = {str(did) for did in claimed_res.scalars().all()}
+        claimed_discount_ids.update({str(did) for did in claimed_res.scalars().all()})
+
+    # Also check if any active order used this discount for these phone variants
+    if all_phone_variants:
+        order_disc_res = await db.execute(
+            select(Order.applied_discount_ids).where(
+                Order.shop_id == shop.id,
+                Order.customer_phone.in_(list(all_phone_variants)),
+                func.lower(Order.order_status).notin_(["cancelled", "rejected"]),
+                Order.applied_discount_ids.isnot(None)
+            )
+        )
+        for row in order_disc_res.scalars().all():
+            if isinstance(row, list):
+                for did in row:
+                    if did:
+                        claimed_discount_ids.add(str(did))
 
     # Resolve customer object if phone is available
     cust_identifier = (cust_phone or customer_id or "").strip()
@@ -684,16 +742,24 @@ async def get_active_discounts_public(
             c_res = await db.execute(select(Customer).where(Customer.mobile_number.in_(mobile_variants)))
             customer_obj = c_res.scalars().first()
 
+            cd_res = await db.execute(
+                select(CustomerDiscountCode.discount_id).where(
+                    CustomerDiscountCode.shop_id == shop.id,
+                    CustomerDiscountCode.customer_identifier.in_(mobile_variants),
+                    CustomerDiscountCode.is_redeemed == True
+                )
+            )
+            claimed_discount_ids.update({str(did) for did in cd_res.scalars().all()})
+
     from app.api.v1.discounts import _discount_response
 
     result = []
     for d in discounts:
-        if str(d.id) in claimed_discount_ids:
-            continue
         if not is_authenticated and d.visibility_type == 'members_only_hidden':
             continue
 
-        d_resp = _discount_response(d)
+        is_used = str(d.id) in claimed_discount_ids
+        d_resp = _discount_response(d, is_already_used=is_used)
         if cust_identifier:
             try:
                 assigned = await service.get_or_assign_code(
@@ -787,6 +853,7 @@ async def verify_discount_code(
     redemption_res = await db.execute(
         select(DiscountRedemption).where(
             DiscountRedemption.shop_id == shop.id,
+            DiscountRedemption.status == "active",
             func.upper(DiscountRedemption.code) == code_clean
         )
         .order_by(DiscountRedemption.redeemed_at.desc())
@@ -795,7 +862,7 @@ async def verify_discount_code(
     if existing_redemption:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"This discount code '{code_clean}' has already been redeemed on {existing_redemption.redeemed_at.strftime('%d %b %Y, %I:%M %p')} and cannot be reused."
+            detail=f"Discount already used. This discount code '{code_clean}' has already been redeemed and cannot be reused."
         )
 
     # 1. Check CustomerDiscountCode table
@@ -817,7 +884,7 @@ async def verify_discount_code(
         if redeemed_assigned:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"This discount code '{code_clean}' was already redeemed on {redeemed_assigned.redeemed_at.strftime('%d %b %Y, %I:%M %p') if redeemed_assigned.redeemed_at else 'earlier'} and cannot be reused."
+                detail=f"Discount already used. This discount code '{code_clean}' has already been redeemed and cannot be reused."
             )
         discount = assigned_obj.discount
 
@@ -1201,6 +1268,8 @@ async def pay_public_order(
     target_currency = CURRENCY_MAP.get(raw_curr, "INR")
     curr_symbol = raw_curr if raw_curr in ["₹", "$", "€", "£", "¥", "A$", "C$", "S$", "AED", "SAR", "RM"] else target_currency
 
+    from app.core.pricing import calculate_order_pricing
+
     # Replaced items credit deduction: minus previously paid replaced items amount
     replaced_credit = sum(
         float(it.price or 0.0) * int(it.quantity or 1)
@@ -1209,13 +1278,14 @@ async def pay_public_order(
     )
 
     base_total = max(0.0, float(order.total_amount) - replaced_credit) if replaced_credit > 0 else float(order.total_amount)
-    platform_fee = round(base_total * 0.02, 2)
-    pg_fee = round(base_total * 0.03, 2)
-    gst_on_fee = round(pg_fee * 0.18, 2)
-    grand_total = round(base_total + platform_fee + pg_fee + gst_on_fee, 2)
+    pricing = calculate_order_pricing(base_total, is_online=True)
+    platform_fee = pricing.platform_fee
+    pg_fee = pricing.gateway_fee
+    gst_on_fee = pricing.gateway_gst
+    grand_total = pricing.total_payable
 
     is_zero_decimal = target_currency in ["JPY", "KRW", "VND", "CLP"]
-    amount_subunits = int(round(grand_total)) if is_zero_decimal else int(round(grand_total * 100))
+    amount_subunits = pricing.amount_subunits if not is_zero_decimal else int(round(grand_total))
 
     # Mock mode
     if settings.MOCK_PAYMENT_MODE:
@@ -1374,10 +1444,13 @@ async def verify_public_order_payment(
             try:
                 import razorpay as _rzp
                 rzp_client = _rzp.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-                rzp_client.payment.refund(razorpay_payment_id, {
+                refund_res = rzp_client.payment.refund(razorpay_payment_id, {
                     "amount": int(float(order.total_amount) * 100),
+                    "reverse_all": 1,
                     "notes": {"order_id": str(order.id), "reason": "Order cancelled before payment completed"}
                 })
+                if refund_res and "id" in refund_res:
+                    order.refund_id = refund_res["id"]
                 refund_done = True
                 print(f"\033[92m\033[1m✅ [RACE REFUND SUCCESS] Order {order_ref} → ₹{float(order.total_amount):.2f} refunded (Razorpay: {razorpay_payment_id})\033[0m")
 
@@ -1425,11 +1498,8 @@ async def verify_public_order_payment(
         return OrderResponse.model_validate(order)
 
     # If it wasn't cancelled, calculate exact paid amount (including convenience/gateway fees) and mark as PAID!
-    base_total = float(order.total_amount)
-    platform_fee = round(base_total * 0.02, 2)
-    pg_fee = round(base_total * 0.03, 2)
-    gst_on_fee = round(pg_fee * 0.18, 2)
-    paid_total = round(base_total + platform_fee + pg_fee + gst_on_fee, 2)
+    pricing = calculate_order_pricing(float(order.total_amount), is_online=True)
+    paid_total = pricing.total_payable
 
     # Try fetching exact paid amount from Razorpay if available
     if not settings.MOCK_PAYMENT_MODE and razorpay_payment_id:

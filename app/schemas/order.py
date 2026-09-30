@@ -13,6 +13,7 @@ class OrderItemBase(BaseModel):
     price: float
     variant_info: Optional[dict] = None
     addons_info: Optional[List[dict]] = None
+    applied_discount_id: Optional[uuid.UUID] = None
     is_completed: bool = False
     is_cancelled: bool = False
     cancellation_reason: Optional[str] = None
@@ -62,6 +63,8 @@ class OrderBase(BaseModel):
     payment_method: str  # 'cash', 'online'
     payment_status: Optional[str] = "pending"
     total_amount: float
+    applied_discount_ids: Optional[List[uuid.UUID]] = None
+    applied_discount_codes: Optional[List[str]] = None
 
 
 
@@ -78,6 +81,8 @@ class OrderResponse(OrderBase):
     cashfree_order_id: Optional[str] = None
     payment_session_id: Optional[str] = None
     razorpay_order_id: Optional[str] = None
+    applied_discount_ids: Optional[List[uuid.UUID]] = None
+    applied_discount_codes: Optional[List[str]] = None
     settlement_status: Optional[str] = None
     settled_at: Optional[datetime] = None
     refund_id: Optional[str] = None

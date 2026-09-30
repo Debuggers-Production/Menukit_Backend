@@ -68,13 +68,16 @@ async def get_settlements_summary(
 ):
     """Get merchant online payment settlements summary and paginated transaction list with search."""
 
-    payout_bank = shop.settings.bank_account_last4 if shop.settings else None
+    # Safely query shop settings to prevent async MissingGreenlet on un-loaded relation
+    settings_q = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop.id))
+    shop_settings = settings_q.scalar_one_or_none()
+    payout_bank = shop_settings.bank_account_last4 if shop_settings else None
     now = datetime.now(timezone.utc)
 
-    if start_date and end_date:
+    if start_date and end_date and isinstance(start_date, str) and isinstance(end_date, str) and start_date != "None" and end_date != "None":
         try:
-            since = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            until = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            since = datetime.strptime(start_date.strip(), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            until = datetime.strptime(end_date.strip(), "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
         except ValueError:
             since = now - timedelta(days=days)
             until = now
@@ -187,9 +190,9 @@ async def get_settlements_summary(
             order_status=o.order_status,
             payment_status=o.payment_status,
             settlement_status=settlement_status,
-            created_at=created_dt.strftime("%b %d, %Y %I:%M %p"),
-            estimated_payout_date=est_payout_dt.strftime("%b %d, %Y"),
-            actual_settled_date=o.settled_at.strftime("%b %d, %Y") if o.settled_at else None
+            created_at=created_dt.isoformat(),
+            estimated_payout_date=est_payout_dt.isoformat(),
+            actual_settled_date=o.settled_at.isoformat() if o.settled_at else None
         ))
 
     # Calculate contest settlements

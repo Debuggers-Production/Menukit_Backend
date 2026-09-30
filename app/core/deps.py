@@ -52,35 +52,46 @@ async def get_current_shop_context(
     from app.services.shop_service import ShopService
     shop_service = ShopService(db)
     
+    def _resolve_emp(emp_entry):
+        if isinstance(emp_entry, dict):
+            s = emp_entry.get("shop")
+            p = emp_entry.get("permissions", {})
+        else:
+            s = emp_entry
+            p = getattr(emp_entry, "_employee_permissions", {})
+        if s:
+            s._employee_permissions = p
+        return s
+
     if x_shop_id:
         shops_info = await shop_service.get_shops_for_user(current_user.id)
         
-        for shop in shops_info["owned"]:
+        for shop in shops_info.get("owned", []):
             if str(shop.id) == x_shop_id:
                 return shop
                 
-        for emp in shops_info["employed"]:
-            if str(emp["shop"].id) == x_shop_id:
-                emp["shop"]._employee_permissions = emp["permissions"]
-                return emp["shop"]
+        for emp_entry in shops_info.get("employed", []):
+            s = _resolve_emp(emp_entry)
+            if s and str(s.id) == x_shop_id:
+                return s
                 
         # If x_shop_id is stale / not found, fallback to user's first available shop
-        if shops_info["owned"]:
+        if shops_info.get("owned"):
             return shops_info["owned"][0]
-        if shops_info["employed"]:
-            emp = shops_info["employed"][0]
-            emp["shop"]._employee_permissions = emp["permissions"]
-            return emp["shop"]
+        if shops_info.get("employed"):
+            s = _resolve_emp(shops_info["employed"][0])
+            if s:
+                return s
             
         raise ForbiddenException("No shop found for user")
         
     shop = await shop_service.get_shop_by_user(current_user.id)
     if not shop:
         shops_info = await shop_service.get_shops_for_user(current_user.id)
-        if shops_info["employed"]:
-            emp = shops_info["employed"][0]
-            emp["shop"]._employee_permissions = emp["permissions"]
-            return emp["shop"]
+        if shops_info.get("employed"):
+            s = _resolve_emp(shops_info["employed"][0])
+            if s:
+                return s
         raise ForbiddenException("No shop found")
     return shop
 

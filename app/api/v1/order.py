@@ -127,6 +127,23 @@ async def update_payment_status(
     return OrderResponse.model_validate(order)
 
 
+@router.post("/{order_id}/refund", response_model=OrderResponse)
+async def retry_order_refund(
+    order_id: str,
+    shop = Depends(require_permission("orders", "write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Initiate or retry Razorpay refund for a paid online order."""
+    import uuid
+    await check_orders_subscription(shop, db)
+    service = OrderService(db)
+    order = await service.retry_order_refund(
+        uuid.UUID(order_id),
+        shop.id
+    )
+    return OrderResponse.model_validate(order)
+
+
 from app.schemas.order import OrderCreate, OrderAddItems
 
 @router.get("/customer-lookup")
@@ -151,15 +168,50 @@ async def lookup_customer(
     stmt = select(Customer).where(Customer.mobile_number.in_(phone_variants))
     result = await db.execute(stmt)
     customer = result.scalars().first()
-    if customer:
-        return {
-            "exists": True,
-            "id": str(customer.id),
-            "name": customer.name or "",
-            "phone": customer.mobile_number,
-            "delivery_address": customer.delivery_address or ""
-        }
-    return {"exists": False}
+
+    # Check which discounts this customer has already used
+    from app.models.discount import DiscountRedemption, CustomerDiscountCode
+    from sqlalchemy import or_, func
+
+    claimed_discount_ids = set()
+    last4 = clean_phone[-4:].upper() if len(clean_phone) >= 4 else ""
+    token_filters = [DiscountRedemption.customer_identifier.in_(phone_variants)]
+    if last4:
+        token_filters.append(func.upper(DiscountRedemption.code).like(f"%-{last4}"))
+
+    from app.models.order import Order
+    claimed_res = await db.execute(
+        select(DiscountRedemption.discount_id)
+        .outerjoin(Order, DiscountRedemption.order_id == Order.id)
+        .where(
+            DiscountRedemption.shop_id == shop.id,
+            DiscountRedemption.status == "active",
+            or_(
+                DiscountRedemption.order_id.is_(None),
+                func.lower(Order.order_status).notin_(["cancelled", "rejected"])
+            ),
+            or_(*token_filters)
+        )
+    )
+    claimed_discount_ids = {str(did) for did in claimed_res.scalars().all()}
+
+    cd_res = await db.execute(
+        select(CustomerDiscountCode.discount_id).where(
+            CustomerDiscountCode.shop_id == shop.id,
+            CustomerDiscountCode.customer_identifier.in_(phone_variants),
+            CustomerDiscountCode.is_redeemed == True
+        )
+    )
+    claimed_discount_ids.update({str(did) for did in cd_res.scalars().all()})
+
+    return {
+        "exists": bool(customer),
+        "id": str(customer.id) if customer else None,
+        "name": (customer.name if customer else "") or "",
+        "phone": (customer.mobile_number if customer else (f"+91{clean_phone}" if len(clean_phone) == 10 else phone)),
+        "delivery_address": (customer.delivery_address if customer else "") or "",
+        "used_discount_ids": list(claimed_discount_ids)
+    }
 
 
 @router.post("", response_model=OrderResponse)
@@ -275,6 +327,26 @@ async def replace_order_item(
     await db.commit()
     await db.refresh(order)
     return OrderResponse.model_validate(order)
+
+
+@router.post("/{order_id}/items/{item_id}/replace-preview")
+async def replace_order_item_preview(
+    order_id: str,
+    item_id: str,
+    replace_data: OrderItemReplace,
+    shop = Depends(require_permission("orders", "read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Preview the exact price difference, refund, or additional payment for replacing an item."""
+    import uuid
+    service = OrderService(db)
+    preview = await service.preview_replace_order_item(
+        uuid.UUID(order_id),
+        uuid.UUID(item_id),
+        shop.id,
+        replace_data=replace_data,
+    )
+    return preview
 
 
 

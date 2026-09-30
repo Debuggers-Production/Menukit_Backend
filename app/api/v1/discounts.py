@@ -23,7 +23,15 @@ from app.models.discount import Discount, DiscountRedemption, CustomerDiscountCo
 router = APIRouter(prefix="/discounts", tags=["Discounts"])
 
 
-def _discount_response(d) -> DiscountResponse:
+def _to_utc_iso(dt: Optional[datetime]) -> Optional[str]:
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+def _discount_response(d, is_already_used: bool = False) -> DiscountResponse:
     """Convert Discount model to response."""
     return DiscountResponse(
         id=str(d.id),
@@ -38,15 +46,16 @@ def _discount_response(d) -> DiscountResponse:
         reward_target_ids=d.reward_target_ids,
         applies_to=d.applies_to,
         target_ids=d.target_ids,
-        start_date=d.start_date.isoformat() if d.start_date else None,
-        end_date=d.end_date.isoformat() if d.end_date else None,
+        start_date=_to_utc_iso(d.start_date),
+        end_date=_to_utc_iso(d.end_date),
         available_days=d.available_days,
         available_time_presets=d.available_time_presets,
         is_active=d.is_active,
         visibility_type=d.visibility_type,
         display_order=d.display_order,
-        created_at=str(d.created_at),
-        updated_at=str(d.updated_at),
+        is_already_used=is_already_used,
+        created_at=_to_utc_iso(d.created_at) or str(d.created_at),
+        updated_at=_to_utc_iso(d.updated_at) or str(d.updated_at),
     )
 
 
@@ -388,10 +397,20 @@ async def get_discount_redemptions(
     db: AsyncSession = Depends(get_db),
 ):
     """Get recent discount code redemptions for this shop."""
+    from app.models.order import Order
+    from sqlalchemy import or_
     result = await db.execute(
         select(DiscountRedemption)
         .options(selectinload(DiscountRedemption.discount))
-        .where(DiscountRedemption.shop_id == shop.id)
+        .outerjoin(Order, DiscountRedemption.order_id == Order.id)
+        .where(
+            DiscountRedemption.shop_id == shop.id,
+            DiscountRedemption.status == "active",
+            or_(
+                DiscountRedemption.order_id.is_(None),
+                func.lower(Order.order_status).notin_(["cancelled", "rejected"])
+            )
+        )
         .order_by(DiscountRedemption.redeemed_at.desc())
         .limit(limit)
     )
@@ -406,7 +425,7 @@ async def get_discount_redemptions(
             discount_type=d.discount_type if d else "percentage",
             discount_value=str(d.discount_value) if d and d.discount_value is not None else None,
             code=r.code,
-            redeemed_at=r.redeemed_at.strftime("%d %b %Y, %I:%M %p"),
+            redeemed_at=_to_utc_iso(r.redeemed_at) or "",
             customer_identifier=r.customer_identifier
         ))
     return out

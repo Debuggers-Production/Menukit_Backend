@@ -146,11 +146,13 @@ async def send_phone_otp(
     formatted_phone = f"{country_code}{ten_digit}"
     
     # Check if this phone number is already verified by another user
-    stmt = select(User).where(User.phone == formatted_phone, User.phone_verified == True, User.id != user.id)
-    res = await db.execute(stmt)
-    existing_user = res.scalar_one_or_none()
-    if existing_user:
-        raise BadRequestException("This mobile number is already verified with another account.")
+    from app.core.config import is_phone_exempt
+    if not is_phone_exempt(formatted_phone):
+        stmt = select(User).where(User.phone == formatted_phone, User.phone_verified == True, User.id != user.id)
+        res = await db.execute(stmt)
+        existing_user = res.scalar_one_or_none()
+        if existing_user:
+            raise BadRequestException("This mobile number is already verified with another account.")
 
     # 1. Rate Limit & Fallback OTP creation (Max 3 attempts)
     otp_service = OTPService(redis)

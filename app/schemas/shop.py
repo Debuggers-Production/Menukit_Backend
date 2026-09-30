@@ -26,6 +26,9 @@ class ShopCreate(BaseModel):
     longitude: Optional[float] = None
     google_review_link: Optional[str] = None
     clone_from_shop_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+    razorpay_payment_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
 
     class Config:
         extra = "ignore"

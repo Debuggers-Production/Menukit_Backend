@@ -68,6 +68,8 @@ class DiscountRedemption(Base, UUIDMixin, TimestampMixin):
     order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
     )
+    status: Mapped[str] = mapped_column(String(50), default="active", server_default="active", nullable=False)
+    menu_item_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # Relationships
     discount = relationship("Discount", back_populates="redemptions")

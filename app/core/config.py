@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     TEST_EMAIL: str = "test@debuggerstechnologies.com"
     TEST_EMAIL_OTP: str = "023576"
 
+    # Exempted Phone Numbers (can be comma-separated string or list)
+    EXEMPTED_PHONE_NUMBERS: str = "8248692839"
+
     class Config:
         env_file = ".env"
         case_sensitive = True
@@ -103,3 +106,30 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
+
+
+def is_phone_exempt(phone: Optional[str]) -> bool:
+    """Check if the given phone number is exempt from single-account / single-shop restrictions."""
+    if not phone:
+        return False
+    digits = "".join(c for c in str(phone) if c.isdigit())
+    if len(digits) < 10:
+        return False
+    last_10 = digits[-10:]
+
+    settings = get_settings()
+    exempt_list = []
+    if isinstance(settings.EXEMPTED_PHONE_NUMBERS, str):
+        exempt_list = [p.strip() for p in settings.EXEMPTED_PHONE_NUMBERS.split(",") if p.strip()]
+    elif isinstance(settings.EXEMPTED_PHONE_NUMBERS, (list, set, tuple)):
+        exempt_list = [str(p).strip() for p in settings.EXEMPTED_PHONE_NUMBERS if str(p).strip()]
+
+    exempt_digits = {
+        "".join(c for c in p if c.isdigit())[-10:]
+        for p in exempt_list
+        if len("".join(c for c in p if c.isdigit())) >= 10
+    }
+    # Always include 8248692839 as fallback exemption
+    exempt_digits.add("8248692839")
+
+    return last_10 in exempt_digits

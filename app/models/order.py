@@ -45,6 +45,8 @@ class Order(Base, UUIDMixin, TimestampMixin):
     refund_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cancellation_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     payment_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    applied_discount_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    applied_discount_codes: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     version: Mapped[int] = mapped_column(default=1, nullable=False)
 
     # Relationships
@@ -68,6 +70,7 @@ class OrderItem(Base, UUIDMixin, TimestampMixin):
     price: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     variant_info: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     addons_info: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    applied_discount_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'), nullable=False)
     is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'), nullable=False)
     cancellation_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)

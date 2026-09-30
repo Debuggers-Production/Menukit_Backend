@@ -147,7 +147,11 @@ class ShopService:
         if needs_commit:
             await self.db.commit()
 
-        employed_shops = [emp.shop for emp in employments if emp.shop and emp.shop.is_active]
+        employed_shops = [
+            {"shop": emp.shop, "permissions": emp.permissions or {}}
+            for emp in employments
+            if emp.shop and emp.shop.is_active
+        ]
 
         return {"owned": owned_shops, "employed": employed_shops}
 
@@ -416,6 +420,10 @@ class ShopService:
         await self.db.flush()
         await self.db.commit()
         await self.db.refresh(shop)
+
+        from app.database.redis import invalidate_shop_cache
+        await invalidate_shop_cache(str(shop.id))
+
         return shop.settings
 
     async def create_razorpay_linked_account(self, user_id: uuid.UUID, data: any) -> dict:

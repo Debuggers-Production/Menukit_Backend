@@ -18,7 +18,96 @@ from app.schemas.chalkboard import ChalkboardUpdate, ChalkboardResponse
 from app.services.shop_service import ShopService
 from app.models.user import User
 
-router = APIRouter(prefix="/shops", tags=["Shop Management"])
+import hmac
+import hashlib
+import logging
+from datetime import datetime, timezone
+from sqlalchemy import select
+from app.models.subscription import Subscription, PaymentTransaction
+from app.core.config import get_settings, is_phone_exempt
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+router = APIRouter(prefix="/shops", tags=["shops"])
+
+# Initialize Razorpay Client
+razorpay_client = None
+if settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET:
+    try:
+        import razorpay
+        razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+    except ImportError:
+        razorpay_client = None
+
+
+@router.post("/additional-shop-order")
+async def create_additional_shop_order(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create Razorpay order for ₹50 additional shop add-on fee (or return free if 1st shop/exempt)."""
+    service = ShopService(db)
+    shops_info = await service.get_shops_for_user(user.id)
+    owned_count = len(shops_info.get("owned", []))
+    is_exempt = is_phone_exempt(user.phone)
+    
+    # First shop or exempt phone number is free
+    if owned_count == 0 or is_exempt:
+        return {
+            "required": False,
+            "amount": 0,
+            "currency": "INR",
+            "message": "Free shop creation included"
+        }
+        
+    amount_inr = 50.0
+    amount_paise = 5000
+    
+    # Check mock payment mode
+    if getattr(settings, "MOCK_PAYMENT_MODE", False) or not razorpay_client:
+        mock_order_id = f"order_mock_add_shop_{uuid.uuid4().hex[:12]}"
+        return {
+            "required": True,
+            "mock_mode": True,
+            "order_id": mock_order_id,
+            "amount": amount_inr,
+            "currency": "INR",
+            "key_id": "rzp_mock_key"
+        }
+        
+    try:
+        receipt_id = f"add_shop_{str(user.id)[:8]}_{int(datetime.now().timestamp())}"
+        order_payload = {
+            "amount": amount_paise,
+            "currency": "INR",
+            "receipt": receipt_id,
+            "notes": {
+                "user_id": str(user.id),
+                "type": "additional_shop_addon",
+                "price": "50"
+            }
+        }
+        razorpay_order = razorpay_client.order.create(data=order_payload)
+        return {
+            "required": True,
+            "mock_mode": False,
+            "order_id": razorpay_order["id"],
+            "amount": amount_inr,
+            "currency": "INR",
+            "key_id": settings.RAZORPAY_KEY_ID
+        }
+    except Exception as e:
+        logger.error(f"Failed to create Razorpay order for additional shop: {e}")
+        mock_order_id = f"order_mock_add_shop_{uuid.uuid4().hex[:12]}"
+        return {
+            "required": True,
+            "mock_mode": True,
+            "order_id": mock_order_id,
+            "amount": amount_inr,
+            "currency": "INR",
+            "key_id": "rzp_mock_key"
+        }
 
 
 @router.post("", response_model=ShopResponse)
@@ -27,7 +116,7 @@ async def create_shop(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new shop profile (strictly limited to 1 shop per user)."""
+    """Create a new shop profile (with ₹50 add-on fee for additional shops)."""
     if not user.phone or not user.phone_verified:
         raise HTTPException(
             status_code=403,
@@ -36,13 +125,80 @@ async def create_shop(
 
     service = ShopService(db)
     shops_info = await service.get_shops_for_user(user.id)
-    if len(shops_info["owned"]) >= 1:
-        raise HTTPException(
-            status_code=400,
-            detail="Branch creation is currently disabled. Each user is limited to 1 shop."
-        )
+    owned_count = len(shops_info.get("owned", []))
+    is_exempt = is_phone_exempt(user.phone)
 
-    shop = await service.create_shop(user.id, data.model_dump(exclude_none=True))
+    # If user already owns >= 1 shop and is not exempt, require & verify payment
+    if owned_count >= 1 and not is_exempt:
+        has_payment = bool(data.razorpay_payment_id or data.razorpay_order_id)
+        is_mock_payment = (
+            getattr(settings, "MOCK_PAYMENT_MODE", False) or 
+            str(data.razorpay_payment_id or "").startswith("pay_mock_") or
+            str(data.razorpay_order_id or "").startswith("order_mock_")
+        )
+        
+        if not has_payment and not is_mock_payment:
+            raise HTTPException(
+                status_code=402,
+                detail="Additional shop requires a ₹50/month add-on fee. Please complete payment."
+            )
+            
+        if not is_mock_payment and settings.RAZORPAY_KEY_SECRET and data.razorpay_signature:
+            generated_sig = hmac.new(
+                settings.RAZORPAY_KEY_SECRET.encode(),
+                f"{data.razorpay_order_id}|{data.razorpay_payment_id}".encode(),
+                hashlib.sha256
+            ).hexdigest()
+            if generated_sig != data.razorpay_signature:
+                raise HTTPException(status_code=400, detail="Invalid payment signature")
+
+    shop_dict = data.model_dump(exclude_none=True)
+    order_id = shop_dict.pop("razorpay_order_id", None)
+    payment_id = shop_dict.pop("razorpay_payment_id", None)
+    signature = shop_dict.pop("razorpay_signature", None)
+
+    shop = await service.create_shop(user.id, shop_dict)
+
+    # 1. Inherit/clone primary shop's subscription to the new shop
+    try:
+        if owned_count > 0:
+            primary_shop = shops_info["owned"][0]
+            sub_stmt = select(Subscription).where(Subscription.shop_id == primary_shop.id)
+            sub_res = await db.execute(sub_stmt)
+            primary_sub = sub_res.scalar_one_or_none()
+            if primary_sub:
+                new_sub = Subscription(
+                    shop_id=shop.id,
+                    is_active=primary_sub.is_active,
+                    is_all_access=primary_sub.is_all_access,
+                    is_trial=primary_sub.is_trial,
+                    active_modules=primary_sub.active_modules,
+                    module_expirations=primary_sub.module_expirations,
+                    current_period_end=primary_sub.current_period_end
+                )
+                db.add(new_sub)
+    except Exception as e:
+        logger.warning(f"Failed to clone subscription to new shop: {e}")
+
+    # 2. Record PaymentTransaction if payment was provided
+    if order_id or payment_id:
+        try:
+            tx = PaymentTransaction(
+                shop_id=shop.id,
+                razorpay_order_id=order_id or f"order_addon_{uuid.uuid4().hex[:10]}",
+                razorpay_payment_id=payment_id or f"pay_addon_{uuid.uuid4().hex[:10]}",
+                razorpay_signature=signature or "verified",
+                amount=50.0,
+                currency="INR",
+                status="success",
+                is_all_access=False,
+                purchased_modules=["additional-shop"],
+                billing_cycle="monthly"
+            )
+            db.add(tx)
+        except Exception as e:
+            logger.warning(f"Failed to record additional shop payment transaction: {e}")
+
     await db.commit()
     return _shop_to_response(shop)
 
@@ -57,11 +213,15 @@ async def get_my_shops(
     shops_info = await service.get_shops_for_user(user.id)
     
     # Format the response
-    owned = [_shop_to_response(s).model_dump() for s in shops_info["owned"]]
+    owned = [_shop_to_response(s).model_dump() for s in shops_info.get("owned", [])]
     employed = []
-    for emp in shops_info["employed"]:
-        resp = _shop_to_response(emp["shop"]).model_dump()
-        resp["employee_permissions"] = emp["permissions"]
+    for emp in shops_info.get("employed", []):
+        if isinstance(emp, dict):
+            resp = _shop_to_response(emp["shop"]).model_dump()
+            resp["employee_permissions"] = emp.get("permissions", {})
+        else:
+            resp = _shop_to_response(emp).model_dump()
+            resp["employee_permissions"] = getattr(emp, "_employee_permissions", {})
         employed.append(resp)
         
     return {
@@ -95,36 +255,38 @@ async def get_my_shop(
     """Get the current user's shop with subscription-based feature data filtering."""
     service = ShopService(db)
     
+    def _extract_emp(emp_entry):
+        if isinstance(emp_entry, dict):
+            return emp_entry.get("shop"), emp_entry.get("permissions", {})
+        return emp_entry, getattr(emp_entry, "_employee_permissions", {})
+
     employee_permissions = None
     if x_shop_id:
         shops_info = await service.get_shops_for_user(user.id)
         shop = None
-        for s in shops_info["owned"]:
+        for s in shops_info.get("owned", []):
             if str(s.id) == x_shop_id:
                 shop = s
                 break
         if not shop:
-            for emp in shops_info["employed"]:
-                if str(emp["shop"].id) == x_shop_id:
-                    shop = emp["shop"]
-                    employee_permissions = emp["permissions"]
+            for emp_entry in shops_info.get("employed", []):
+                e_shop, e_perm = _extract_emp(emp_entry)
+                if e_shop and str(e_shop.id) == x_shop_id:
+                    shop = e_shop
+                    employee_permissions = e_perm
                     break
         # Fallback if x_shop_id was stale / not found
         if not shop:
-            if shops_info["owned"]:
+            if shops_info.get("owned"):
                 shop = shops_info["owned"][0]
-            elif shops_info["employed"]:
-                emp = shops_info["employed"][0]
-                shop = emp["shop"]
-                employee_permissions = emp["permissions"]
+            elif shops_info.get("employed"):
+                shop, employee_permissions = _extract_emp(shops_info["employed"][0])
     else:
         shop = await service.get_shop_by_user(user.id)
         if not shop:
             shops_info = await service.get_shops_for_user(user.id)
-            if shops_info["employed"]:
-                emp = shops_info["employed"][0]
-                shop = emp["shop"]
-                employee_permissions = emp["permissions"]
+            if shops_info.get("employed"):
+                shop, employee_permissions = _extract_emp(shops_info["employed"][0])
         
     if not shop:
         return ShopResponse(
@@ -271,12 +433,7 @@ async def update_settings(
     await db.commit()
 
     # Invalidate public shop cache
-    try:
-        from app.database.redis import get_redis
-        r_client = await get_redis()
-        await r_client.delete(f"public:shop:{str(shop.id)}")
-    except Exception:
-        pass
+    await invalidate_shop_cache(shop.id)
 
     return ShopSettingsResponse.model_validate(settings)
 

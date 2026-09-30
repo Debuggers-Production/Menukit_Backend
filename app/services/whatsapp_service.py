@@ -278,8 +278,8 @@ class WhatsAppClient:
 
         button_suffix = f"shop/{str(shop_id)}/order/{str(order_id)}" if shop_id and order_id else "customer/"
 
-        # Ensure currency symbol or numeric formatting is clean for refund amount
-        clean_refund_amt = str(refund_amount).replace("₹", "").replace("$", "").replace("€", "").replace("AED", "").strip()
+        # Clean parameters while preserving currency symbol for refund amount
+        clean_refund_amt = self._clean_param(str(refund_amount), "0")
 
         components = [
             {
@@ -290,7 +290,7 @@ class WhatsAppClient:
                     {"type": "text", "text": self._clean_param(shop_name, "Restaurant")},
                     {"type": "text", "text": self._clean_param(items_summary, "Order Items")},
                     {"type": "text", "text": self._clean_param(cancel_reason, "Cancelled by request")},
-                    {"type": "text", "text": self._clean_param(clean_refund_amt, "0")},
+                    {"type": "text", "text": clean_refund_amt},
                     {"type": "text", "text": self._clean_param(str(order_id_tag).replace("#", ""), "1")},
                     {"type": "text", "text": self._clean_param(refund_method, "Online")},
                     {"type": "text", "text": self._clean_param(str(timeline_days), "5-7")},
