@@ -20,9 +20,16 @@ class MenuItem(Base, UUIDMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("categories.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    serial_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    multiplier: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
+    wholesale_multiplier: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
+    other_multiplier: Mapped[int | None] = mapped_column(Integer, default=1, nullable=True)
+    is_public_visible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     offer_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    wholesale_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    other_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     online_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     online_offer_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     food_types: Mapped[list] = mapped_column(JSONB, default=lambda: ["veg"], nullable=False)  # veg | non-veg | egg | drink

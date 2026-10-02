@@ -396,38 +396,6 @@ async def update_settings(
     """Update shop settings."""
     dumped_data = data.model_dump(exclude_unset=True)
 
-    # Check if merchant is attempting to revert to Free discovery while having an active paid subscription
-    wants_to_revert_free = (
-        dumped_data.get("is_discoverable") is False or
-        dumped_data.get("hide_discovery_badge") is False
-    )
-    if wants_to_revert_free:
-        from app.api.v1.subscription import get_shop_subscription_status
-        from app.models.subscription import PaymentTransaction
-        from sqlalchemy import select
-
-        sub_status = await get_shop_subscription_status(shop, db)
-        if "hide-discovery-badge" in sub_status.get("active_modules", []):
-            mod_exp = sub_status.get("module_expirations", {}).get("hide-discovery-badge", {})
-            days_left = mod_exp.get("days_left", sub_status.get("days_left", 0))
-
-            # Check if there is any verified successful payment transaction covering hide-discovery-badge
-            stmt = select(PaymentTransaction).where(
-                PaymentTransaction.shop_id == shop.id,
-                PaymentTransaction.status == "success"
-            )
-            tx_res = await db.execute(stmt)
-            successful_txs = tx_res.scalars().all()
-            has_paid = any(
-                tx.is_all_access or (tx.purchased_modules and "hide-discovery-badge" in tx.purchased_modules)
-                for tx in successful_txs
-            )
-            if has_paid and days_left > 0 and not sub_status.get("is_expired", False):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"You have an active paid subscription for Discovery Option (₹49/mo) with {days_left} day{'s' if days_left != 1 else ''} remaining. You cannot switch to the Free option until it expires."
-                )
-
     service = ShopService(db)
     settings = await service.update_settings(shop.id, user.id, dumped_data)
     await db.commit()
@@ -442,12 +410,13 @@ async def update_settings(
 @router.patch("/me/razorpay/bank-account")
 async def update_razorpay_bank_account(
     data: RazorpayBankAccountUpdateRequest,
+    shop = Depends(require_permission("settings", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update Razorpay Route linked account bank details."""
     service = ShopService(db)
-    result = await service.update_razorpay_bank_account(user.id, data)
+    result = await service.update_razorpay_bank_account(user.id, data, shop_id=shop.id)
     await db.commit()
     return result
 
@@ -455,24 +424,26 @@ async def update_razorpay_bank_account(
 @router.post("/me/razorpay/linked-account")
 async def create_razorpay_linked_account(
     data: RazorpayLinkedAccountCreateRequest,
+    shop = Depends(require_permission("settings", "write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new Razorpay Route linked account with bank details."""
     service = ShopService(db)
-    result = await service.create_razorpay_linked_account(user.id, data)
+    result = await service.create_razorpay_linked_account(user.id, data, shop_id=shop.id)
     await db.commit()
     return result
 
 
 @router.get("/me/razorpay/status")
 async def get_razorpay_account_status(
+    shop = Depends(require_permission("settings", "read")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch current Razorpay Route verification status."""
     service = ShopService(db)
-    result = await service.get_razorpay_account_status(user.id)
+    result = await service.get_razorpay_account_status(user.id, shop_id=shop.id)
     await db.commit()
     return result
 

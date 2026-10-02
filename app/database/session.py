@@ -172,6 +172,7 @@ async def init_chalkboard_table():
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS online_payments_dinein_enabled BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS online_payments_takeaway_enabled BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS online_payments_delivery_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS accept_after_payment BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS razorpay_account_id VARCHAR(100);
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS razorpay_product_id VARCHAR(100);
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS razorpay_route_status VARCHAR(50);

@@ -49,6 +49,7 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     online_payments_dinein_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     online_payments_takeaway_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     online_payments_delivery_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    accept_after_payment: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # GST & Compliances settings
     gst_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -59,6 +60,11 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     sgst_rate: Mapped[float] = mapped_column(Float, default=2.5, nullable=False)
     inclusive_tax: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     tax_invoice_notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Product Serial Number & SKU settings
+    serial_number_prefix: Mapped[str | None] = mapped_column(String(20), default="", nullable=True)
+    serial_number_digits: Mapped[int] = mapped_column(default=3, nullable=False)
+    auto_serial_number_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
     shop = relationship("Shop", back_populates="settings")

@@ -110,6 +110,48 @@ def check_shop_operating_status(shop: Shop) -> tuple[bool, str]:
         return True, ""
 
 
+def validate_item_multiplier(
+    item: Any,
+    quantity: int,
+    variant_info: Optional[dict] = None,
+    price_tier: Optional[str] = "retail"
+):
+    """Enforce that order item quantity strictly adheres to the item's or variant's multiplier."""
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail=f"Quantity for '{getattr(item, 'name', 'item')}' must be at least 1.")
+
+    tier = (price_tier or "retail").lower()
+    matched_variant = None
+    if variant_info and isinstance(variant_info, dict) and getattr(item, "variants", None) and isinstance(item.variants, list):
+        v_name = str(variant_info.get("name", "")).strip().lower()
+        for v in item.variants:
+            if isinstance(v, dict) and str(v.get("name", "")).strip().lower() == v_name:
+                matched_variant = v
+                break
+
+    v_mult = int(matched_variant.get("multiplier", 0)) if matched_variant and matched_variant.get("multiplier") else None
+    v_ws_mult = int(matched_variant.get("wholesale_multiplier", 0)) if matched_variant and matched_variant.get("wholesale_multiplier") else None
+    v_oth_mult = int(matched_variant.get("other_multiplier", 0)) if matched_variant and matched_variant.get("other_multiplier") else None
+
+    item_mult = int(getattr(item, "multiplier", 1) or 1)
+    item_ws_mult = int(getattr(item, "wholesale_multiplier", 1) or 1)
+    item_oth_mult = int(getattr(item, "other_multiplier", 1) or 1)
+
+    if tier == "wholesale":
+        mult = v_ws_mult or item_ws_mult or v_mult or item_mult or 1
+    elif tier == "other":
+        mult = v_oth_mult or item_oth_mult or v_mult or item_mult or 1
+    else:
+        mult = v_mult or item_mult or 1
+
+    if mult > 1 and (quantity % mult) != 0:
+        item_title = getattr(item, 'name', 'item')
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid quantity for '{item_title}'. Quantity must be a multiple of {mult} (e.g. {mult}, {mult*2}, {mult*3}...). Received: {quantity}."
+        )
+
+
 class OrderService:
     """Handles ordering logic and Cashfree Payment Gateway integration."""
 
@@ -364,7 +406,9 @@ class OrderService:
                             )
 
         # 3. Determine status
-        if settings.auto_accept_orders:
+        if getattr(settings, "accept_after_payment", False) and data.payment_method not in ["cash", "cash_on_delivery", "counter"]:
+            initial_status = "PENDING_VENDOR"
+        elif settings.auto_accept_orders:
             # For dine-in or cash orders with auto-accept, set directly to ACCEPTED (paid on delivery/counter/at last)
             if data.order_type == "dine_in" or data.payment_method in ["cash", "cash_on_delivery", "counter"]:
                 initial_status = "ACCEPTED"
@@ -430,14 +474,21 @@ class OrderService:
                         )
                     )
                     existing_items = val_res.scalars().all()
-                    existing_ids = {item.id for item in existing_items}
+                    item_map = {item.id: item for item in existing_items}
 
                     for it in data.items:
-                        if it.menu_item_id not in existing_ids:
+                        if it.menu_item_id not in item_map:
                             raise HTTPException(
                                 status_code=400,
                                 detail=f"Item '{it.name}' is no longer available. Please remove it from your cart and try again."
                             )
+                        # Multiplier validation
+                        validate_item_multiplier(
+                            item=item_map[it.menu_item_id],
+                            quantity=it.quantity,
+                            variant_info=it.variant_info,
+                            price_tier=getattr(data, "price_tier", "retail") or getattr(existing_dinein_order, "price_tier", "retail")
+                        )
 
                     # Append new items to existing active dine-in order
                     for it in data.items:
@@ -515,14 +566,21 @@ class OrderService:
             )
         )
         existing_items = result.scalars().all()
-        existing_ids = {item.id for item in existing_items}
+        item_map = {item.id: item for item in existing_items}
 
         for it in data.items:
-            if it.menu_item_id not in existing_ids:
+            if it.menu_item_id not in item_map:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Item '{it.name}' is no longer available. Please remove it from your cart and try again."
                 )
+            # Multiplier validation
+            validate_item_multiplier(
+                item=item_map[it.menu_item_id],
+                quantity=it.quantity,
+                variant_info=it.variant_info,
+                price_tier=getattr(data, "price_tier", "retail")
+            )
 
         # 2. Customer Lookup & Auto-Link/Create
         customer = None
@@ -636,6 +694,8 @@ class OrderService:
             order_status=initial_status,
             payment_status=initial_pay_status,
             payment_method=data.payment_method,
+            split_payments=getattr(data, "split_payments", None),
+            price_tier=getattr(data, "price_tier", "retail") or "retail",
             total_amount=data.total_amount,
             items=items_list,
         )
@@ -678,8 +738,8 @@ class OrderService:
         if data.payment_method != "online" and float(order.total_amount) >= 100.0:
             await self._award_contest_credits_if_eligible(order)
 
-        # Send WhatsApp payment required notification if order starts in PAYMENT_PENDING (e.g. auto-accept enabled)
-        if initial_status == "PAYMENT_PENDING" and initial_pay_status != "paid" and data.payment_method not in ["cash", "cash_on_delivery", "counter"]:
+        # Send WhatsApp payment required notification if order starts in PAYMENT_PENDING (e.g. auto-accept enabled without accept_after_payment)
+        if initial_status == "PAYMENT_PENDING" and not getattr(settings, "accept_after_payment", False) and initial_pay_status != "paid" and data.payment_method not in ["cash", "cash_on_delivery", "counter"]:
             await self._send_order_accepted_payment_required_whatsapp_notification(order, shop_name=shop.name)
 
         return order
@@ -1271,15 +1331,15 @@ class OrderService:
                 )
 
         valid_transitions = {
-            "PENDING_VENDOR": ["PAYMENT_PENDING", "ACCEPTED", "CANCELLED"],
-            "PAYMENT_PENDING": ["PAID", "ACCEPTED", "CANCELLED"],
+            "PENDING_VENDOR": ["PAYMENT_PENDING", "ACCEPTED", "PREPARING", "CANCELLED"],
+            "PAYMENT_PENDING": ["PAID", "ACCEPTED", "PREPARING", "CANCELLED"],
             "PAID": ["PREPARING", "ACCEPTED", "CANCELLED"],
             "ACCEPTED": ["PREPARING", "READY", "DELIVERED", "COMPLETED", "CANCELLED"],
             "PREPARING": ["READY", "OUT_FOR_DELIVERY", "DELIVERED", "COMPLETED", "CANCELLED"],
             "READY": ["OUT_FOR_DELIVERY", "DELIVERED", "COMPLETED", "CANCELLED"],
             "OUT_FOR_DELIVERY": ["DELIVERED", "COMPLETED", "CANCELLED"],
             # Fallbacks for legacy/current app usage:
-            "PENDING": ["ACCEPTED", "REJECTED", "CANCELLED", "PAYMENT_PENDING"],
+            "PENDING": ["ACCEPTED", "PREPARING", "REJECTED", "CANCELLED", "PAYMENT_PENDING"],
         }
 
         # Enforce that online orders must be paid before proceeding with preparation
@@ -1638,6 +1698,22 @@ class OrderService:
 
         if order.order_status in ["completed", "cancelled"]:
             raise HTTPException(status_code=400, detail="Cannot add items to a completed or cancelled order")
+
+        # Validate menu items and multipliers
+        from app.models.menu_item import MenuItem
+        m_ids = [uuid.UUID(str(it["menu_item_id"])) if isinstance(it["menu_item_id"], str) else it["menu_item_id"] for it in new_items]
+        m_res = await self.db.execute(select(MenuItem).where(MenuItem.id.in_(m_ids)))
+        item_map = {item.id: item for item in m_res.scalars().all()}
+
+        for it in new_items:
+            m_id = uuid.UUID(str(it["menu_item_id"])) if isinstance(it["menu_item_id"], str) else it["menu_item_id"]
+            if m_id in item_map:
+                validate_item_multiplier(
+                    item=item_map[m_id],
+                    quantity=int(it.get("quantity", 1)),
+                    variant_info=it.get("variant_info"),
+                    price_tier=getattr(order, "price_tier", "retail")
+                )
 
         added_amount = 0.0
         for it in new_items:
@@ -2026,6 +2102,18 @@ class OrderService:
             if isinstance(replace_data.new_menu_item_id, str)
             else replace_data.new_menu_item_id
         )
+
+        # Validate replacement menu item multiplier
+        from app.models.menu_item import MenuItem
+        m_res = await self.db.execute(select(MenuItem).where(MenuItem.id == new_menu_item_id))
+        replacement_menu_item = m_res.scalar_one_or_none()
+        if replacement_menu_item:
+            validate_item_multiplier(
+                item=replacement_menu_item,
+                quantity=new_quantity,
+                variant_info=replace_data.variant_info,
+                price_tier=getattr(order, "price_tier", "retail")
+            )
 
         replacement_item = OrderItem(
             id=uuid.uuid4(),

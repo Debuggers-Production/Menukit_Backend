@@ -22,8 +22,14 @@ class MenuItemVariant(BaseModel):
     name: str
     price: str
     offer_price: Optional[str] = None
+    wholesale_price: Optional[str] = None
+    other_price: Optional[str] = None
     online_price: Optional[str] = None
     online_offer_price: Optional[str] = None
+    multiplier: Optional[int] = 1
+    wholesale_multiplier: Optional[int] = 1
+    other_multiplier: Optional[int] = 1
+    is_public_visible: Optional[bool] = True
 
 
 class MenuItemAddon(BaseModel):
@@ -36,9 +42,15 @@ class MenuItemCreate(BaseModel):
     """Create a new menu item."""
     category_id: str
     name: str
+    serial_number: Optional[str] = None
+    multiplier: Optional[int] = 1
+    wholesale_multiplier: Optional[int] = 1
+    other_multiplier: Optional[int] = 1
     description: Optional[str] = None
     price: Decimal
     offer_price: Optional[Decimal] = None
+    wholesale_price: Optional[Decimal] = None
+    other_price: Optional[Decimal] = None
     online_price: Optional[Decimal] = None
     online_offer_price: Optional[Decimal] = None
     food_types: List[str] = ["veg"]  # veg | non-veg | egg | drink
@@ -88,9 +100,15 @@ class MenuItemUpdate(BaseModel):
     """Update a menu item."""
     category_id: Optional[str] = None
     name: Optional[str] = None
+    serial_number: Optional[str] = None
+    multiplier: Optional[int] = None
+    wholesale_multiplier: Optional[int] = None
+    other_multiplier: Optional[int] = None
     description: Optional[str] = None
     price: Optional[Decimal] = None
     offer_price: Optional[Decimal] = None
+    wholesale_price: Optional[Decimal] = None
+    other_price: Optional[Decimal] = None
     online_price: Optional[Decimal] = None
     online_offer_price: Optional[Decimal] = None
     food_types: Optional[List[str]] = None
@@ -146,9 +164,15 @@ class MenuItemResponse(BaseModel):
     id: str
     category_id: str
     name: str
+    serial_number: Optional[str] = None
+    multiplier: Optional[int] = 1
+    wholesale_multiplier: Optional[int] = 1
+    other_multiplier: Optional[int] = 1
     description: Optional[str] = None
     price: str
     offer_price: Optional[str] = None
+    wholesale_price: Optional[str] = None
+    other_price: Optional[str] = None
     online_price: Optional[str] = None
     online_offer_price: Optional[str] = None
     food_types: List[str]

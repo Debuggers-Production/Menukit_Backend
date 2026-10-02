@@ -26,7 +26,9 @@ class Order(Base, UUIDMixin, TimestampMixin):
     delivery_address: Mapped[str | None] = mapped_column(String, nullable=True)
     order_status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False, index=True)  # 'pending', 'accepted', 'rejected', 'completed', 'cancelled'
     payment_status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False, index=True)  # 'pending', 'paid', 'failed'
-    payment_method: Mapped[str] = mapped_column(String(50), default="cash", nullable=False)  # 'cash', 'online'
+    payment_method: Mapped[str] = mapped_column(String(50), default="cash", nullable=False)  # 'cash', 'online', 'upi', 'card', 'other', 'split'
+    split_payments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    price_tier: Mapped[str | None] = mapped_column(String(50), default="retail", nullable=True)  # 'retail', 'wholesale', 'other'
     total_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     daily_order_number: Mapped[int | None] = mapped_column(nullable=True)
     cashfree_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

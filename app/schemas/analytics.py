@@ -95,6 +95,7 @@ class OrderSettlementInvoice(BaseModel):
     invoice_no: str
     payment_id: Optional[str] = None
     payment_method: str
+    split_payments: Optional[List[dict]] = None
     customer_name: str
     customer_phone: Optional[str] = None
     total_order_amt: float
@@ -111,6 +112,16 @@ class TopOrderedCategory(BaseModel):
     total_quantity: int
     total_revenue: float
 
+
+class PaymentModeStat(BaseModel):
+    """Payment mode distribution statistics."""
+    mode: str
+    label: str
+    amount: float
+    orders_count: int
+    percentage: float
+
+
 class RevenueAnalyticsSummary(BaseModel):
     """Revenue & Sales summary analytics."""
     total_gross_revenue: float
@@ -124,6 +135,7 @@ class RevenueAnalyticsSummary(BaseModel):
     top_ordered_categories: List[TopOrderedCategory] = []
     daily_sales: List[DailySalesReportPoint] = []
     recent_invoices: List[OrderSettlementInvoice] = []
+    payment_modes_breakdown: List[PaymentModeStat] = []
 
 
 class GstInvoiceEntry(BaseModel):

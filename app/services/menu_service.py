@@ -3,7 +3,7 @@
 import uuid
 from typing import Optional, List
 
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,7 +12,7 @@ from app.models.menu_item import MenuItem
 from app.models.menu_image import MenuImage
 from app.models.activity_log import ActivityLog
 from app.models.shop import Shop
-from app.core.exceptions import NotFoundException, ForbiddenException
+from app.core.exceptions import NotFoundException, ForbiddenException, BadRequestException
 from app.services.upload_service import UploadService
 
 
@@ -234,6 +234,19 @@ class MenuService:
         if not category:
             raise NotFoundException(f"Category '{category_id_str}' not found")
 
+        # Validate unique serial_number in the same catalog
+        serial_number = data.get("serial_number")
+        if serial_number and isinstance(serial_number, str) and serial_number.strip():
+            clean_serial = serial_number.strip()
+            existing_sn_query = select(MenuItem).where(
+                MenuItem.menu_catalog_id == catalog_id,
+                func.lower(MenuItem.serial_number) == clean_serial.lower()
+            )
+            existing_sn_res = await self.db.execute(existing_sn_query)
+            existing_item_with_sn = existing_sn_res.scalars().first()
+            if existing_item_with_sn:
+                raise BadRequestException(f"Serial number '{clean_serial}' is already used by item '{existing_item_with_sn.name}'. Please enter a unique serial number.")
+
         item = MenuItem(menu_catalog_id=catalog_id, category_id=category.id, **data)
         self.db.add(item)
 
@@ -266,7 +279,26 @@ class MenuService:
         if food_type:
             query = query.where(MenuItem.food_types.contains([food_type]))
         if search:
-            query = query.where(MenuItem.name.ilike(f"%{search}%"))
+            clean_q = search.strip()
+            query = query.where(
+                or_(
+                    MenuItem.name.ilike(f"%{clean_q}%"),
+                    MenuItem.serial_number.ilike(f"%{clean_q}%"),
+                )
+            )
+            # Prioritize exact and prefix match on serial_number
+            search_ordering = case(
+                (func.lower(MenuItem.serial_number) == clean_q.lower(), 1),
+                (MenuItem.serial_number.ilike(f"{clean_q}%"), 2),
+                (MenuItem.serial_number.ilike(f"%{clean_q}%"), 3),
+                (func.lower(MenuItem.name) == clean_q.lower(), 4),
+                (MenuItem.name.ilike(f"{clean_q}%"), 5),
+                else_=6,
+            )
+            query = query.order_by(search_ordering, MenuItem.display_order)
+        else:
+            query = query.order_by(MenuItem.display_order)
+
         if status:
             if status == "available":
                 query = query.where(MenuItem.is_available == True)
@@ -277,7 +309,7 @@ class MenuService:
             elif status == "chef_special":
                 query = query.where(MenuItem.is_highlighted == True)
 
-        query = query.order_by(MenuItem.display_order).offset(skip).limit(limit)
+        query = query.offset(skip).limit(limit)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
@@ -300,12 +332,26 @@ class MenuService:
         if not item:
             raise NotFoundException("Menu item not found")
 
+        # Validate unique serial_number in the same catalog (excluding current item)
+        serial_number = data.get("serial_number")
+        if serial_number and isinstance(serial_number, str) and serial_number.strip():
+            clean_serial = serial_number.strip()
+            existing_sn_query = select(MenuItem).where(
+                MenuItem.menu_catalog_id == catalog_id,
+                MenuItem.id != item_id,
+                func.lower(MenuItem.serial_number) == clean_serial.lower()
+            )
+            existing_sn_res = await self.db.execute(existing_sn_query)
+            existing_item_with_sn = existing_sn_res.scalars().first()
+            if existing_item_with_sn:
+                raise BadRequestException(f"Serial number '{clean_serial}' is already used by item '{existing_item_with_sn.name}'. Please enter a unique serial number.")
+
         # Handle category_id separately since it needs UUID conversion
         if "category_id" in data and data["category_id"]:
             data["category_id"] = uuid.UUID(data["category_id"])
 
         for key, value in data.items():
-            if value is not None and hasattr(item, key):
+            if hasattr(item, key):
                 setattr(item, key, value)
 
         activity = ActivityLog(user_id=user_id, action="menu_update", details=f"Updated item: {item.name}")

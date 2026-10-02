@@ -383,7 +383,7 @@ class ShopService:
                         ifsc_code = ifsc
                         beneficiary_name = ben_name
                     try:
-                        await self.update_razorpay_bank_account(user_id, MockDataUpdate())
+                        await self.update_razorpay_bank_account(user_id, MockDataUpdate(), shop_id=shop.id)
                     except Exception as update_err:
                         print(f"DEBUG: Failed auto-forwarding bank details to Razorpay: {update_err}")
                         raise update_err
@@ -410,7 +410,7 @@ class ShopService:
                     bank_account = MockBankAccount()
 
                 try:
-                    await self.create_razorpay_linked_account(user_id, MockDataCreate())
+                    await self.create_razorpay_linked_account(user_id, MockDataCreate(), shop_id=shop.id)
                     # Refresh shop to get the newly attached razorpay account id
                     await self.db.refresh(shop.settings)
                 except Exception as create_err:
@@ -426,16 +426,20 @@ class ShopService:
 
         return shop.settings
 
-    async def create_razorpay_linked_account(self, user_id: uuid.UUID, data: any) -> dict:
+    async def create_razorpay_linked_account(self, user_id: uuid.UUID, data: any, shop_id: Optional[uuid.UUID] = None) -> dict:
         """Create a Razorpay Route Linked Account using V2 API."""
         from fastapi import HTTPException
         import requests
         from app.core.config import get_settings
         
-        result = await self.db.execute(
-            select(Shop).options(selectinload(Shop.settings)).where(Shop.user_id == user_id)
-        )
-        shop = result.scalar_one_or_none()
+        query = select(Shop).options(selectinload(Shop.settings), selectinload(Shop.user))
+        if shop_id:
+            query = query.where(Shop.id == shop_id)
+        else:
+            query = query.where(Shop.user_id == user_id)
+            
+        result = await self.db.execute(query)
+        shop = result.scalars().first()
         if not shop:
             raise HTTPException(status_code=404, detail="Shop not found")
             
@@ -563,17 +567,21 @@ class ShopService:
             "status": status
         }
 
-    async def update_razorpay_bank_account(self, user_id: uuid.UUID, data: any) -> dict:
+    async def update_razorpay_bank_account(self, user_id: uuid.UUID, data: any, shop_id: Optional[uuid.UUID] = None) -> dict:
         """Update Razorpay Route Bank Account via V2 API."""
         from fastapi import HTTPException
         import requests
         from app.core.config import get_settings
         
         # 1. Verify shop and owner
-        result = await self.db.execute(
-            select(Shop).options(selectinload(Shop.settings)).where(Shop.user_id == user_id)
-        )
-        shop = result.scalar_one_or_none()
+        query = select(Shop).options(selectinload(Shop.settings))
+        if shop_id:
+            query = query.where(Shop.id == shop_id)
+        else:
+            query = query.where(Shop.user_id == user_id)
+            
+        result = await self.db.execute(query)
+        shop = result.scalars().first()
         if not shop:
             raise HTTPException(status_code=404, detail="Shop not found")
             
@@ -654,16 +662,20 @@ class ShopService:
             "status": new_status
         }
 
-    async def get_razorpay_account_status(self, user_id: uuid.UUID) -> dict:
+    async def get_razorpay_account_status(self, user_id: uuid.UUID, shop_id: Optional[uuid.UUID] = None) -> dict:
         """Fetch real-time Razorpay account/product status and update database."""
         from fastapi import HTTPException
         import requests
         from app.core.config import get_settings
 
-        result = await self.db.execute(
-            select(Shop).options(selectinload(Shop.settings)).where(Shop.user_id == user_id)
-        )
-        shop = result.scalar_one_or_none()
+        query = select(Shop).options(selectinload(Shop.settings))
+        if shop_id:
+            query = query.where(Shop.id == shop_id)
+        else:
+            query = query.where(Shop.user_id == user_id)
+
+        result = await self.db.execute(query)
+        shop = result.scalars().first()
         if not shop:
             raise HTTPException(status_code=404, detail="Shop not found")
 

@@ -60,8 +60,10 @@ class OrderBase(BaseModel):
     order_type: str  # 'delivery', 'dine_in', 'takeaway'
     table_number: Optional[str] = None
     delivery_address: Optional[str] = None
-    payment_method: str  # 'cash', 'online'
+    payment_method: str  # 'cash', 'online', 'upi', 'card', 'other', 'split'
     payment_status: Optional[str] = "pending"
+    split_payments: Optional[List[dict]] = None
+    price_tier: Optional[str] = "retail"  # 'retail', 'wholesale', 'other'
     total_amount: float
     applied_discount_ids: Optional[List[uuid.UUID]] = None
     applied_discount_codes: Optional[List[str]] = None
@@ -81,6 +83,8 @@ class OrderResponse(OrderBase):
     cashfree_order_id: Optional[str] = None
     payment_session_id: Optional[str] = None
     razorpay_order_id: Optional[str] = None
+    split_payments: Optional[List[dict]] = None
+    price_tier: Optional[str] = "retail"
     applied_discount_ids: Optional[List[uuid.UUID]] = None
     applied_discount_codes: Optional[List[str]] = None
     settlement_status: Optional[str] = None

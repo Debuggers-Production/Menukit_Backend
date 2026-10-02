@@ -1243,8 +1243,9 @@ async def pay_public_order(
     if order.payment_status == "paid":
         raise HTTPException(status_code=400, detail="Order has already been paid")
 
-    # Merchant must accept the order before customer can initiate payment
-    if order.order_status in ["PENDING_VENDOR", "PENDING", "pending"]:
+    # Merchant must accept the order before customer can initiate payment UNLESS accept_after_payment is enabled
+    is_accept_after_payment = getattr(shop_settings, "accept_after_payment", False) if shop_settings else False
+    if not is_accept_after_payment and order.order_status in ["PENDING_VENDOR", "PENDING", "pending"]:
         raise HTTPException(
             status_code=400,
             detail="Order is awaiting restaurant acceptance. Please wait for the restaurant to accept your order before completing payment."
@@ -1512,6 +1513,14 @@ async def verify_public_order_payment(
         except Exception as p_err:
             print(f"Could not fetch razorpay payment amount: {p_err}")
 
+    from app.models.shop_settings import ShopSettings
+    settings_result = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+    shop_settings = settings_result.scalar_one_or_none()
+    is_accept_after_payment = getattr(shop_settings, "accept_after_payment", False) if shop_settings else False
+
+    current_status_upper = str(order.order_status or "").upper()
+    post_payment_status = "PENDING_VENDOR" if (is_accept_after_payment or current_status_upper in ["PENDING_VENDOR", "PENDING"]) else "PAID"
+
     from sqlalchemy import update
     update_stmt = (
         update(Order)
@@ -1519,7 +1528,7 @@ async def verify_public_order_payment(
         .values(
             payment_status="paid",
             payment_method="online",
-            order_status="PAID",
+            order_status=post_payment_status,
             razorpay_order_id=razorpay_order_id,
             payment_session_id=razorpay_payment_id,
             version=Order.version + 1

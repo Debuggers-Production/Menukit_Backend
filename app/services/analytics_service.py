@@ -419,6 +419,7 @@ class AnalyticsService:
                 "invoice_no": inv_no,
                 "payment_id": o.cashfree_order_id or o.payment_session_id or f"PAY-{str(o.id)[:8].upper()}",
                 "payment_method": o.payment_method or "cash",
+                "split_payments": getattr(o, "split_payments", None),
                 "customer_name": o.customer_name or "Guest",
                 "customer_phone": o.customer_phone or "",
                 "total_order_amt": round(float(o.total_amount or 0.0), 2),
@@ -430,6 +431,59 @@ class AnalyticsService:
             })
 
         total_settled_amount = round(total_gross - total_commission_paid, 2)
+
+        # 2b. Compute Payment Modes breakdown (accounting for split payments and individual payment methods)
+        mode_amounts = {"cash": 0.0, "upi": 0.0, "card": 0.0, "online": 0.0, "other": 0.0}
+        mode_counts = {"cash": 0, "upi": 0, "card": 0, "online": 0, "other": 0}
+
+        def categorize_pm(pm_raw: str) -> str:
+            m = str(pm_raw or "cash").strip().lower()
+            if m in ["cash", "cash_on_delivery", "counter", "cod"]:
+                return "cash"
+            elif m in ["upi", "gpay", "phonepe", "paytm", "bhim", "qr"]:
+                return "upi"
+            elif m in ["card", "debit_card", "credit_card", "pos", "swipe"]:
+                return "card"
+            elif m in ["online", "razorpay", "cashfree", "pay_online", "netbanking"]:
+                return "online"
+            return "other"
+
+        for o in orders:
+            raw_amt = float(o.total_amount or 0.0)
+            pm = (o.payment_method or "cash").lower()
+
+            if pm == "split" and getattr(o, "split_payments", None) and isinstance(o.split_payments, list) and len(o.split_payments) > 0:
+                for sp in o.split_payments:
+                    if isinstance(sp, dict):
+                        sp_method = categorize_pm(sp.get("method", "other"))
+                        sp_amt = float(sp.get("amount", 0.0) or 0.0)
+                        mode_amounts[sp_method] += sp_amt
+                        mode_counts[sp_method] += 1
+            else:
+                cat = categorize_pm(pm)
+                mode_amounts[cat] += raw_amt
+                mode_counts[cat] += 1
+
+        mode_labels = {
+            "cash": "Cash (Offline)",
+            "upi": "UPI / QR Code",
+            "online": "Online Gateway",
+            "card": "Card (Debit/Credit)",
+            "other": "Other Methods"
+        }
+
+        payment_modes_breakdown = []
+        for key in ["cash", "upi", "card", "online", "other"]:
+            amt = round(mode_amounts[key], 2)
+            cnt = mode_counts[key]
+            pct = round((amt / total_gross * 100), 1) if total_gross > 0 else 0.0
+            payment_modes_breakdown.append({
+                "mode": key,
+                "label": mode_labels.get(key, key.capitalize()),
+                "amount": amt,
+                "orders_count": cnt,
+                "percentage": pct
+            })
 
         # 3. Growth Ratio
         if prev_revenue > 0:
@@ -544,7 +598,8 @@ class AnalyticsService:
             "top_ordered_items": top_ordered_items,
             "top_ordered_categories": top_ordered_categories,
             "daily_sales": daily_sales,
-            "recent_invoices": recent_invoices
+            "recent_invoices": recent_invoices,
+            "payment_modes_breakdown": payment_modes_breakdown
         }
 
     async def get_gst_report(

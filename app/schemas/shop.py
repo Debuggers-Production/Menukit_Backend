@@ -79,6 +79,7 @@ class ShopSettingsUpdate(BaseModel):
     online_payments_dinein_enabled: Optional[bool] = None
     online_payments_takeaway_enabled: Optional[bool] = None
     online_payments_delivery_enabled: Optional[bool] = None
+    accept_after_payment: Optional[bool] = None
     cashfree_app_id: Optional[str] = None
     cashfree_secret_key: Optional[str] = None
     cashfree_sandbox: Optional[bool] = None
@@ -95,6 +96,10 @@ class ShopSettingsUpdate(BaseModel):
     sgst_rate: Optional[float] = None
     inclusive_tax: Optional[bool] = None
     tax_invoice_notes: Optional[str] = None
+    # Serial Number & SKU settings
+    serial_number_prefix: Optional[str] = None
+    serial_number_digits: Optional[int] = None
+    auto_serial_number_enabled: Optional[bool] = None
 
 
 class ThemeSettingsUpdate(BaseModel):
@@ -163,6 +168,7 @@ class ShopSettingsResponse(BaseModel):
     online_payments_dinein_enabled: bool = True
     online_payments_takeaway_enabled: bool = True
     online_payments_delivery_enabled: bool = True
+    accept_after_payment: bool = False
     # GST & Compliances
     gst_enabled: bool = False
     gstin: Optional[str] = None
@@ -172,6 +178,10 @@ class ShopSettingsResponse(BaseModel):
     sgst_rate: float = 2.5
     inclusive_tax: bool = False
     tax_invoice_notes: Optional[str] = None
+    # Serial Number & SKU settings
+    serial_number_prefix: Optional[str] = ""
+    serial_number_digits: int = 3
+    auto_serial_number_enabled: bool = False
 
     class Config:
         from_attributes = True
