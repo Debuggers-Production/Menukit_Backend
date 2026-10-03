@@ -78,6 +78,7 @@ class TopOrderedFoodItem(BaseModel):
     name: str
     total_quantity: int
     total_revenue: float
+    image_url: Optional[str] = None
 
 
 class DailySalesReportPoint(BaseModel):
@@ -182,4 +183,56 @@ class GstReportSummary(BaseModel):
     limit: int = 20
     total_pages: int = 1
     has_more: bool = False
+
+
+class ProductDailySalesPoint(BaseModel):
+    """Daily quantity and revenue for a product."""
+    date: str
+    quantity_sold: int
+    revenue: float
+    orders_count: int
+
+
+class ProductRecentSaleEntry(BaseModel):
+    """Individual sale entry for product drilldown."""
+    order_id: str
+    created_at: str
+    customer_name: str
+    customer_phone: Optional[str] = None
+    variant_name: Optional[str] = None
+    quantity: int
+    unit_price: float
+    total_price: float
+    payment_method: str
+    order_type: str
+
+
+class ProductSalesItemStat(BaseModel):
+    """Aggregated sales performance for an individual product."""
+    item_id: Optional[str] = None
+    name: str
+    category_name: Optional[str] = None
+    image_url: Optional[str] = None
+    average_unit_price: float
+    total_quantity_sold: int
+    total_revenue: float
+    orders_count: int
+    first_sale_date: Optional[str] = None
+    last_sale_date: Optional[str] = None
+
+
+class ProductSalesAnalyticsSummary(BaseModel):
+    """Overall product sales report with product-by-product breakdown and time-series."""
+    total_products_sold_count: int
+    total_product_revenue: float
+    total_unique_products_sold: int
+    total_orders_count: int
+    selected_product_name: Optional[str] = None
+    selected_product_stats: Optional[ProductSalesItemStat] = None
+    top_selling_product: Optional[ProductSalesItemStat] = None
+    highest_revenue_product: Optional[ProductSalesItemStat] = None
+    products: List[ProductSalesItemStat] = []
+    daily_sales: List[ProductDailySalesPoint] = []
+    recent_sales: List[ProductRecentSaleEntry] = []
+
 

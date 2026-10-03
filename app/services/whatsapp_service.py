@@ -8,11 +8,22 @@ from app.core.config import get_settings
 logger = logging.getLogger("whatsapp_webhook")
 
 
+def _safe_print(msg: str):
+    """Safely prints strings to console even on Windows codepage cp1252."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        try:
+            print(msg.encode("ascii", errors="backslashreplace").decode("ascii"))
+        except Exception:
+            pass
+
+
 class WhatsAppClient:
     def __init__(
         self,
-        access_token: str=get_settings().WHATSAPP_ACCESS_TOKEN,
-        phone_number_id: str=get_settings().WHATSAPP_PHONE_NUMBER_ID,
+        access_token: str = get_settings().WHATSAPP_ACCESS_TOKEN,
+        phone_number_id: str = get_settings().WHATSAPP_PHONE_NUMBER_ID,
     ):
         self.access_token = access_token
         self.phone_number_id = phone_number_id
@@ -32,14 +43,13 @@ class WhatsAppClient:
         cleaned = re.sub(r' {2,}', ' ', cleaned)
         return cleaned.strip() or default
 
-
     def _post(self, payload: dict) -> dict:
         """Internal POST helper with safe error handling and colorized terminal logging."""
         to_phone = payload.get("to", "Unknown")
         template_name = payload.get("template", {}).get("name") or payload.get("type", "text")
         
         # Color logging for WhatsApp dispatch
-        print(f"\033[95m\033[1m📱 [WHATSAPP DISPATCH] ➔ To: {to_phone} | Template: {template_name}\033[0m")
+        _safe_print(f"\033[95m\033[1m📱 [WHATSAPP DISPATCH] ➔ To: {to_phone} | Template: {template_name}\033[0m")
         
         formatted_payload = json.dumps(payload, indent=2)
         logger.info(f"📤 Outgoing WhatsApp Payload:\n{formatted_payload}")
@@ -58,15 +68,15 @@ class WhatsAppClient:
             if response.status_code in (200, 201):
                 resp_json = response.json()
                 msg_id = (resp_json.get("messages") or [{}])[0].get("id", "N/A")
-                print(f"\033[92m\033[1m✅ [WHATSAPP SENT SUCCESS] ➔ To: {to_phone} | Status: {response.status_code} | MsgID: {msg_id}\033[0m")
+                _safe_print(f"\033[92m\033[1m✅ [WHATSAPP SENT SUCCESS] ➔ To: {to_phone} | Status: {response.status_code} | MsgID: {msg_id}\033[0m")
                 logger.info(f"📥 WhatsApp Meta API Response ({response.status_code}): {response.text}")
                 return resp_json
             else:
-                print(f"\033[91m\033[1m❌ [WHATSAPP FAILED] ➔ To: {to_phone} | Status: {response.status_code} | Error: {response.text}\033[0m")
+                _safe_print(f"\033[91m\033[1m❌ [WHATSAPP FAILED] ➔ To: {to_phone} | Status: {response.status_code} | Error: {response.text}\033[0m")
                 logger.error(f"WhatsApp API Error ({response.status_code}): {response.text}")
                 return {"error": response.text, "status_code": response.status_code}
         except Exception as err:
-            print(f"\033[91m\033[1m❌ [WHATSAPP NETWORK ERROR] ➔ To: {to_phone} | Error: {err}\033[0m")
+            _safe_print(f"\033[91m\033[1m❌ [WHATSAPP NETWORK ERROR] ➔ To: {to_phone} | Error: {err}\033[0m")
             logger.error(f"WhatsApp Request Error: {err}")
             return {"error": str(err), "status_code": 500}
 

@@ -114,14 +114,16 @@ async def update_payment_status(
     shop = Depends(require_permission("orders", "write")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update order payment status."""
+    """Update order payment status and optionally payment method."""
     import uuid
     await check_orders_subscription(shop, db)
     service = OrderService(db)
     order = await service.update_payment_status(
         uuid.UUID(order_id), 
         payment_data.payment_status, 
-        shop.id
+        shop.id,
+        payment_method=payment_data.payment_method,
+        split_payments=payment_data.split_payments
     )
     await db.commit()
     return OrderResponse.model_validate(order)
@@ -225,15 +227,22 @@ async def create_manual_order(
     service = OrderService(db)
     order = await service.create_order(shop.id, order_data)
     
-    # Orders created directly via admin panel bypass vendor acceptance and go directly to Awaiting Complete (PREPARING)
-    order.order_status = "PREPARING"
-    if (order_data.payment_status or "").lower() == "paid":
+    is_paid = (order_data.payment_status or "").lower() == "paid"
+    if is_paid:
         order.payment_status = "paid"
+        order.order_status = "PREPARING"
+        # Only dispatches if payment_status == "paid"
+        await service._send_order_status_whatsapp_notification(order)
     else:
         order.payment_status = "pending"
+        order.order_status = "PAYMENT_PENDING"
 
-    # Only dispatches if payment_status == "paid"
-    await service._send_order_status_whatsapp_notification(order)
+        from datetime import datetime, timezone, timedelta
+        order.payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+
+        # If customer phone is provided, send payment link notification
+        if order.customer_phone:
+            await service._send_order_accepted_payment_required_whatsapp_notification(order)
     
     await db.commit()
     await db.refresh(order)

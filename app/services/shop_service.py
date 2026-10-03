@@ -19,6 +19,27 @@ from app.core.exceptions import NotFoundException, ConflictException
 logger = logging.getLogger(__name__)
 
 
+def format_razorpay_route_email(base_email: Optional[str], shop_id: uuid.UUID) -> str:
+    """
+    Format a globally unique email alias for Razorpay Route Linked Accounts.
+    Standard email subaddressing (e.g. user+shophex@gmail.com) allows a single user
+    to register multiple distinct Razorpay linked accounts with independent bank accounts,
+    while ensuring all emails and settlement notifications are delivered to the user's primary inbox.
+    """
+    shop_suffix = str(shop_id).replace("-", "")[:8]
+    if not base_email or "@" not in str(base_email).strip():
+        return f"vendor_{shop_suffix}@menukit.in"
+    
+    clean_email = str(base_email).strip().lower()
+    try:
+        user_part, domain_part = clean_email.split("@", 1)
+        # Strip any existing subaddress tag before appending the shop suffix
+        clean_user = user_part.split("+")[0]
+        return f"{clean_user}+{shop_suffix}@{domain_part}"
+    except Exception:
+        return f"vendor_{shop_suffix}@menukit.in"
+
+
 class ShopService:
     """Handles shop CRUD operations."""
 
@@ -450,13 +471,18 @@ class ShopService:
         if not app_settings.RAZORPAY_KEY_ID or not app_settings.RAZORPAY_KEY_SECRET:
             raise HTTPException(status_code=500, detail="Razorpay credentials missing on server")
             
-        # 1. POST /v2/accounts
+        # 1. Format unique aliased email and POST /v2/accounts
+        raw_email = getattr(data, "owner_email", None)
+        if not raw_email and hasattr(shop, "user") and shop.user:
+            raw_email = getattr(shop.user, "email", None)
+        unique_email = format_razorpay_route_email(raw_email, shop.id)
+
         account_url = "https://api.razorpay.com/v2/accounts"
         account_payload = {
-            "email": data.owner_email,
-            "phone": data.owner_phone,
-            "legal_business_name": data.owner_name[:50],
-            "business_type": data.business_type,
+            "email": unique_email,
+            "phone": getattr(data, "owner_phone", None) or shop.phone or (shop.user.phone if hasattr(shop, "user") and shop.user else None) or "9999999999",
+            "legal_business_name": (getattr(data, "owner_name", None) or (shop.user.full_name if hasattr(shop, "user") and shop.user else None) or shop.name)[:50],
+            "business_type": getattr(data, "business_type", "individual"),
             "customer_facing_business_name": shop.name[:50],
             "type": "route",
             "profile": {
@@ -464,12 +490,12 @@ class ShopService:
                 "subcategory": "restaurant",
                 "addresses": {
                     "registered": {
-                        "street1": data.business_address.street[:50],
+                        "street1": (getattr(data.business_address, "street", None) or shop.address or "Shop Address")[:50],
                         "street2": "N/A",
-                        "city": data.business_address.city,
-                        "state": data.business_address.state,
-                        "postal_code": data.business_address.postal_code,
-                        "country": data.business_address.country
+                        "city": getattr(data.business_address, "city", None) or shop.city or "Chennai",
+                        "state": getattr(data.business_address, "state", None) or "Tamil Nadu",
+                        "postal_code": getattr(data.business_address, "postal_code", 600001) or 600001,
+                        "country": getattr(data.business_address, "country", "IN") or "IN"
                     }
                 }
             }

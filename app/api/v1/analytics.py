@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
 from app.core.deps import get_current_user, require_permission
-from app.schemas.analytics import AnalyticsResponse, OverviewStats, DailyReportResponse, RevenueAnalyticsSummary, GstReportSummary
+from app.schemas.analytics import AnalyticsResponse, OverviewStats, DailyReportResponse, RevenueAnalyticsSummary, GstReportSummary, ProductSalesAnalyticsSummary
 from app.services.analytics_service import AnalyticsService
 from app.models.user import User
 
@@ -23,6 +23,29 @@ async def check_analytics_subscription(shop, db: AsyncSession):
             status_code=403,
             detail="Subscription required: Analytics features are locked due to an inactive or missing analytics module. Please purchase an Analytics module."
         )
+
+
+@router.get("/product-sales", response_model=ProductSalesAnalyticsSummary)
+async def get_product_sales_analytics(
+    days: int = 30,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    product_name: str | None = None,
+    search: str | None = None,
+    shop = Depends(require_permission("analytics", "read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get comprehensive product-level sales analytics with overall and individual product reports."""
+    await check_analytics_subscription(shop, db)
+    service = AnalyticsService(db)
+    return await service.get_product_sales_analytics(
+        shop.id,
+        days=days,
+        start_date=start_date,
+        end_date=end_date,
+        product_name=product_name,
+        search=search,
+    )
 
 
 @router.get("/revenue", response_model=RevenueAnalyticsSummary)

@@ -11,11 +11,11 @@ class EmailService:
     """Pluggable email service. Console/Mock and SMTP backends."""
 
     def __init__(self):
-        self.mock_mode = getattr(settings, "MOC_EMAIL", False) or settings.EMAIL_BACKEND in ("console", "mock")
+        self.mock_mode = getattr(settings, "MOC_OTP", False) or getattr(settings, "MOC_EMAIL", False) or settings.EMAIL_BACKEND in ("console", "mock")
 
     async def send_otp_email(self, email: str, otp_code: str) -> bool:
         """Send OTP code to the given email address."""
-        if self.mock_mode or settings.EMAIL_BACKEND in ("console", "mock"):
+        if getattr(settings, "MOC_OTP", False) or self.mock_mode or settings.EMAIL_BACKEND in ("console", "mock"):
             return await self._send_console(email, otp_code)
         elif settings.EMAIL_BACKEND == "smtp":
             return await self._send_smtp(email, otp_code)
@@ -101,15 +101,17 @@ class EmailService:
         """Log mock OTP to console (development/mock mode)."""
         GREEN = "\033[92m"
         CYAN = "\033[96m"
+        YELLOW = "\033[93m"
         RESET = "\033[0m"
         BOLD = "\033[1m"
         
-        logger.info(f"📧 OTP Email to {email}: {otp_code}")
-        print(f"\n{CYAN}{'=' * 50}{RESET}")
-        print(f"{CYAN}📧 OTP Email to: {BOLD}{email}{RESET}")
-        print(f"{GREEN}🔑 OTP Code: {BOLD}{otp_code}{RESET}")
-        print(f"{CYAN}⏰ Valid for {settings.OTP_EXPIRE_SECONDS // 60} minutes{RESET}")
-        print(f"{CYAN}{'=' * 50}\n{RESET}")
+        logger.info(f"[MOCK OTP] Email to {email}: {otp_code}")
+        print(f"\n{CYAN}{'=' * 60}{RESET}")
+        print(f"{YELLOW}>>> [MOCK OTP ACTIVE - NO REAL EMAIL SENT] <<<{RESET}")
+        print(f"{CYAN}* Email Recipient : {BOLD}{email}{RESET}")
+        print(f"{GREEN}* Email OTP Code  : {BOLD}{otp_code}{RESET}")
+        print(f"{CYAN}* Valid for       : {settings.OTP_EXPIRE_SECONDS // 60} minutes{RESET}")
+        print(f"{CYAN}{'=' * 60}\n{RESET}")
         return True
 
     async def _send_smtp(self, email: str, otp_code: str) -> bool:
@@ -274,3 +276,5 @@ class EmailService:
         except Exception as e:
             logger.error(f"Failed to dispatch email to {email}: {e}")
             return False
+
+email_service = EmailService()

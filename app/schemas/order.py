@@ -107,3 +107,5 @@ class OrderStatusUpdate(BaseModel):
 
 class PaymentStatusUpdate(BaseModel):
     payment_status: str  # 'pending', 'paid', 'failed', 'refunded'
+    payment_method: Optional[str] = None  # 'cash', 'upi', 'card', 'online', 'split', 'other'
+    split_payments: Optional[List[dict]] = None

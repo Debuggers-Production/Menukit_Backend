@@ -395,6 +395,18 @@ async def get_public_items(
     db: AsyncSession = Depends(get_db),
 ):
     """Get items for a shop with filtering, discount applicability, and sorting options."""
+    import json
+    from app.database.redis import get_redis
+    r_client = await get_redis()
+    cache_key = f"public:items:{str(shop_id)}:{str(category_id or '')}:{str(discount_id or '')}:{str(search or '')}:{str(food_type or '')}:{str(status or '')}:{str(sort_by or '')}:{include_unavailable}:{limit}:{offset}"
+    
+    try:
+        cached_items = await r_client.get(cache_key)
+        if cached_items:
+            return json.loads(cached_items)
+    except Exception:
+        pass
+
     from app.models.menu_item import MenuItem
     from sqlalchemy.orm import selectinload
     
@@ -470,6 +482,11 @@ async def get_public_items(
     all_items = items_result.scalars().all()
     
     result = [_item_response(i) for i in all_items]
+    try:
+        data_list = [r.model_dump() if hasattr(r, "model_dump") else r for r in result]
+        await r_client.setex(cache_key, 180, json.dumps(data_list, default=str))
+    except Exception:
+        pass
     return result
 
 @router.get("/menu", response_model=List[PublicCategoryResponse])
@@ -665,14 +682,11 @@ async def get_active_discounts_public(
     service = DiscountService(db)
     discounts = await service.get_active_discounts(shop.id)
 
-    is_authenticated = False
     cust_phone = None
     if Authorization:
         from app.core.security import verify_customer_token
         token = Authorization.replace("Bearer ", "") if "Bearer " in Authorization else Authorization
         cust_phone = verify_customer_token(token)
-        if cust_phone:
-            is_authenticated = True
 
     # Filter out discounts that this customer has already claimed / redeemed
     from app.models.discount import DiscountRedemption, CustomerDiscountCode
@@ -732,30 +746,69 @@ async def get_active_discounts_public(
                     if did:
                         claimed_discount_ids.add(str(did))
 
-    # Resolve customer object if phone is available
+    # Resolve customer object & membership status
     cust_identifier = (cust_phone or customer_id or "").strip()
     customer_obj = None
+    is_member = False
+
     if cust_identifier:
         from app.models.customer import Customer
+        from app.models.membership import CustomerRetailerMembership
         mobile_variants = _get_phone_variants(cust_identifier)
         if mobile_variants:
             c_res = await db.execute(select(Customer).where(Customer.mobile_number.in_(mobile_variants)))
             customer_obj = c_res.scalars().first()
 
+            if customer_obj:
+                mem_res = await db.execute(
+                    select(CustomerRetailerMembership).where(
+                        CustomerRetailerMembership.shop_id == shop.id,
+                        CustomerRetailerMembership.customer_id == customer_obj.id,
+                        CustomerRetailerMembership.is_retailer_added == True
+                    )
+                )
+                if mem_res.scalar_one_or_none():
+                    is_member = True
+
             cd_res = await db.execute(
-                select(CustomerDiscountCode.discount_id).where(
+                select(CustomerDiscountCode).where(
                     CustomerDiscountCode.shop_id == shop.id,
                     CustomerDiscountCode.customer_identifier.in_(mobile_variants),
                     CustomerDiscountCode.is_redeemed == True
                 )
             )
-            claimed_discount_ids.update({str(did) for did in cd_res.scalars().all()})
+            for cd in cd_res.scalars().all():
+                chk_act = await db.execute(
+                    select(DiscountRedemption)
+                    .outerjoin(Order, DiscountRedemption.order_id == Order.id)
+                    .where(
+                        DiscountRedemption.shop_id == shop.id,
+                        DiscountRedemption.discount_id == cd.discount_id,
+                        DiscountRedemption.status == "active",
+                        or_(
+                            DiscountRedemption.order_id.is_(None),
+                            func.lower(Order.order_status).notin_(["cancelled", "rejected"])
+                        ),
+                        or_(
+                            func.upper(DiscountRedemption.code) == (cd.code or "").upper(),
+                            DiscountRedemption.customer_identifier.in_(mobile_variants)
+                        )
+                    )
+                )
+                if chk_act.scalars().first():
+                    claimed_discount_ids.add(str(cd.discount_id))
+                else:
+                    # Auto-heal: order was cancelled, unmark redeemed state
+                    cd.is_redeemed = False
+                    cd.redeemed_at = None
+                    await db.commit()
 
     from app.api.v1.discounts import _discount_response
 
     result = []
     for d in discounts:
-        if not is_authenticated and d.visibility_type == 'members_only_hidden':
+        # Strictly block hidden members-only discounts from response unless customer is a verified shop member
+        if d.visibility_type in ['members_only_hidden', 'members_only'] and not is_member:
             continue
 
         is_used = str(d.id) in claimed_discount_ids
@@ -850,11 +903,18 @@ async def verify_discount_code(
     now = datetime.now(timezone.utc)
     
     # 0. Check if code has already been verified / redeemed in DiscountRedemption
+    from app.models.order import Order
     redemption_res = await db.execute(
-        select(DiscountRedemption).where(
+        select(DiscountRedemption)
+        .outerjoin(Order, DiscountRedemption.order_id == Order.id)
+        .where(
             DiscountRedemption.shop_id == shop.id,
             DiscountRedemption.status == "active",
-            func.upper(DiscountRedemption.code) == code_clean
+            func.upper(DiscountRedemption.code) == code_clean,
+            or_(
+                DiscountRedemption.order_id.is_(None),
+                func.lower(Order.order_status).notin_(["cancelled", "rejected"])
+            )
         )
         .order_by(DiscountRedemption.redeemed_at.desc())
     )
@@ -882,10 +942,36 @@ async def verify_discount_code(
     if assigned_obj:
         redeemed_assigned = next((a for a in assigned_objs if a.is_redeemed), None)
         if redeemed_assigned:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Discount already used. This discount code '{code_clean}' has already been redeemed and cannot be reused."
+            # Check if an active redemption actually exists
+            chk_act_res = await db.execute(
+                select(DiscountRedemption)
+                .outerjoin(Order, DiscountRedemption.order_id == Order.id)
+                .where(
+                    DiscountRedemption.shop_id == shop.id,
+                    DiscountRedemption.discount_id == redeemed_assigned.discount_id,
+                    DiscountRedemption.status == "active",
+                    or_(
+                        DiscountRedemption.order_id.is_(None),
+                        func.lower(Order.order_status).notin_(["cancelled", "rejected"])
+                    ),
+                    or_(
+                        func.upper(DiscountRedemption.code) == code_clean,
+                        DiscountRedemption.customer_identifier == (redeemed_assigned.customer_identifier or "")
+                    )
+                )
             )
+            act_red = chk_act_res.scalars().first()
+            if act_red:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Discount already used. This discount code '{code_clean}' has already been redeemed and cannot be reused."
+                )
+            else:
+                # Auto-heal: order was cancelled
+                for a in assigned_objs:
+                    a.is_redeemed = False
+                    a.redeemed_at = None
+                await db.commit()
         discount = assigned_obj.discount
 
     # 2. Check merchant-defined static code
@@ -899,6 +985,50 @@ async def verify_discount_code(
             .order_by(Discount.created_at.desc())
         )
         discount = result.scalars().first()
+
+    # 3. Token-based parsing fallback (must be full PREFIX-DISCTOKEN-CUSTTOKEN e.g. FLAT10-5540-2839)
+    if not discount and "-" in code_clean and not code_clean.endswith("-"):
+        parts = [p.strip() for p in code_clean.split("-")]
+        if len(parts) >= 3 and all(parts):
+            disc_token = parts[-2]
+            cust_token = parts[-1]
+            prefix = "-".join(parts[:-2])
+
+            if len(disc_token) == 4 and len(cust_token) >= 3 and disc_token != cust_token:
+                assigned_check = await db.execute(
+                    select(CustomerDiscountCode).where(
+                        CustomerDiscountCode.shop_id == shop.id,
+                        or_(
+                            func.upper(CustomerDiscountCode.code) == code_clean,
+                            CustomerDiscountCode.customer_identifier.ilike(f"%{cust_token}%")
+                        )
+                    )
+                )
+                matching_assigned = assigned_check.scalars().first()
+
+                from app.models.customer import Customer
+                cust_match = None
+                if cust_token.isdigit() and len(cust_token) >= 3:
+                    c_res = await db.execute(
+                        select(Customer).where(Customer.mobile_number.like(f"%{cust_token}"))
+                    )
+                    cust_match = c_res.scalars().first()
+
+                if matching_assigned or cust_match:
+                    catalog_disc_res = await db.execute(
+                        select(Discount).where(
+                            Discount.menu_catalog_id == shop.menu_catalog_id
+                        )
+                    )
+                    catalog_discounts = catalog_disc_res.scalars().all()
+                    for d in catalog_discounts:
+                        d_token = str(d.id).replace("-", "")[:4].upper()
+                        d_code = (d.code or "").strip().upper()
+                        raw_title = "".join(filter(str.isalnum, d.title or "OFFER")).upper()[:6]
+
+                        if d_token == disc_token and (prefix == d_code or prefix == raw_title or prefix == "OFFER"):
+                            discount = d
+                            break
 
     if not discount:
         raise HTTPException(
@@ -1085,7 +1215,19 @@ async def get_public_shop_qr(
     shop_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get public QR code style details for a shop. Automatically generates a default one if not found."""
+    """Get public QR code style details for a shop. Automatically generates a default one if not found (Cached)."""
+    import json
+    from app.database.redis import get_redis
+    r_client = await get_redis()
+    cache_key = f"public:qr:{str(shop_id)}"
+    
+    try:
+        cached_qr = await r_client.get(cache_key)
+        if cached_qr:
+            return json.loads(cached_qr)
+    except Exception:
+        pass
+
     from app.models.qr_code import QRCode
     from app.models.shop import Shop
     
@@ -1116,7 +1258,13 @@ async def get_public_shop_qr(
         await db.commit()
         await db.refresh(qr)
         
-    return QRCodeResponse.model_validate(qr)
+    resp = QRCodeResponse.model_validate(qr)
+    try:
+        data_dict = resp.model_dump() if hasattr(resp, "model_dump") else resp
+        await r_client.setex(cache_key, 300, json.dumps(data_dict, default=str))
+    except Exception:
+        pass
+    return resp
 
 
 @router.post("/orders", response_model=OrderResponse)
@@ -1269,16 +1417,13 @@ async def pay_public_order(
     target_currency = CURRENCY_MAP.get(raw_curr, "INR")
     curr_symbol = raw_curr if raw_curr in ["₹", "$", "€", "£", "¥", "A$", "C$", "S$", "AED", "SAR", "RM"] else target_currency
 
-    from app.core.pricing import calculate_order_pricing
+    from app.core.pricing import calculate_order_pricing, calculate_order_replacement_credit
 
-    # Replaced items credit deduction: minus previously paid replaced items amount
-    replaced_credit = sum(
-        float(it.price or 0.0) * int(it.quantity or 1)
-        for it in (order.items or [])
-        if it.is_cancelled and str(it.cancellation_reason or "").startswith("Replaced with")
-    )
+    # Replaced items credit deduction: accurate tracking of predecessor replaced items
+    has_prior_payment = bool(order.payment_session_id or order.razorpay_order_id or order.refund_id or str(order.payment_status or "").lower() in ["paid", "partially_refunded"])
+    replaced_credit = calculate_order_replacement_credit(order.items or [], is_paid=False)
 
-    base_total = max(0.0, float(order.total_amount) - replaced_credit) if replaced_credit > 0 else float(order.total_amount)
+    base_total = max(0.0, round(float(order.total_amount) - replaced_credit, 2)) if replaced_credit > 0 else float(order.total_amount)
     pricing = calculate_order_pricing(base_total, is_online=True)
     platform_fee = pricing.platform_fee
     pg_fee = pricing.gateway_fee
@@ -1476,9 +1621,9 @@ async def verify_public_order_payment(
                                 shop_id=str(shop_id),
                                 order_id=str(order.id),
                             )
-                            print(f"\033[96m\033[1m📱 [WHATSAPP REFUND] Sent refund notification to {order.customer_phone} for order {order_ref}\033[0m")
+                            print(f"[WHATSAPP REFUND] Sent refund notification to {order.customer_phone} for order {order_ref}")
                         except Exception as wa_e:
-                            print(f"\033[91m[WHATSAPP] Refund notification failed for order {order_ref}: {wa_e}\033[0m")
+                            print(f"[WHATSAPP] Refund notification failed for order {order_ref}: {wa_e}")
                     try:
                         loop = _asyncio.get_running_loop()
                         loop.run_in_executor(None, _send_refund_wa)
@@ -1486,11 +1631,11 @@ async def verify_public_order_payment(
                         _send_refund_wa()
 
             except Exception as e:
-                print(f"\033[91m\033[1m❌ [RACE REFUND FAILED] Order {order_ref} → {e}\033[0m")
+                print(f"[RACE REFUND FAILED] Order {order_ref} -> {e}")
         else:
             # Mock mode — treat as refunded
             refund_done = True
-            print(f"\033[93m[MOCK] Order {order_ref} cancelled — simulating refund of ₹{float(order.total_amount):.2f}\033[0m")
+            print(f"[MOCK] Order {order_ref} cancelled — simulating refund of {float(order.total_amount):.2f}")
 
         # Only mark as "refunded" if refund actually went through; else flag for manual review
         order.payment_status = "refunded" if refund_done else "refund_pending"
@@ -1596,6 +1741,9 @@ async def cancel_unpaid_public_order(
     if order.payment_status != "paid":
         order.order_status = "cancelled"
         order.payment_status = "cancelled"
+        from app.services.order_service import OrderService
+        order_svc = OrderService(db)
+        await order_svc._restore_discount_usages_for_order(order)
         await db.commit()
 
     return {"status": "success", "message": "Order cancelled"}

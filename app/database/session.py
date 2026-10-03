@@ -182,8 +182,21 @@ async def init_chalkboard_table():
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS fssai_license VARCHAR(50);
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS cgst_rate FLOAT NOT NULL DEFAULT 2.5;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS sgst_rate FLOAT NOT NULL DEFAULT 2.5;
-        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS inclusive_tax BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS tax_invoice_notes VARCHAR(500);
+
+        -- 8. High-performance composite query indexes
+        CREATE INDEX IF NOT EXISTS ix_orders_shop_created ON orders(shop_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS ix_orders_customer_phone ON orders(customer_phone);
+        CREATE INDEX IF NOT EXISTS ix_orders_shop_status ON orders(shop_id, order_status);
+        CREATE INDEX IF NOT EXISTS ix_order_items_order_id ON order_items(order_id);
+        CREATE INDEX IF NOT EXISTS ix_order_items_menu_item_id ON order_items(menu_item_id);
+        CREATE INDEX IF NOT EXISTS ix_menu_items_catalog_avail ON menu_items(menu_catalog_id, is_available);
+        CREATE INDEX IF NOT EXISTS ix_menu_items_cat_display ON menu_items(category_id, display_order);
+        CREATE INDEX IF NOT EXISTS ix_categories_catalog_active ON categories(menu_catalog_id, is_active, display_order);
+        CREATE INDEX IF NOT EXISTS ix_discounts_catalog_active ON discounts(menu_catalog_id, is_active);
+        CREATE INDEX IF NOT EXISTS ix_customer_codes_cust_ident ON customer_discount_codes(customer_identifier);
+        CREATE INDEX IF NOT EXISTS ix_discount_redemptions_cust_ident ON discount_redemptions(customer_identifier);
+        CREATE INDEX IF NOT EXISTS ix_discount_redemptions_shop_status ON discount_redemptions(shop_id, status);
     """
 
     try:

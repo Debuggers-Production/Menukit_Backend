@@ -42,50 +42,46 @@ if settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET:
 
 
 @router.post("/additional-shop-order")
+@router.post("/create-shop-order")
 async def create_additional_shop_order(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create Razorpay order for ₹50 additional shop add-on fee (or return free if 1st shop/exempt)."""
-    service = ShopService(db)
-    shops_info = await service.get_shops_for_user(user.id)
-    owned_count = len(shops_info.get("owned", []))
-    is_exempt = is_phone_exempt(user.phone)
-    
-    # First shop or exempt phone number is free
-    if owned_count == 0 or is_exempt:
-        return {
-            "required": False,
-            "amount": 0,
-            "currency": "INR",
-            "message": "Free shop creation included"
-        }
-        
-    amount_inr = 50.0
-    amount_paise = 5000
+    """Create Razorpay order for ₹50 shop creation fee + 3% payment gateway fee + 18% GST."""
+    base_amount = 50.0
+    pg_fee = round(base_amount * 0.03, 2)         # ₹1.50 (3%)
+    gst_on_fee = round(pg_fee * 0.18, 2)         # ₹0.27 (18% on ₹1.50)
+    total_amount = round(base_amount + pg_fee + gst_on_fee, 2) # ₹51.77
+    amount_paise = int(round(total_amount * 100)) # 5177 paise
     
     # Check mock payment mode
     if getattr(settings, "MOCK_PAYMENT_MODE", False) or not razorpay_client:
-        mock_order_id = f"order_mock_add_shop_{uuid.uuid4().hex[:12]}"
+        mock_order_id = f"order_mock_shop_{uuid.uuid4().hex[:12]}"
         return {
             "required": True,
             "mock_mode": True,
             "order_id": mock_order_id,
-            "amount": amount_inr,
+            "base_amount": base_amount,
+            "pg_fee": pg_fee,
+            "gst_on_fee": gst_on_fee,
+            "amount": total_amount,
             "currency": "INR",
             "key_id": "rzp_mock_key"
         }
         
     try:
-        receipt_id = f"add_shop_{str(user.id)[:8]}_{int(datetime.now().timestamp())}"
+        receipt_id = f"shop_{str(user.id)[:8]}_{int(datetime.now().timestamp())}"
         order_payload = {
             "amount": amount_paise,
             "currency": "INR",
             "receipt": receipt_id,
             "notes": {
                 "user_id": str(user.id),
-                "type": "additional_shop_addon",
-                "price": "50"
+                "type": "shop_creation_fee",
+                "base_price": "50",
+                "pg_fee": str(pg_fee),
+                "gst_on_fee": str(gst_on_fee),
+                "total_price": str(total_amount)
             }
         }
         razorpay_order = razorpay_client.order.create(data=order_payload)
@@ -93,18 +89,24 @@ async def create_additional_shop_order(
             "required": True,
             "mock_mode": False,
             "order_id": razorpay_order["id"],
-            "amount": amount_inr,
+            "base_amount": base_amount,
+            "pg_fee": pg_fee,
+            "gst_on_fee": gst_on_fee,
+            "amount": total_amount,
             "currency": "INR",
             "key_id": settings.RAZORPAY_KEY_ID
         }
     except Exception as e:
-        logger.error(f"Failed to create Razorpay order for additional shop: {e}")
-        mock_order_id = f"order_mock_add_shop_{uuid.uuid4().hex[:12]}"
+        logger.error(f"Failed to create Razorpay order for shop creation: {e}")
+        mock_order_id = f"order_mock_shop_{uuid.uuid4().hex[:12]}"
         return {
             "required": True,
             "mock_mode": True,
             "order_id": mock_order_id,
-            "amount": amount_inr,
+            "base_amount": base_amount,
+            "pg_fee": pg_fee,
+            "gst_on_fee": gst_on_fee,
+            "amount": total_amount,
             "currency": "INR",
             "key_id": "rzp_mock_key"
         }
@@ -116,7 +118,7 @@ async def create_shop(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new shop profile (with ₹50 add-on fee for additional shops)."""
+    """Create a new shop profile (with ₹50 one-time fee for every new shop)."""
     if not user.phone or not user.phone_verified:
         raise HTTPException(
             status_code=403,
@@ -126,31 +128,29 @@ async def create_shop(
     service = ShopService(db)
     shops_info = await service.get_shops_for_user(user.id)
     owned_count = len(shops_info.get("owned", []))
-    is_exempt = is_phone_exempt(user.phone)
 
-    # If user already owns >= 1 shop and is not exempt, require & verify payment
-    if owned_count >= 1 and not is_exempt:
-        has_payment = bool(data.razorpay_payment_id or data.razorpay_order_id)
-        is_mock_payment = (
-            getattr(settings, "MOCK_PAYMENT_MODE", False) or 
-            str(data.razorpay_payment_id or "").startswith("pay_mock_") or
-            str(data.razorpay_order_id or "").startswith("order_mock_")
+    # Every new shop creation strictly requires ₹50 payment
+    has_payment = bool(data.razorpay_payment_id or data.razorpay_order_id)
+    is_mock_payment = (
+        getattr(settings, "MOCK_PAYMENT_MODE", False) or 
+        str(data.razorpay_payment_id or "").startswith("pay_mock_") or
+        str(data.razorpay_order_id or "").startswith("order_mock_")
+    )
+    
+    if not has_payment and not is_mock_payment:
+        raise HTTPException(
+            status_code=402,
+            detail="Shop creation requires a ₹50 one-time fee. Please complete payment before creating a shop."
         )
         
-        if not has_payment and not is_mock_payment:
-            raise HTTPException(
-                status_code=402,
-                detail="Additional shop requires a ₹50/month add-on fee. Please complete payment."
-            )
-            
-        if not is_mock_payment and settings.RAZORPAY_KEY_SECRET and data.razorpay_signature:
-            generated_sig = hmac.new(
-                settings.RAZORPAY_KEY_SECRET.encode(),
-                f"{data.razorpay_order_id}|{data.razorpay_payment_id}".encode(),
-                hashlib.sha256
-            ).hexdigest()
-            if generated_sig != data.razorpay_signature:
-                raise HTTPException(status_code=400, detail="Invalid payment signature")
+    if not is_mock_payment and settings.RAZORPAY_KEY_SECRET and data.razorpay_signature:
+        generated_sig = hmac.new(
+            settings.RAZORPAY_KEY_SECRET.encode(),
+            f"{data.razorpay_order_id}|{data.razorpay_payment_id}".encode(),
+            hashlib.sha256
+        ).hexdigest()
+        if generated_sig != data.razorpay_signature:
+            raise HTTPException(status_code=400, detail="Invalid payment signature")
 
     shop_dict = data.model_dump(exclude_none=True)
     order_id = shop_dict.pop("razorpay_order_id", None)
@@ -185,19 +185,19 @@ async def create_shop(
         try:
             tx = PaymentTransaction(
                 shop_id=shop.id,
-                razorpay_order_id=order_id or f"order_addon_{uuid.uuid4().hex[:10]}",
-                razorpay_payment_id=payment_id or f"pay_addon_{uuid.uuid4().hex[:10]}",
+                razorpay_order_id=order_id or f"order_shop_{uuid.uuid4().hex[:10]}",
+                razorpay_payment_id=payment_id or f"pay_shop_{uuid.uuid4().hex[:10]}",
                 razorpay_signature=signature or "verified",
                 amount=50.0,
                 currency="INR",
                 status="success",
                 is_all_access=False,
-                purchased_modules=["additional-shop"],
-                billing_cycle="monthly"
+                purchased_modules=["shop-creation"],
+                billing_cycle="one-time"
             )
             db.add(tx)
         except Exception as e:
-            logger.warning(f"Failed to record additional shop payment transaction: {e}")
+            logger.warning(f"Failed to record shop creation payment transaction: {e}")
 
     await db.commit()
     return _shop_to_response(shop)

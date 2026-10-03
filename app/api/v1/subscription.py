@@ -506,35 +506,21 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
             created_at = created_at.replace(tzinfo=timezone.utc)
         period_end = created_at + timedelta(days=settings.FREE_TRIAL_DAYS)
 
-    grace_period_days = settings.GRACE_PERIOD_DAYS
-    grace_end = period_end + timedelta(days=grace_period_days)
-
+    grace_period_days = 0
     is_trial = getattr(subscription, "is_trial", False)
-    is_active = True
-    is_expired = False
     is_grace_period = False
-    status_msg = ""
+    grace_days_left = 0
 
     if now <= period_end:
         is_active = True
         is_expired = False
-        is_grace_period = False
         days_left = max(0, int(math.ceil((period_end - now).total_seconds() / 86400)))
-        grace_days_left = grace_period_days
         status_msg = f"Free Trial active ({days_left} day{'s' if days_left != 1 else ''} left)" if is_trial else f"Active subscription ({days_left} day{'s' if days_left != 1 else ''} left)"
-    elif now <= grace_end:
-        is_active = True  # Grace period allows continued use with banner warning
-        is_expired = False
-        is_grace_period = True
-        days_left = 0
-        grace_days_left = max(0, int(math.ceil((grace_end - now).total_seconds() / 86400)))
-        status_msg = f"Free Trial ended. Grace period active ({grace_days_left} day{'s' if grace_days_left != 1 else ''} left)." if is_trial else f"Subscription ended. Grace period active ({grace_days_left} day{'s' if grace_days_left != 1 else ''} left)."
     else:
+        # Strictly expired immediately when period ends - zero grace period
         is_active = False
         is_expired = True
-        is_grace_period = False
         days_left = 0
-        grace_days_left = 0
         status_msg = "Free Trial ended. Features locked. Please renew to continue." if is_trial else "Subscription ended. Features locked. Please renew to continue."
 
     # Environment Mock Override for UI Banner Testing
@@ -542,23 +528,12 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
     if mock_state == "ending_soon":
         is_active = True
         is_expired = False
-        is_grace_period = False
         days_left = 2
-        grace_days_left = grace_period_days
         status_msg = "Mock: Free Trial / Subscription Ending Soon (2 days left)"
-    elif mock_state == "grace_period":
-        is_active = True
-        is_expired = False
-        is_grace_period = True
-        days_left = 0
-        grace_days_left = min(grace_period_days, 2)
-        status_msg = f"Mock: Grace Period Active ({grace_days_left} days left)"
     elif mock_state == "expired":
         is_active = False
         is_expired = True
-        is_grace_period = False
         days_left = 0
-        grace_days_left = 0
         status_msg = "Mock: Subscription Ended. Features Locked."
 
     # 4. Format per-module expiration details and dynamic active modules
@@ -573,13 +548,9 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
 
     for mod in all_eval_mods:
         mod_exp_dt = parsed_expirations.get(mod, fallback_dt)
-        mod_grace_end = mod_exp_dt + timedelta(days=grace_period_days)
         
         if now <= mod_exp_dt:
             mod_days_left = max(0, int(math.ceil((mod_exp_dt - now).total_seconds() / 86400)))
-            is_mod_active = True
-        elif now <= mod_grace_end:
-            mod_days_left = 0
             is_mod_active = True
         else:
             mod_days_left = 0
@@ -593,8 +564,8 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
             "days_left": mod_days_left
         }
 
-    # If all modules expired past grace period, ensure global is_active is False
-    if not dynamic_active_modules and not is_grace_period:
+    # If all modules expired, ensure global is_active is False
+    if not dynamic_active_modules:
         is_active = False
         is_expired = True
         status_msg = "Free Trial ended. Features locked. Please renew to continue." if is_trial else "Subscription ended. Features locked. Please renew to continue."

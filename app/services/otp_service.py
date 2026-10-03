@@ -25,6 +25,10 @@ class OTPService:
 
     async def _check_rate_limit(self, email: str, rate_limit_type: str = "login") -> bool:
         """Check if the email has exceeded the OTP rate limit."""
+        app_env = str(getattr(settings, "APP_ENV", "")).lower()
+        if app_env in ["development", "dev", "local"] or getattr(settings, "DEBUG", False):
+            return True
+
         key = f"{self.rate_prefix}{rate_limit_type}:{email}"
         count = await self.redis.get(key)
         # For deletion, allow up to 10 requests per window
@@ -35,6 +39,10 @@ class OTPService:
 
     async def _increment_rate_limit(self, email: str, rate_limit_type: str = "login"):
         """Increment the rate limit counter for an email."""
+        app_env = str(getattr(settings, "APP_ENV", "")).lower()
+        if app_env in ["development", "dev", "local"] or getattr(settings, "DEBUG", False):
+            return
+
         key = f"{self.rate_prefix}{rate_limit_type}:{email}"
         pipe = self.redis.pipeline()
         pipe.incr(key)

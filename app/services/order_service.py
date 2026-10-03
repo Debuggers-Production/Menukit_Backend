@@ -640,14 +640,49 @@ class OrderService:
         # 3. Create OrderItem instances
         order_id = uuid.uuid4()
         items_list = []
+        current_price_tier = getattr(data, "price_tier", "retail") or "retail"
+
         for it in data.items:
+            unit_price = it.price
+            menu_item = item_map.get(it.menu_item_id)
+            if menu_item:
+                resolved_base = None
+                if menu_item.variants and it.variant_info:
+                    var_name = (it.variant_info.get("name") or "").strip().lower()
+                    target_var = next((v for v in menu_item.variants if (v.get("name") or "").strip().lower() == var_name), None)
+                    if target_var:
+                        if current_price_tier == "wholesale" and target_var.get("wholesale_price") and float(target_var.get("wholesale_price")) > 0:
+                            resolved_base = float(target_var.get("wholesale_price"))
+                        elif current_price_tier == "other" and target_var.get("other_price") and float(target_var.get("other_price")) > 0:
+                            resolved_base = float(target_var.get("other_price"))
+                        else:
+                            vp = float(target_var.get("price") or 0.0)
+                            vop = float(target_var.get("offer_price") or 0.0)
+                            resolved_base = vop if (vop > 0 and vop < vp) else (vop if vop > 0 else vp)
+                if resolved_base is None:
+                    if current_price_tier == "wholesale" and menu_item.wholesale_price and float(menu_item.wholesale_price) > 0:
+                        resolved_base = float(menu_item.wholesale_price)
+                    elif current_price_tier == "other" and menu_item.other_price and float(menu_item.other_price) > 0:
+                        resolved_base = float(menu_item.other_price)
+                    else:
+                        p = float(menu_item.price or 0.0)
+                        op = float(menu_item.offer_price or 0.0)
+                        resolved_base = op if (op > 0 and op < p) else (op if op > 0 else p)
+
+                addons_sum = sum(float(a.get("price", 0)) for a in (it.addons_info or []))
+                expected_unit_price = round(resolved_base + addons_sum, 2)
+
+                # If unit_price was not supplied, is <= 0, or is higher than active offer_price in retail mode
+                if unit_price is None or unit_price <= 0 or (current_price_tier == "retail" and resolved_base < float(menu_item.price or 0.0) and unit_price >= float(menu_item.price or 0.0)):
+                    unit_price = expected_unit_price
+
             item = OrderItem(
                 id=uuid.uuid4(),
                 order_id=order_id,
                 menu_item_id=it.menu_item_id,
                 name=it.name,
                 quantity=it.quantity,
-                price=it.price,
+                price=unit_price if unit_price is not None else it.price,
                 variant_info=it.variant_info,
                 addons_info=it.addons_info,
             )
@@ -1104,7 +1139,14 @@ class OrderService:
                 print(f"Failed to fetch payments for razorpay order {rzp_id}: {e}")
         return str(rzp_id)
 
-    async def update_payment_status(self, order_id: uuid.UUID, payment_status: str, shop_id: uuid.UUID) -> Order:
+    async def update_payment_status(
+        self, 
+        order_id: uuid.UUID, 
+        payment_status: str, 
+        shop_id: uuid.UUID,
+        payment_method: Optional[str] = None,
+        split_payments: Optional[list] = None
+    ) -> Order:
         """Update the payment status of an order (merchant only). If 'refunded' and paid online, triggers Razorpay refund."""
         from app.models.shop_settings import ShopSettings
         import httpx
@@ -1186,6 +1228,10 @@ class OrderService:
 
 
         order.payment_status = payment_status
+        if payment_method:
+            order.payment_method = payment_method
+        if split_payments is not None:
+            order.split_payments = split_payments
         
         # If manually marked as paid, advance the order status if pending, and notify WhatsApp
         if payment_status.lower() == "paid":
@@ -1361,61 +1407,17 @@ class OrderService:
                 if not it.cancellation_reason:
                     it.cancellation_reason = cancellation_reason or "Order cancelled"
 
-            # Case A: Customer already completed payment → auto-refund immediately via Razorpay
-            # order.payment_session_id stores the captured razorpay_payment_id
-            if is_online and is_paid and (order.payment_session_id or order.razorpay_order_id):
-                from app.core.config import get_settings as _get_settings
-                _cfg = _get_settings()
-                rzp_payment_id = order.payment_session_id or order.razorpay_order_id
-                print(f"\033[93m\033[1m⚠️  [ADMIN CANCEL + AUTO-REFUND] Order {order_ref} was already PAID. Triggering Razorpay refund of ₹{float(order.total_amount):.2f} on payment {rzp_payment_id}...\033[0m")
-                try:
-                    if not _cfg.MOCK_PAYMENT_MODE and not str(rzp_payment_id).startswith("pay_mock_") and not str(rzp_payment_id).startswith("order_mock_"):
-                        import razorpay as _rzp
-                        rzp_client = _rzp.Client(auth=(_cfg.RAZORPAY_KEY_ID, _cfg.RAZORPAY_KEY_SECRET))
-                        actual_pay_id = self._resolve_razorpay_payment_id(rzp_client, rzp_payment_id)
-                        refund_data = {
-                            "amount": int(round(float(order.total_amount) * 100)),  # paise
-                            "reverse_all": 1,
-                            "notes": {
-                                "order_id": str(order.id),
-                                "reason": cancellation_reason or "Order cancelled by restaurant"
-                            }
-                        }
-                        refund_res = rzp_client.payment.refund(actual_pay_id, refund_data)
-                        if refund_res and "id" in refund_res:
-                            order.refund_id = refund_res["id"]
-                    else:
-                        order.refund_id = f"rfnd_mock_{uuid.uuid4().hex[:12]}"
-                    order.payment_status = "refunded"
-                    print(f"\033[92m\033[1m✅ [AUTO-REFUND SUCCESS] Order {order_ref} → ₹{float(order.total_amount):.2f} refunded on cancel (Payment ID: {rzp_payment_id}, Refund ID: {order.refund_id})\033[0m")
-                    # Send WhatsApp refund notification
-                    if order.customer_phone:
-                        try:
-                            from app.services.whatsapp_service import WhatsAppClient
-                            wa = WhatsAppClient()
-                            shop_res = await self.db.execute(select(Shop.name).where(Shop.id == shop_id))
-                            shop_name = shop_res.scalar_one_or_none() or "Restaurant"
-                            order_num = str(order.daily_order_number or order.id.hex[:8]).upper()
-                            await asyncio.to_thread(
-                                wa.send_order_refund_template,
-                                phone_number=order.customer_phone,
-                                customer_name=order.customer_name or "Customer",
-                                order_number=order_num,
-                                shop_name=shop_name,
-                                items_summary="Order cancelled by restaurant — full refund initiated",
-                                refund_amount=f"{float(order.total_amount):.2f}",
-                                order_id_tag=f"#{order_num}",
-                                refund_method="Online",
-                                timeline_days="5-7",
-                                shop_id=str(shop_id),
-                                order_id=str(order.id),
-                            )
-                        except Exception as wa_e:
-                            print(f"\033[91m[WHATSAPP] Failed to send cancel+refund notification: {wa_e}\033[0m")
-                except Exception as refund_err:
-                    print(f"\033[91m\033[1m❌ [AUTO-REFUND FAILED] Order {order_ref} → {refund_err}\033[0m")
-                    # Flag for manual review / retry physical button — do NOT block the cancellation!
-                    order.payment_status = "refund_failed"
+            # Case A: Order has paid / captured funds → auto-refund accurately via centralized calculation
+            refundable_order_amt = self._calculate_refundable_product_amount(order, None)
+            if is_online and refundable_order_amt > 0:
+                chosen_reason = cancellation_reason or order.cancellation_reason or "Order cancelled by restaurant"
+                await self._process_online_refund(
+                    order=order,
+                    refund_amount=refundable_order_amt,
+                    note=chosen_reason,
+                    items_summary=f"Cancelled Order = Rs.{refundable_order_amt:.2f}",
+                    cancel_reason=chosen_reason
+                )
 
             # Case B: Customer is mid-payment (Razorpay checkout open, not yet captured)
             # Mark cancelled now — when the customer completes payment and the Razorpay
@@ -1486,7 +1488,12 @@ class OrderService:
 
         return order
 
-    async def _send_order_accepted_payment_required_whatsapp_notification(self, order: Order, shop_name: Optional[str] = None):
+    async def _send_order_accepted_payment_required_whatsapp_notification(
+        self,
+        order: Order,
+        shop_name: Optional[str] = None,
+        amount_override: Optional[str] = None,
+    ):
         """Send 'menukit_order_accepted_payment_required_template' WhatsApp template to customer when admin accepts order and online payment is pending."""
         if not order or not order.customer_phone:
             return
@@ -1508,31 +1515,26 @@ class OrderService:
 
         try:
             currency = "₹"
-            if hasattr(order, "shop") and order.shop:
-                if hasattr(order.shop, "settings") and order.shop.settings and getattr(order.shop.settings, "currency", None):
-                    currency = order.shop.settings.currency
-                shop_name = shop_name or getattr(order.shop, "name", None)
-            else:
-                shop_res = await self.db.execute(
-                    select(Shop).options(selectinload(Shop.settings)).where(Shop.id == order.shop_id)
-                )
-                shop_obj = shop_res.scalar_one_or_none()
-                if shop_obj:
-                    shop_name = shop_name or shop_obj.name
-                    if shop_obj.settings and shop_obj.settings.currency:
-                        currency = shop_obj.settings.currency
+            shop_res = await self.db.execute(
+                select(Shop).options(selectinload(Shop.settings)).where(Shop.id == order.shop_id)
+            )
+            shop_obj = shop_res.scalar_one_or_none()
+            if shop_obj:
+                shop_name = shop_name or shop_obj.name
+                if shop_obj.settings and shop_obj.settings.currency:
+                    currency = shop_obj.settings.currency
 
             shop_name = shop_name or "Restaurant"
-            amt_val = float(order.total_amount or 0.0)
-            if str(order.payment_method or "").lower() == "online":
-                plat_fee = round(amt_val * 0.02, 2)
-                pg_fee = round(amt_val * 0.03, 2)
-                gst_on_fee = round(pg_fee * 0.18, 2)
-                grand_total = round(amt_val + plat_fee + pg_fee + gst_on_fee, 2)
+            if amount_override:
+                formatted_amount = amount_override
             else:
-                grand_total = amt_val
+                amt_val = float(order.total_amount or 0.0)
+                from app.core.pricing import calculate_order_pricing
+                is_online = str(order.payment_method or "").lower() == "online"
+                pricing = calculate_order_pricing(amt_val, is_online=is_online)
+                grand_total = pricing.total_payable
+                formatted_amount = f"{currency}{grand_total:.2f}"
 
-            formatted_amount = f"{currency}{grand_total:.2f}"
             order_num = str(order.daily_order_number or order.id.hex[:8])
             customer_name = order.customer_name or "Customer"
 
@@ -1580,29 +1582,16 @@ class OrderService:
         if status in ["CANCELLED", "REJECTED"]:
             return
 
-        # Mark as sent immediately to avoid duplicate triggers across concurrent events
-        order.whatsapp_sent = True
-        try:
-            self.db.add(order)
-            await self.db.flush()
-        except Exception as e:
-            print(f"Failed to flush order.whatsapp_sent: {e}")
-
         try:
             currency = "₹"
-            if hasattr(order, "shop") and order.shop:
-                if hasattr(order.shop, "settings") and order.shop.settings and getattr(order.shop.settings, "currency", None):
-                    currency = order.shop.settings.currency
-                shop_name = shop_name or getattr(order.shop, "name", None)
-            else:
-                shop_res = await self.db.execute(
-                    select(Shop).options(selectinload(Shop.settings)).where(Shop.id == order.shop_id)
-                )
-                shop_obj = shop_res.scalar_one_or_none()
-                if shop_obj:
-                    shop_name = shop_name or shop_obj.name
-                    if shop_obj.settings and shop_obj.settings.currency:
-                        currency = shop_obj.settings.currency
+            shop_res = await self.db.execute(
+                select(Shop).options(selectinload(Shop.settings)).where(Shop.id == order.shop_id)
+            )
+            shop_obj = shop_res.scalar_one_or_none()
+            if shop_obj:
+                shop_name = shop_name or shop_obj.name
+                if shop_obj.settings and shop_obj.settings.currency:
+                    currency = shop_obj.settings.currency
 
             shop_name = shop_name or "Restaurant"
             raw_phone = order.customer_phone
@@ -1613,18 +1602,23 @@ class OrderService:
                 clean_phone = f"91{clean_phone}"
 
             amt_val = float(order.total_amount or 0.0)
-            if str(order.payment_method or "").lower() == "online":
-                plat_fee = round(amt_val * 0.02, 2)
-                pg_fee = round(amt_val * 0.03, 2)
-                gst_on_fee = round(pg_fee * 0.18, 2)
-                grand_total = round(amt_val + plat_fee + pg_fee + gst_on_fee, 2)
-            else:
-                grand_total = amt_val
+            from app.core.pricing import calculate_order_pricing
+            is_online = str(order.payment_method or "").lower() == "online"
+            pricing = calculate_order_pricing(amt_val, is_online=is_online)
+            grand_total = pricing.total_payable
 
             formatted_amount = f"{currency}{grand_total:.2f}"
             bill_id = f"#{order.daily_order_number}" if order.daily_order_number else order.id.hex[:8].upper()
             customer_name = order.customer_name or "Customer"
             customer_url = "https://menukit.debuggerstechnologies.com/customer/"
+
+            # Mark as sent immediately to avoid duplicate triggers across concurrent events
+            order.whatsapp_sent = True
+            try:
+                self.db.add(order)
+                await self.db.flush()
+            except Exception as e:
+                print(f"Failed to flush order.whatsapp_sent: {e}")
 
             def _send_wa():
                 try:
@@ -1788,6 +1782,51 @@ class OrderService:
         await self._broadcast_order_live(order, event_type="ORDER_UPDATED")
         return order
 
+    def _calculate_refundable_product_amount(self, order: Order, item: Optional[OrderItem] = None) -> float:
+        """
+        Centrally calculates the refundable product amount for an order or specific item,
+        correctly accounting for previous payments, replacements, and partial payments.
+        """
+        if str(order.payment_method or "").lower() != "online":
+            return 0.0
+
+        is_paid = str(order.payment_status or "").lower() in ["paid", "partially_refunded"]
+        has_captured_session = bool(order.payment_session_id or order.razorpay_order_id)
+        if not (is_paid or has_captured_session):
+            return 0.0
+
+        if is_paid:
+            if item:
+                return float(item.price or 0.0) * int(item.quantity or 1)
+            else:
+                active_items = [it for it in (order.items or []) if not it.is_cancelled]
+                return float(order.total_amount or sum(float(it.price or 0.0) * int(it.quantity or 1) for it in active_items))
+
+        # If order payment_status is 'pending' (e.g. difference is unpaid after higher replacement):
+        if item:
+            item_amt = float(item.price or 0.0) * int(item.quantity or 1)
+            # Find the predecessor item(s) that this item directly replaced
+            replaced_predecessors = [
+                it for it in (order.items or [])
+                if it.is_cancelled and str(it.cancellation_reason or "").startswith(f"Replaced with {item.name}")
+            ]
+            if replaced_predecessors:
+                pred_amt = sum(float(it.price or 0.0) * int(it.quantity or 1) for it in replaced_predecessors)
+                return min(item_amt, pred_amt)
+            return 0.0
+        else:
+            active_items = [it for it in (order.items or []) if not it.is_cancelled]
+            total_pred = 0.0
+            for act_it in active_items:
+                preds = [
+                    it for it in (order.items or [])
+                    if it.is_cancelled and str(it.cancellation_reason or "").startswith(f"Replaced with {act_it.name}")
+                ]
+                if preds:
+                    pred_amt = sum(float(it.price or 0.0) * int(it.quantity or 1) for it in preds)
+                    total_pred += min(float(act_it.price or 0.0) * int(act_it.quantity or 1), pred_amt)
+            return total_pred
+
     async def _process_online_refund(
         self,
         order: Order,
@@ -1802,19 +1841,31 @@ class OrderService:
 
         order_ref = f"#{order.daily_order_number or order.id.hex[:8]}"
 
-        # Strict Rule 1: Only refund if the order was ACTUALLY paid
-        if str(order.payment_status or "").lower() not in ["paid", "partially_refunded"]:
-            print(f"\033[93m\033[1m⚠️ [REFUND SKIPPED] Order {order_ref} ➔ Unpaid order (status: '{order.payment_status}')\033[0m")
+        # Strict Rule 1: Only refund if the order was paid or has a captured payment session
+        is_paid = str(order.payment_status or "").lower() in ["paid", "partially_refunded"]
+        has_captured_session = bool(order.payment_session_id or order.razorpay_order_id)
+        if not (is_paid or has_captured_session):
+            print(f"[REFUND SKIPPED] Order {order_ref} - Unpaid order with no captured payment session (status: '{order.payment_status}')")
             return False
 
         # Strict Rule 2: Payment method must be online via gateway
         if str(order.payment_method or "").lower() != "online":
-            print(f"\033[93m\033[1m⚠️ [REFUND SKIPPED] Order {order_ref} ➔ Payment method is '{order.payment_method}', not online gateway\033[0m")
+            print(f"[REFUND SKIPPED] Order {order_ref} - Payment method is '{order.payment_method}', not online gateway")
             return False
 
-        print(f"\033[96m\033[1m💸 [ONLINE REFUND INITIATED] Order {order_ref} ➔ Amount: ₹{refund_amount:.2f} | Reason: {note}\033[0m")
+        print(f"[ONLINE REFUND INITIATED] Order {order_ref} - Amount: Rs.{refund_amount:.2f} | Reason: {note}")
 
         settings = get_settings()
+
+        # Pre-fetch shop name and currency safely in async session
+        shop_res = await self.db.execute(select(Shop.name).where(Shop.id == order.shop_id))
+        shop_name = shop_res.scalar_one_or_none() or "Restaurant"
+
+        settings_res = await self.db.execute(select(ShopSettings.currency).where(ShopSettings.shop_id == order.shop_id))
+        currency = settings_res.scalar_one_or_none() or "Rs."
+
+        actual_refunded_amount = refund_amount
+        refund_id = f"rfnd_mock_{uuid.uuid4().hex[:12]}"
 
         # Only mock if payment ID starts with 'pay_mock_' or 'order_mock_'
         is_mock_payment = bool(
@@ -1822,100 +1873,99 @@ class OrderService:
                 order.payment_session_id.startswith("pay_mock_") or 
                 order.payment_session_id.startswith("order_mock_")
             )
-        )
+        ) or settings.MOCK_PAYMENT_MODE
+
+        # Check remaining active items to determine whether whole order or partial difference was refunded
+        active_items = [it for it in (order.items or []) if not it.is_cancelled]
+        is_fully_refunded_order = (not active_items) or str(order.order_status or "").upper() in ["CANCELLED", "REJECTED"]
+        target_payment_status = "refunded" if is_fully_refunded_order else "paid"
+
         if is_mock_payment:
-            print(f"\033[92m\033[1m✅ [MOCK REFUND SUCCESS] Order {order_ref} ➔ ₹{refund_amount:.2f} refunded (Mock Mode) | Note: {note}\033[0m")
-            return True
-
-        rzp_payment_id = order.payment_session_id or order.razorpay_order_id
-        if not rzp_payment_id:
-            print(f"\033[91m\033[1m❌ [REFUND FAILED] Order {order_ref} ➔ Missing payment_session_id / razorpay_order_id\033[0m")
-            return False
-
-        if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
-            print(f"\033[91m\033[1m❌ [REFUND FAILED] Order {order_ref} ➔ Razorpay API credentials not configured\033[0m")
-            return False
-
-        try:
-            import razorpay
-            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-            actual_pay_id = self._resolve_razorpay_payment_id(client, rzp_payment_id)
-
-            # Amount in paise (multiply by 100)
-            amount_paise = int(round(refund_amount * 100))
-
-            # Fetch payment to check actual captured balance on Razorpay
-            try:
-                pay_obj = client.payment.fetch(actual_pay_id)
-                captured_paise = int(pay_obj.get("amount", 0)) - int(pay_obj.get("amount_refunded", 0))
-                if captured_paise > 0 and amount_paise > captured_paise:
-                    print(f"\033[93m\033[1m⚠️ [REFUND CLAMPED] Order {order_ref} ➔ Clamping refund from ₹{refund_amount:.2f} to captured balance ₹{captured_paise/100:.2f}\033[0m")
-                    amount_paise = captured_paise
-            except Exception as f_err:
-                print(f"Could not fetch payment balance from Razorpay: {f_err}")
-
-            refund_resp = client.payment.refund(actual_pay_id, {
-                "amount": amount_paise,
-                "reverse_all": 1,
-                "notes": {
-                    "reason": note[:250],
-                    "order_id": str(order.id),
-                    "customer_phone": order.customer_phone or ""
-                }
-            })
-            refund_id = refund_resp.get('id', 'N/A')
             order.refund_id = refund_id
-            order.payment_status = "refunded"
-            print(f"\033[92m\033[1m✅ [RAZORPAY REFUND SUCCESS] Order {order_ref} ➔ ₹{amount_paise/100:.2f} refunded (Payment ID: {actual_pay_id}, Refund ID: {refund_id})\033[0m")
+            order.payment_status = target_payment_status
+            print(f"[MOCK REFUND SUCCESS] Order {order_ref} - Rs.{refund_amount:.2f} refunded (Mock Mode, Status: {target_payment_status}) | Note: {note}")
+        else:
+            rzp_payment_id = order.payment_session_id or order.razorpay_order_id
+            if not rzp_payment_id:
+                print(f"[REFUND FAILED] Order {order_ref} - Missing payment_session_id / razorpay_order_id")
+                return False
 
-            # Send WhatsApp refund notification using 'menukit_order_refund_template'
-            if order.customer_phone:
-                def _send_wa_refund():
-                    try:
-                        from app.services.whatsapp_service import WhatsAppClient
-                        wa = WhatsAppClient()
-                        cust_name = order.customer_name or "Customer"
-                        shop_name = getattr(order.shop, "name", None) if hasattr(order, "shop") and order.shop else "Restaurant"
-                        order_num = str(order.daily_order_number or order.id.hex[:8])
-                        order_id_tag = order_num
+            if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
+                print(f"[REFUND FAILED] Order {order_ref} - Razorpay API credentials not configured")
+                return False
 
-                        currency = "₹"
-                        if hasattr(order, "shop") and order.shop:
-                            if hasattr(order.shop, "settings") and order.shop.settings and getattr(order.shop.settings, "currency", None):
-                                currency = order.shop.settings.currency
+            try:
+                import razorpay
+                client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+                actual_pay_id = self._resolve_razorpay_payment_id(client, rzp_payment_id)
 
-                        formatted_amt = f"{amount_paise/100:.2f}" if not float(amount_paise/100).is_integer() else f"{int(amount_paise/100)}"
-                        summary_text = items_summary or f"Cancelled Items = {currency}{formatted_amt}"
-                        reason_text = cancel_reason or note or "Cancelled by request"
+                # Amount in paise (multiply by 100)
+                amount_paise = int(round(refund_amount * 100))
 
-                        wa.send_order_refund_template(
-                            phone_number=order.customer_phone,
-                            customer_name=cust_name,
-                            order_number=order_num,
-                            shop_name=shop_name,
-                            items_summary=summary_text,
-                            cancel_reason=reason_text,
-                            refund_amount=formatted_amt,
-                            order_id_tag=order_id_tag,
-                            refund_method="Online",
-                            timeline_days="5-7",
-                            shop_id=str(order.shop_id),
-                            order_id=str(order.id),
-                        )
-                    except Exception as wa_ex:
-                        print(f"Failed to dispatch WhatsApp refund notification: {wa_ex}")
-
+                # Fetch payment to check actual captured balance on Razorpay
                 try:
-                    loop = asyncio.get_running_loop()
-                    loop.run_in_executor(None, _send_wa_refund)
-                except RuntimeError:
-                    _send_wa_refund()
+                    pay_obj = client.payment.fetch(actual_pay_id)
+                    captured_paise = int(pay_obj.get("amount", 0)) - int(pay_obj.get("amount_refunded", 0))
+                    if captured_paise > 0 and amount_paise > captured_paise:
+                        print(f"[REFUND CLAMPED] Order {order_ref} - Clamping refund from Rs.{refund_amount:.2f} to captured balance Rs.{captured_paise/100:.2f}")
+                        amount_paise = captured_paise
+                except Exception as f_err:
+                    print(f"Could not fetch payment balance from Razorpay: {f_err}")
 
-            return True
-        except Exception as err:
-            print(f"[Razorpay Refund Error] Failed to refund Rs.{refund_amount:.2f} for Order #{order.id}: {err}")
-            order.payment_status = "refund_failed"
-            return False
+                refund_resp = client.payment.refund(actual_pay_id, {
+                    "amount": amount_paise,
+                    "reverse_all": 1,
+                    "notes": {
+                        "reason": note[:250],
+                        "order_id": str(order.id),
+                        "customer_phone": order.customer_phone or ""
+                    }
+                })
+                refund_id = refund_resp.get('id', refund_id)
+                order.refund_id = refund_id
+                order.payment_status = target_payment_status
+                actual_refunded_amount = amount_paise / 100
+                print(f"[RAZORPAY REFUND SUCCESS] Order {order_ref} - Rs.{actual_refunded_amount:.2f} refunded (Payment ID: {actual_pay_id}, Refund ID: {refund_id}, Status: {target_payment_status})")
+            except Exception as err:
+                print(f"[Razorpay Refund Error] Failed to refund Rs.{refund_amount:.2f} for Order #{order.id}: {err}")
+                order.payment_status = "refund_failed"
+                return False
+
+        # Send WhatsApp refund notification using 'menukit_order_refund_template'
+        if order.customer_phone:
+            cust_phone = order.customer_phone
+            cust_name = order.customer_name or "Customer"
+            order_num = str(order.daily_order_number or order.id.hex[:8]).upper()
+            order_id_tag = f"#{order_num}"
+            formatted_amt = f"{actual_refunded_amount:.2f}" if not float(actual_refunded_amount).is_integer() else f"{int(actual_refunded_amount)}"
+            summary_text = items_summary or f"Cancelled Items = {currency}{formatted_amt}"
+            reason_text = cancel_reason or note or "Cancelled by request"
+            shop_id_str = str(order.shop_id)
+            order_id_str = str(order.id)
+
+            try:
+                from app.services.whatsapp_service import WhatsAppClient
+                wa = WhatsAppClient()
+                await asyncio.to_thread(
+                    wa.send_order_refund_template,
+                    phone_number=cust_phone,
+                    customer_name=cust_name,
+                    order_number=order_num,
+                    shop_name=shop_name,
+                    items_summary=summary_text,
+                    cancel_reason=reason_text,
+                    refund_amount=formatted_amt,
+                    order_id_tag=order_id_tag,
+                    refund_method="Online",
+                    timeline_days="5-7",
+                    shop_id=shop_id_str,
+                    order_id=order_id_str,
+                )
+                print(f"\033[92m[WHATSAPP] Refund notification sent to {cust_phone} for Order #{order_num}\033[0m")
+            except Exception as wa_ex:
+                print(f"\033[91m[WHATSAPP] Failed to dispatch WhatsApp refund notification: {wa_ex}\033[0m")
+
+        return True
 
     async def toggle_order_item_cancel(
         self, order_id: uuid.UUID, item_id: uuid.UUID, shop_id: uuid.UUID, reason: Optional[str] = None
@@ -1944,10 +1994,11 @@ class OrderService:
         if not item:
             raise HTTPException(status_code=404, detail="Order item not found")
 
-        # Calculate ONLY the product/item price (unit price * quantity) — strictly excluding platform charges
         item_product_amount = float(item.price or 0.0) * int(item.quantity or 1)
-        is_paid = str(order.payment_status or "").lower() == "paid"
-        is_paid_online = is_paid and str(order.payment_method or "").lower() == "online"
+        is_paid = str(order.payment_status or "").lower() in ["paid", "partially_refunded"]
+        is_online = str(order.payment_method or "").lower() == "online"
+        has_captured_session = bool(order.payment_session_id or order.razorpay_order_id)
+        is_paid_online = is_online and (is_paid or has_captured_session)
 
         # Block 2: If item is ALREADY cancelled
         if item.is_cancelled:
@@ -1977,25 +2028,26 @@ class OrderService:
             broadcast_msg = f"Item '{item.name}' was cancelled."
             event_type = "ORDER_UPDATED"
 
-            # Auto-refund ONLY the product price if order was paid online
-            if is_paid_online and item_product_amount > 0:
-                currency = "₹"
+            # Auto-refund the appropriate product price amount if order was paid online
+            refundable_amount = self._calculate_refundable_product_amount(order, item)
+            if is_online and refundable_amount > 0:
+                currency = "Rs."
                 if hasattr(order, "shop") and order.shop and hasattr(order.shop, "settings") and order.shop.settings:
-                    currency = getattr(order.shop.settings, "currency", "₹") or "₹"
+                    currency = getattr(order.shop.settings, "currency", "Rs.") or "Rs."
 
-                amt_str = f"{item_product_amount:.2f}" if not float(item_product_amount).is_integer() else f"{int(item_product_amount)}"
+                amt_str = f"{refundable_amount:.2f}" if not float(refundable_amount).is_integer() else f"{int(refundable_amount)}"
                 chosen_reason = item.cancellation_reason or "Cancelled by staff"
                 item_summary = f"{item.name} x {item.quantity} = {currency}{amt_str}"
 
                 await self._process_online_refund(
                     order=order,
-                    refund_amount=item_product_amount,
+                    refund_amount=refundable_amount,
                     note=f"Item '{item.name}' cancelled (Product price refund)",
                     items_summary=item_summary,
                     cancel_reason=chosen_reason
                 )
-                broadcast_title = "Item Cancelled — Refund Initiated"
-                broadcast_msg = f"Item '{item.name}' was cancelled. Product price of {currency}{item_product_amount:.2f} has been refunded to your original payment method."
+                broadcast_title = "Item Cancelled - Refund Initiated"
+                broadcast_msg = f"Item '{item.name}' was cancelled. Product price of {currency}{refundable_amount:.2f} has been refunded to your original payment method."
                 event_type = "ITEM_CANCELLED_REFUND"
 
             # Check and restore discount usage if this was the only qualifying item for a discount
@@ -2026,12 +2078,14 @@ class OrderService:
         if not active_items and len(order.items or []) > 0:
             order.order_status = "CANCELLED"
             order.cancellation_reason = reason or "All items cancelled by restaurant"
-            if not order.total_amount or float(order.total_amount) <= 0.0:
-                all_items_subtotal = sum(
-                    float(it.price or 0.0) * int(it.quantity or 1)
-                    for it in (order.items or [])
-                )
-                order.total_amount = round(all_items_subtotal, 2)
+            await self._restore_discount_usages_for_order(order)
+            # Preserved total_amount should reflect the last presented items (excluding replaced predecessor items)
+            presented_items_subtotal = sum(
+                float(it.price or 0.0) * int(it.quantity or 1)
+                for it in (order.items or [])
+                if not str(it.cancellation_reason or "").startswith("Replaced with")
+            )
+            order.total_amount = round(presented_items_subtotal, 2)
             if is_paid_online:
                 if not order.refund_id or str(order.payment_status or "").lower() == "refund_failed":
                     order.payment_status = "refund_failed"
@@ -2159,7 +2213,7 @@ class OrderService:
         from app.core.pricing import calculate_order_pricing, calculate_replacement
 
         # 3. Calculate price difference accounting for platform & payment gateway fees if paid online
-        is_paid = str(order.payment_status or "").lower() == "paid"
+        is_paid = str(order.payment_status or "").lower() in ["paid", "partially_refunded"] or bool(order.payment_session_id or order.razorpay_order_id or order.refund_id)
         is_paid_online = is_paid and str(order.payment_method or "").lower() == "online"
 
         if is_paid_online:
@@ -2191,7 +2245,10 @@ class OrderService:
                 if is_paid_online:
                     order.payment_status = "pending"  # Customer must pay remaining difference
                     order.whatsapp_sent = False        # Allow sending updated bill WhatsApp when payment completes
-                    await self._send_order_accepted_payment_required_whatsapp_notification(order)
+                    await self._send_order_accepted_payment_required_whatsapp_notification(
+                        order,
+                        amount_override=f"{currency}{additional_payment:.2f}"
+                    )
 
                 broadcast_title = "Item Replaced — Payment Difference Due"
                 broadcast_msg = f"Item '{old_item.name}' was replaced with '{replace_data.name}'. Additional difference of {currency}{additional_payment:.2f} is due. Please complete payment online."
@@ -2279,7 +2336,7 @@ class OrderService:
         new_subtotal = round(active_items_subtotal + tax_amount, 2)
 
         from app.core.pricing import calculate_order_pricing, calculate_replacement
-        is_paid = str(order.payment_status or "").lower() == "paid"
+        is_paid = str(order.payment_status or "").lower() in ["paid", "partially_refunded"] or bool(order.payment_session_id or order.razorpay_order_id or order.refund_id)
         is_paid_online = is_paid and str(order.payment_method or "").lower() == "online"
 
         if is_paid_online:
@@ -2344,9 +2401,17 @@ class OrderService:
                         detail=f"Discount already used. The offer '{disc.title}' has already been used and cannot be reused."
                     )
 
-            # Record redemption
-            code_str = disc.code or disc.title
-            # Check CustomerDiscountCode
+            # Record redemption with proper structured discount code
+            code_str = None
+            disc_token = str(disc.id).replace("-", "")[:4].upper()
+
+            # 1. Match from applied_disc_codes if customer used an exact code
+            for ac in applied_disc_codes:
+                if disc_token in ac or (disc.code and ac == disc.code.upper()):
+                    code_str = ac
+                    break
+
+            # 2. Check CustomerDiscountCode
             if phone_variants:
                 assigned_stmt = select(CustomerDiscountCode).where(
                     CustomerDiscountCode.shop_id == order.shop_id,
@@ -2358,6 +2423,11 @@ class OrderService:
                     code_str = assigned_code.code
                     assigned_code.is_redeemed = True
                     assigned_code.redeemed_at = now
+
+            # 3. If still no structured code, generate unique customer discount code
+            if not code_str:
+                from app.services.discount_service import generate_discount_code_string
+                code_str = (disc.code if (disc.code and "-" in disc.code) else None) or generate_discount_code_string(disc.title)
 
             # Find matching item if applies_to == 'items'
             matched_item_id = None
@@ -2406,7 +2476,7 @@ class OrderService:
     async def _restore_discount_usages_for_order(self, order: Order):
         """Restore all discount usages when an entire order is rejected or cancelled."""
         from app.models.discount import DiscountRedemption, CustomerDiscountCode
-        from sqlalchemy import update
+        from sqlalchemy import update, or_, func
 
         redemptions_res = await self.db.execute(
             select(DiscountRedemption).where(
@@ -2437,6 +2507,18 @@ class OrderService:
                     pv.add(clean_c[-10:])
                     pv.add(f"+91{clean_c[-10:]}")
                     pv.add(f"91{clean_c[-10:]}")
+            
+            if r.code:
+                await self.db.execute(
+                    update(CustomerDiscountCode)
+                    .where(
+                        CustomerDiscountCode.shop_id == r.shop_id,
+                        CustomerDiscountCode.discount_id == r.discount_id,
+                        func.upper(CustomerDiscountCode.code) == r.code.upper()
+                    )
+                    .values(is_redeemed=False, redeemed_at=None)
+                )
+
             if pv:
                 await self.db.execute(
                     update(CustomerDiscountCode)
@@ -2444,6 +2526,37 @@ class OrderService:
                         CustomerDiscountCode.shop_id == r.shop_id,
                         CustomerDiscountCode.discount_id == r.discount_id,
                         CustomerDiscountCode.customer_identifier.in_(list(pv))
+                    )
+                    .values(is_redeemed=False, redeemed_at=None)
+                )
+
+        # Also ensure any CustomerDiscountCode entries associated with order.applied_discount_ids / phone are un-redeemed
+        if order.applied_discount_ids or order.customer_phone:
+            pv_order = set()
+            if order.customer_phone:
+                raw_p = str(order.customer_phone).strip()
+                clean_p = "".join(filter(str.isdigit, raw_p))
+                pv_order.add(raw_p)
+                pv_order.add(clean_p)
+                if len(clean_p) >= 10:
+                    pv_order.add(clean_p[-10:])
+                    pv_order.add(f"+91{clean_p[-10:]}")
+                    pv_order.add(f"91{clean_p[-10:]}")
+
+            disc_uuids = []
+            for d in (order.applied_discount_ids or []):
+                try:
+                    disc_uuids.append(uuid.UUID(str(d)))
+                except (ValueError, TypeError):
+                    pass
+
+            if disc_uuids and pv_order:
+                await self.db.execute(
+                    update(CustomerDiscountCode)
+                    .where(
+                        CustomerDiscountCode.shop_id == order.shop_id,
+                        CustomerDiscountCode.discount_id.in_(disc_uuids),
+                        CustomerDiscountCode.customer_identifier.in_(list(pv_order))
                     )
                     .values(is_redeemed=False, redeemed_at=None)
                 )

@@ -4650,3 +4650,1677 @@
   }
 }
 [2026-10-02 22:37:13,933] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSOUVDQjQzQ0RERERGNjcwNDA0AA==","message_status":"accepted"}]}
+[2026-10-03 00:12:02,735] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "1"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.06"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/33d947ca-4e2b-47c5-bcb7-17f7bd27bfe6"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 00:12:05,143] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMkVBNDFENkYzQTJDQTU2Njk3AA==","message_status":"accepted"}]}
+[2026-10-03 00:39:12,503] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "3"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/25e07a58-ba2e-401d-9de0-383513a6c727"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 00:39:14,784] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMzhDQjc0NTBFM0UxRTEzOTIxAA==","message_status":"accepted"}]}
+[2026-10-03 00:50:42,079] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "4"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "\u20b92.11"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/58653a84-b4b7-4def-a2c9-be46b08727a7"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 00:50:44,002] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRUZBRUY5RThCNEZGN0U0NzM3AA==","message_status":"accepted"}]}
+[2026-10-03 00:56:00,740] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "5"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/7d933731-46c4-410a-8b11-4657e0f176ab"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 00:56:45,933] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#5"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 00:57:01,398] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNUI3QkZDQTdFQzFGNTZBNTQ3AA==","message_status":"accepted"}]}
+[2026-10-03 00:57:03,857] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMDU1MDg1QTZGNDY3QkM5RjI4AA==","message_status":"accepted"}]}
+[2026-10-03 01:15:12,371] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "4"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/58653a84-b4b7-4def-a2c9-be46b08727a7"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:15:15,503] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSM0NBQjhDRDM1NDYxNkVBNzkxAA==","message_status":"accepted"}]}
+[2026-10-03 01:22:39,818] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "7"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "\u20b92.11"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/924114f6-c0dc-4dee-be06-7a0f9f91b237"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:22:41,890] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMEJCQjBBNjc0MTUyOEY0QTIyAA==","message_status":"accepted"}]}
+[2026-10-03 01:22:43,596] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#7"
+          },
+          {
+            "type": "text",
+            "text": "\u20b92.11"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:22:47,009] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSOThEQjIwQkRBQkZFRTBEMjlDAA==","message_status":"accepted"}]}
+[2026-10-03 01:28:48,786] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "7"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "Replaced with Kambi Mathapu = \u20b91"
+          },
+          {
+            "type": "text",
+            "text": "Customer changed item preference"
+          },
+          {
+            "type": "text",
+            "text": "1"
+          },
+          {
+            "type": "text",
+            "text": "7"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/924114f6-c0dc-4dee-be06-7a0f9f91b237"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:28:53,017] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQzRBRERFQ0ZDRTU4NERGODQ5AA==","message_status":"accepted"}]}
+[2026-10-03 01:39:21,944] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "7"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "Pattani Vedi x 1 = \u20b91"
+          },
+          {
+            "type": "text",
+            "text": "Customer cancelled request"
+          },
+          {
+            "type": "text",
+            "text": "1"
+          },
+          {
+            "type": "text",
+            "text": "7"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/924114f6-c0dc-4dee-be06-7a0f9f91b237"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:39:23,885] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNTY3NjZEMEY5Q0IyM0U3RDVGAA==","message_status":"accepted"}]}
+[2026-10-03 01:41:12,842] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "7"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "Pattani Vedi x 1 = \u20b91"
+          },
+          {
+            "type": "text",
+            "text": "Customer cancelled request"
+          },
+          {
+            "type": "text",
+            "text": "1"
+          },
+          {
+            "type": "text",
+            "text": "7"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/924114f6-c0dc-4dee-be06-7a0f9f91b237"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:41:14,679] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQzVFN0M2NkE5MjU0OTgyNDI5AA==","message_status":"accepted"}]}
+[2026-10-03 01:43:25,859] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "8"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/c74bfa22-cbda-431d-8cc0-8516ff15a90c"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:43:27,396] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSOTMyREEwRDU0OEU1MjBBRTEzAA==","message_status":"accepted"}]}
+[2026-10-03 01:43:28,440] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#8"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:43:30,185] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMTFGOUJFRjVEMDQ2MkFERkMxAA==","message_status":"accepted"}]}
+[2026-10-03 01:43:46,462] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "8"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/c74bfa22-cbda-431d-8cc0-8516ff15a90c"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:43:48,092] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRENDRUUwRUExRkY0QjUwNTQ0AA==","message_status":"accepted"}]}
+[2026-10-03 01:44:03,411] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#8"
+          },
+          {
+            "type": "text",
+            "text": "\u20b92.11"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:44:05,373] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMzZDMDVDNEUwNjBDNDZEQUEwAA==","message_status":"accepted"}]}
+[2026-10-03 01:44:19,921] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "8"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "Pattani Vedi x 1 = \u20b92"
+          },
+          {
+            "type": "text",
+            "text": "Customer cancelled request"
+          },
+          {
+            "type": "text",
+            "text": "2"
+          },
+          {
+            "type": "text",
+            "text": "8"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/c74bfa22-cbda-431d-8cc0-8516ff15a90c"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:44:21,662] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMEY5NDU4NDU3Q0U1QzE4RjU4AA==","message_status":"accepted"}]}
+[2026-10-03 01:50:20,554] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "9"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "\u20b92.11"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/88843567-e543-4bba-a2a7-2a531134c8b1"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:50:29,486] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNDREQkFDRjRCMDBCMTVDMUM1AA==","message_status":"accepted"}]}
+[2026-10-03 01:50:31,224] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#9"
+          },
+          {
+            "type": "text",
+            "text": "\u20b92.11"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:50:37,057] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRUE2NUNDOUIyQUFDMDUyQTEyAA==","message_status":"accepted"}]}
+[2026-10-03 01:50:57,210] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "9"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "Replaced with Kambi Mathapu = \u20b91"
+          },
+          {
+            "type": "text",
+            "text": "Customer changed item preference"
+          },
+          {
+            "type": "text",
+            "text": "1"
+          },
+          {
+            "type": "text",
+            "text": "9"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/88843567-e543-4bba-a2a7-2a531134c8b1"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:51:02,258] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNDE0RkE0ODgwN0NGMUIyNTEzAA==","message_status":"accepted"}]}
+[2026-10-03 01:51:31,948] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "9"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/88843567-e543-4bba-a2a7-2a531134c8b1"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:51:39,405] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRDVENDE4OUREODUzMjE3QzBEAA==","message_status":"accepted"}]}
+[2026-10-03 01:52:00,226] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#9"
+          },
+          {
+            "type": "text",
+            "text": "\u20b92.11"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:52:04,715] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMUZDMDBEMDNGRTA3MTAwNDBFAA==","message_status":"accepted"}]}
+[2026-10-03 01:52:21,145] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "9"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "Pattani Vedi x 1 = \u20b92"
+          },
+          {
+            "type": "text",
+            "text": "Customer cancelled request"
+          },
+          {
+            "type": "text",
+            "text": "2"
+          },
+          {
+            "type": "text",
+            "text": "9"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/88843567-e543-4bba-a2a7-2a531134c8b1"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:52:26,117] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNkU2Qjg2OTRFREMzNzYwN0Y0AA==","message_status":"accepted"}]}
+[2026-10-03 01:55:20,447] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#10"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.05"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:55:31,633] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQjM0NjBBNEZDQzE0RTFEMTM4AA==","message_status":"accepted"}]}
+[2026-10-03 01:55:35,088] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "10"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "Cancelled Order = Rs.1.00"
+          },
+          {
+            "type": "text",
+            "text": "Item out of stock / Ingredients unavailable"
+          },
+          {
+            "type": "text",
+            "text": "1"
+          },
+          {
+            "type": "text",
+            "text": "10"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/1ecf6e9f-7b7f-4b19-9bf2-84a6e806e2e0"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 01:55:44,686] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSNEIwQTAyMEM3ODk1RUQyODQ2AA==","message_status":"accepted"}]}
+[2026-10-03 02:00:50,536] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#11"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.11"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 02:00:53,828] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQ0UyMDVFQzAxQUU4RkQ0QjdCAA==","message_status":"accepted"}]}
+[2026-10-03 02:01:19,249] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "11"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "Cancelled Order = Rs.1.05"
+          },
+          {
+            "type": "text",
+            "text": "Item out of stock / Ingredients unavailable"
+          },
+          {
+            "type": "text",
+            "text": "1.05"
+          },
+          {
+            "type": "text",
+            "text": "11"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/a135492a-2afd-46a3-aa3e-04890dfff8b2"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 02:01:21,185] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRDExQTBCRDdBNDEwOUEzNjM5AA==","message_status":"accepted"}]}
+[2026-10-03 12:49:57,941] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_user_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "header",
+        "parameters": [
+          {
+            "type": "image",
+            "image": {
+              "link": "https://www.shutterstock.com/shutterstock/photos/1044808597/display_1500/stock-vector--off-twenty-percent-off-discount-gold-and-blue-sign-vector-illustration-special-offer-1044808597.jpg"
+            }
+          }
+        ]
+      },
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Valued Customer"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "We are currently providing a special 20% discount on all orders today! Visit our digital store now to claim your offer."
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 12:49:59,590] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMTM4NUFBRkJGQUUzQUJFNDU2AA==","message_status":"accepted"}]}
+[2026-10-03 13:03:50,827] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "911234567890",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Csutomer A"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#14"
+          },
+          {
+            "type": "text",
+            "text": "\u20b90.89"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 13:03:53,129] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"911234567890","wa_id":"911234567890"}],"messages":[{"id":"wamid.HBgMOTExMjM0NTY3ODkwFQIAERgSMTg0NzlCMzlFRjFGNTc4NjBCAA==","message_status":"accepted"}]}
+[2026-10-03 13:04:09,860] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "911234567890",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Csutomer A"
+          },
+          {
+            "type": "text",
+            "text": "14"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "Cancelled Order = Rs.0.84"
+          },
+          {
+            "type": "text",
+            "text": "Item out of stock / Ingredients unavailable"
+          },
+          {
+            "type": "text",
+            "text": "0.84"
+          },
+          {
+            "type": "text",
+            "text": "14"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/7df415ad-7be8-4453-855b-0c3618532daa"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 13:04:11,799] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"911234567890","wa_id":"911234567890"}],"messages":[{"id":"wamid.HBgMOTExMjM0NTY3ODkwFQIAERgSRDFEOEE1MDVCNkY2QjU0RDlDAA==","message_status":"accepted"}]}
+[2026-10-03 13:10:29,161] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "911234567890",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Csutomer A"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#15"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.11"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 13:10:30,780] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"911234567890","wa_id":"911234567890"}],"messages":[{"id":"wamid.HBgMOTExMjM0NTY3ODkwFQIAERgSMDdBOEIzQkI3Nzc2QzFENUY0AA==","message_status":"accepted"}]}
+[2026-10-03 13:13:13,203] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "911234567890",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Csutomer A"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#16"
+          },
+          {
+            "type": "text",
+            "text": "\u20b95.32"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 13:13:15,200] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"911234567890","wa_id":"911234567890"}],"messages":[{"id":"wamid.HBgMOTExMjM0NTY3ODkwFQIAERgSNTRFNzFFMjdFNEI5NUFCMzNGAA==","message_status":"accepted"}]}
+[2026-10-03 13:14:36,554] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "911234567890",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Csutomer A"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "#17"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91.11"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 13:14:38,459] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"911234567890","wa_id":"911234567890"}],"messages":[{"id":"wamid.HBgMOTExMjM0NTY3ODkwFQIAERgSQzNDQjQzRDcyMDM0NUZCNUIzAA==","message_status":"accepted"}]}
+[2026-10-03 14:07:56,982] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "911234567890",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Csutomer A"
+          },
+          {
+            "type": "text",
+            "text": "15"
+          },
+          {
+            "type": "text",
+            "text": "Test Crackers Shop 11 ef"
+          },
+          {
+            "type": "text",
+            "text": "Cancelled Order = Rs.1.05"
+          },
+          {
+            "type": "text",
+            "text": "Item out of stock / Ingredients unavailable"
+          },
+          {
+            "type": "text",
+            "text": "1.05"
+          },
+          {
+            "type": "text",
+            "text": "15"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/9fd95425-0855-45cc-9fa2-e32d2fec33c7/order/99bfbf69-db7d-4ce7-8544-9547f0db3883"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-03 14:07:58,336] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"911234567890","wa_id":"911234567890"}],"messages":[{"id":"wamid.HBgMOTExMjM0NTY3ODkwFQIAERgSOERCQTBDRjRGOThFOTFGRkYyAA==","message_status":"accepted"}]}

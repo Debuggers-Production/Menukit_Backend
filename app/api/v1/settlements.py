@@ -92,7 +92,7 @@ async def get_settlements_summary(
         Order.shop_id == shop.id,
         Order.created_at >= since,
         Order.created_at <= until,
-        Order.order_status.notin_(["rejected", "cancelled"]),
+        func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
         Order.payment_method == "online",
         Order.payment_status == "paid"
     ]

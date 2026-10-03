@@ -12,17 +12,18 @@ from app.models.shop import Shop
 from app.core.exceptions import NotFoundException
 
 
-def generate_discount_code_string(discount_title: str, discount_id: uuid.UUID, customer_identifier: str) -> str:
-    """Generate deterministic unique customer discount code string (e.g. NEWUSE-4D72-2839)."""
-    raw_title = "".join(filter(str.isalnum, discount_title or "OFFER")).upper()
-    prefix = (raw_title[:6] if raw_title else "OFFER")
-    disc_token = str(discount_id).replace("-", "")[:4].upper()
-    
-    clean_id = "".join(filter(str.isalnum, customer_identifier or "CUST")).upper()
-    digits = "".join(filter(str.isdigit, clean_id))
-    cust_token = digits[-4:] if len(digits) >= 4 else (clean_id[-4:] if len(clean_id) >= 4 else clean_id.ljust(4, "X"))
+import secrets
 
-    return f"{prefix}-{disc_token}-{cust_token}"
+
+def generate_discount_code_string(discount_title: Optional[str] = None, *args, **kwargs) -> str:
+    """Generate a secure, entirely unique, unpredictable discount code string (e.g. SAVE-7X9K-M3W8)."""
+    raw_title = "".join(filter(str.isalnum, discount_title or "OFFER")).upper()
+    prefix = (raw_title[:4] if len(raw_title) >= 3 else "MK")
+    # Base 32 alphabet without easily confused characters (no 0, O, 1, I)
+    CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+    part1 = "".join(secrets.choice(CHARS) for _ in range(4))
+    part2 = "".join(secrets.choice(CHARS) for _ in range(4))
+    return f"{prefix}-{part1}-{part2}"
 
 
 class DiscountService:
@@ -184,14 +185,14 @@ class DiscountService:
         customer_id: Optional[uuid.UUID] = None
     ) -> CustomerDiscountCode:
         """Assign or retrieve an official unique discount code for this customer."""
-        code_str = generate_discount_code_string(discount.title, discount.id, customer_identifier)
+        clean_identifier = str(customer_identifier or "GUEST").strip()
 
         # 1. Check if already assigned for this shop, discount and customer identifier
         res = await self.db.execute(
             select(CustomerDiscountCode).where(
                 CustomerDiscountCode.shop_id == shop_id,
                 CustomerDiscountCode.discount_id == discount.id,
-                CustomerDiscountCode.customer_identifier == customer_identifier
+                CustomerDiscountCode.customer_identifier == clean_identifier
             )
             .order_by(CustomerDiscountCode.created_at.desc())
         )
@@ -199,24 +200,29 @@ class DiscountService:
         if existing:
             return existing
 
-        # 2. Check if this code string already exists
-        res_code = await self.db.execute(
-            select(CustomerDiscountCode).where(
-                CustomerDiscountCode.shop_id == shop_id,
-                func.upper(CustomerDiscountCode.code) == code_str.upper()
+        # 2. Generate a guaranteed unique collision-free code
+        code_str = ""
+        for _ in range(10):
+            candidate = generate_discount_code_string(discount.title)
+            res_code = await self.db.execute(
+                select(CustomerDiscountCode).where(
+                    CustomerDiscountCode.shop_id == shop_id,
+                    func.upper(CustomerDiscountCode.code) == candidate.upper()
+                )
             )
-            .order_by(CustomerDiscountCode.created_at.desc())
-        )
-        existing_code = res_code.scalars().first()
-        if existing_code:
-            return existing_code
+            if not res_code.scalars().first():
+                code_str = candidate
+                break
+
+        if not code_str:
+            code_str = generate_discount_code_string(discount.title)
 
         # 3. Create new assignment
         new_assignment = CustomerDiscountCode(
             shop_id=shop_id,
             discount_id=discount.id,
             customer_id=customer_id,
-            customer_identifier=customer_identifier,
+            customer_identifier=clean_identifier,
             code=code_str.upper(),
             is_redeemed=False
         )

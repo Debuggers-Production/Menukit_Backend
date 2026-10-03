@@ -99,6 +99,9 @@ def create_app() -> FastAPI:
         max_age=86400,
     )
 
+    from fastapi.middleware.gzip import GZipMiddleware
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+
     # Include API router
     app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 
@@ -132,6 +135,10 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def rate_limit_requests(request: Request, call_next):
+        # Bypass rate limiting in development mode
+        if str(getattr(settings, "APP_ENV", "")).lower() in ["development", "dev", "local"] or getattr(settings, "DEBUG", False):
+            return await call_next(request)
+
         # Only rate limit API routes
         if not request.url.path.startswith("/api/"):
             return await call_next(request)

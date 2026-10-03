@@ -82,8 +82,8 @@ class Settings(BaseSettings):
     
     # Subscription Trial & Grace Period Configs
     FREE_TRIAL_DAYS: int = 30
-    GRACE_PERIOD_DAYS: int = 3
-    # Mock Subscription State for Testing: "none" | "ending_soon" | "grace_period" | "expired"
+    GRACE_PERIOD_DAYS: int = 0
+    # Mock Subscription State for Testing: "none" | "ending_soon" | "expired"
     MOCK_SUBSCRIPTION_STATE: str = "none"
     
     # Subscription Mock Mode (set to false for real Cashfree payment redirect)

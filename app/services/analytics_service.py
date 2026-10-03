@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from sqlalchemy import select, func, desc, text, or_
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.shop import Shop
@@ -380,7 +381,8 @@ class AnalyticsService:
                 Order.shop_id == shop_id,
                 Order.created_at >= since,
                 Order.created_at <= until,
-                Order.order_status.notin_(["rejected", "cancelled"])
+                func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded"
             )
             .order_by(desc(Order.created_at))
         )
@@ -393,7 +395,8 @@ class AnalyticsService:
                 Order.shop_id == shop_id,
                 Order.created_at >= prev_since,
                 Order.created_at < prev_until,
-                Order.order_status.notin_(["rejected", "cancelled"])
+                func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded"
             )
         )
         prev_revenue = float(prev_orders_q.scalar() or 0.0)
@@ -401,17 +404,15 @@ class AnalyticsService:
         total_gross = sum(float(o.total_amount or 0.0) for o in orders)
         total_orders_count = len(orders)
 
-        # 2% Payment Gateway charge for online payments, 0% for cash
+        # 100% Direct Settlement to Vendor (Customer pays online gateway/platform fees on checkout)
         recent_invoices = []
         total_commission_paid = 0.0
 
         for o in orders:
-            pm = (o.payment_method or "cash").lower()
-            is_online = pm in ["online", "upi", "card", "pay_online", "razorpay", "cashfree"]
-            rate = 0.02 if is_online else 0.0
-            comm = float(o.total_amount or 0.0) * rate
-            settled = float(o.total_amount or 0.0) - comm
-            total_commission_paid += comm
+            raw_amt = float(o.total_amount or 0.0)
+            rate = 0.0
+            comm = 0.0
+            settled = raw_amt
 
             inv_no = f"INV-{o.created_at.strftime('%Y%m%d')}-{str(o.id)[:6].upper()}"
             recent_invoices.append({
@@ -422,15 +423,15 @@ class AnalyticsService:
                 "split_payments": getattr(o, "split_payments", None),
                 "customer_name": o.customer_name or "Guest",
                 "customer_phone": o.customer_phone or "",
-                "total_order_amt": round(float(o.total_amount or 0.0), 2),
-                "commission_rate": round(rate * 100, 1),
-                "commission_amount": round(comm, 2),
+                "total_order_amt": round(raw_amt, 2),
+                "commission_rate": 0.0,
+                "commission_amount": 0.0,
                 "settled_amount": round(settled, 2),
                 "order_status": o.order_status,
-                "created_at": o.created_at.strftime("%b %d, %Y %I:%M %p")
+                "created_at": (o.created_at.replace(tzinfo=timezone.utc).isoformat() if o.created_at.tzinfo is None else o.created_at.isoformat()) if hasattr(o.created_at, 'isoformat') else str(o.created_at)
             })
 
-        total_settled_amount = round(total_gross - total_commission_paid, 2)
+        total_settled_amount = round(total_gross, 2)
 
         # 2b. Compute Payment Modes breakdown (accounting for split payments and individual payment methods)
         mode_amounts = {"cash": 0.0, "upi": 0.0, "card": 0.0, "online": 0.0, "other": 0.0}
@@ -504,7 +505,8 @@ class AnalyticsService:
                 Order.shop_id == shop_id,
                 Order.created_at >= since,
                 Order.created_at <= until,
-                Order.order_status.notin_(["rejected", "cancelled"])
+                func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded"
             )
             .group_by(func.date(Order.created_at))
             .order_by(func.date(Order.created_at))
@@ -512,18 +514,12 @@ class AnalyticsService:
         daily_sales = []
         for row in daily_res:
             gross = float(row.sum_amt or 0.0)
-            day_orders = [o for o in orders if o.created_at.date() == row.date]
-            comm = sum(
-                float(o.total_amount or 0.0) * 0.02
-                for o in day_orders
-                if (o.payment_method or "cash").lower() in ["online", "upi", "card", "pay_online", "razorpay", "cashfree"]
-            )
             daily_sales.append({
                 "date": str(row.date),
                 "orders_count": row.count,
                 "gross_revenue": round(gross, 2),
-                "commission_amount": round(comm, 2),
-                "settled_amount": round(gross - comm, 2)
+                "commission_amount": 0.0,
+                "settled_amount": round(gross, 2)
             })
 
         # 5. Top Ordered Food Items & Highest Revenue Food
@@ -538,19 +534,40 @@ class AnalyticsService:
                 Order.shop_id == shop_id,
                 Order.created_at >= since,
                 Order.created_at <= until,
-                Order.order_status.notin_(["rejected", "cancelled"])
+                func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded",
+                OrderItem.is_cancelled == False
             )
             .group_by(OrderItem.name)
             .order_by(desc("total_rev"))
             .limit(15)
         )
 
+        # Load menu item images for enrichment
+        catalog_id_q = await self.db.execute(select(Shop.menu_catalog_id).where(Shop.id == shop_id))
+        catalog_id = catalog_id_q.scalar_one_or_none()
+
+        items_meta = {}
+        if catalog_id:
+            mi_res = await self.db.execute(
+                select(MenuItem)
+                .options(selectinload(MenuItem.images))
+                .where(MenuItem.menu_catalog_id == catalog_id)
+            )
+            for mi in mi_res.scalars().all():
+                img_url = mi.images[0].image_url if mi.images else None
+                if mi.name:
+                    items_meta[mi.name.strip().lower()] = img_url
+
         top_ordered_items = []
         for row in top_items_res:
+            item_name = row.name
+            img_url = items_meta.get(item_name.strip().lower()) if item_name else None
             top_ordered_items.append({
-                "name": row.name,
+                "name": item_name,
                 "total_quantity": int(row.total_qty or 0),
-                "total_revenue": round(float(row.total_rev or 0.0), 2)
+                "total_revenue": round(float(row.total_rev or 0.0), 2),
+                "image_url": img_url
             })
 
         highest_revenue_food = top_ordered_items[0] if top_ordered_items else None
@@ -710,7 +727,7 @@ class AnalyticsService:
             invoices.append({
                 "order_id": str(o.id),
                 "invoice_no": inv_no,
-                "date": o.created_at.strftime("%Y-%m-%d %H:%M"),
+                "date": (o.created_at.replace(tzinfo=timezone.utc).isoformat() if o.created_at.tzinfo is None else o.created_at.isoformat()) if hasattr(o.created_at, 'isoformat') else str(o.created_at),
                 "customer_name": o.customer_name or "Walk-in Guest",
                 "customer_phone": o.customer_phone or "",
                 "order_type": o.order_type or "dine_in",
@@ -768,4 +785,230 @@ class AnalyticsService:
             "total_pages": total_pages,
             "has_more": has_more,
         }
+
+    async def get_product_sales_analytics(
+        self,
+        shop_id: uuid.UUID,
+        days: int = 30,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        product_name: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> dict:
+        """Get product sales analytics: overall stats, product breakdown, and daily sales time series."""
+        from collections import defaultdict
+        from sqlalchemy.orm import selectinload
+        from app.models.order import Order, OrderItem
+        from app.models.menu_item import MenuItem
+        from app.models.category import Category
+
+        now = datetime.now(timezone.utc)
+
+        if start_date and end_date:
+            try:
+                since = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                until = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
+            except ValueError:
+                since = now - timedelta(days=days)
+                until = now
+        else:
+            since = now - timedelta(days=days)
+            until = now
+
+        # Base query for order items in this shop and timeframe
+        stmt = (
+            select(
+                OrderItem,
+                Order.created_at.label("order_created_at"),
+                Order.customer_name.label("order_customer_name"),
+                Order.customer_phone.label("order_customer_phone"),
+                Order.payment_method.label("order_payment_method"),
+                Order.order_type.label("order_type_val"),
+                Order.id.label("order_id_val")
+            )
+            .join(Order, Order.id == OrderItem.order_id)
+            .where(
+                Order.shop_id == shop_id,
+                Order.created_at >= since,
+                Order.created_at <= until,
+                func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded",
+                OrderItem.is_cancelled == False
+            )
+            .order_by(desc(Order.created_at))
+        )
+
+        res = await self.db.execute(stmt)
+        rows = res.all()
+
+        # Load menu item images and categories for enrichment
+        catalog_id_q = await self.db.execute(select(Shop.menu_catalog_id).where(Shop.id == shop_id))
+        catalog_id = catalog_id_q.scalar_one_or_none()
+
+        items_meta = {}
+        if catalog_id:
+            mi_res = await self.db.execute(
+                select(MenuItem)
+                .options(selectinload(MenuItem.images), selectinload(MenuItem.category))
+                .where(MenuItem.menu_catalog_id == catalog_id)
+            )
+            for mi in mi_res.scalars().all():
+                img_url = mi.images[0].image_url if mi.images else None
+                cat_name = mi.category.name if mi.category else None
+                items_meta[str(mi.id)] = {"image_url": img_url, "category_name": cat_name}
+                items_meta[mi.name.strip().lower()] = {"image_url": img_url, "category_name": cat_name}
+
+        # Aggregation
+        product_agg = {}
+        daily_agg_overall = defaultdict(lambda: {"qty": 0, "rev": 0.0, "orders": set()})
+        daily_agg_selected = defaultdict(lambda: {"qty": 0, "rev": 0.0, "orders": set()})
+        recent_sales_list = []
+
+        total_products_sold_count = 0
+        total_product_revenue = 0.0
+        overall_order_ids = set()
+
+        selected_norm = product_name.strip().lower() if product_name and product_name.strip() and product_name.strip().lower() != "all" else None
+
+        for row in rows:
+            oi = row[0]
+            o_created = row[1]
+            o_cust_name = row[2] or "Guest"
+            o_cust_phone = row[3] or ""
+            o_pm = row[4] or "cash"
+            o_type = row[5] or "dine_in"
+            o_id = str(row[6])
+
+            p_name = (oi.name or "Item").strip()
+            norm_name = p_name.lower()
+            qty = int(oi.quantity or 1)
+            unit_p = float(oi.price or 0.0)
+            line_total = float(oi.price or 0.0) * qty
+
+            dt_str = o_created.strftime("%Y-%m-%d")
+            total_products_sold_count += qty
+            total_product_revenue += line_total
+            overall_order_ids.add(o_id)
+
+            daily_agg_overall[dt_str]["qty"] += qty
+            daily_agg_overall[dt_str]["rev"] += line_total
+            daily_agg_overall[dt_str]["orders"].add(o_id)
+
+            if norm_name not in product_agg:
+                meta = items_meta.get(str(oi.menu_item_id)) or items_meta.get(norm_name) or {}
+                product_agg[norm_name] = {
+                    "item_id": str(oi.menu_item_id) if oi.menu_item_id else None,
+                    "name": p_name,
+                    "category_name": meta.get("category_name"),
+                    "image_url": meta.get("image_url"),
+                    "total_quantity_sold": 0,
+                    "total_revenue": 0.0,
+                    "orders_set": set(),
+                    "unit_prices": [],
+                    "first_sale": o_created,
+                    "last_sale": o_created,
+                }
+
+            p_entry = product_agg[norm_name]
+            p_entry["total_quantity_sold"] += qty
+            p_entry["total_revenue"] += line_total
+            p_entry["orders_set"].add(o_id)
+            p_entry["unit_prices"].append(unit_p)
+            if o_created < p_entry["first_sale"]:
+                p_entry["first_sale"] = o_created
+            if o_created > p_entry["last_sale"]:
+                p_entry["last_sale"] = o_created
+
+            # If selected product
+            is_match = False
+            if selected_norm:
+                if selected_norm == norm_name or selected_norm in norm_name:
+                    is_match = True
+            if is_match or not selected_norm:
+                if selected_norm:
+                    daily_agg_selected[dt_str]["qty"] += qty
+                    daily_agg_selected[dt_str]["rev"] += line_total
+                    daily_agg_selected[dt_str]["orders"].add(o_id)
+
+                var_info = oi.variant_info
+                var_name = var_info.get("name") if isinstance(var_info, dict) else None
+                recent_sales_list.append({
+                    "order_id": o_id,
+                    "created_at": (o_created.replace(tzinfo=timezone.utc).isoformat() if o_created.tzinfo is None else o_created.isoformat()) if hasattr(o_created, 'isoformat') else str(o_created),
+                    "customer_name": o_cust_name,
+                    "customer_phone": o_cust_phone,
+                    "variant_name": var_name,
+                    "quantity": qty,
+                    "unit_price": round(unit_p, 2),
+                    "total_price": round(line_total, 2),
+                    "payment_method": o_pm,
+                    "order_type": o_type
+                })
+
+        # Format products list
+        products_list = []
+        for p in product_agg.values():
+            avg_price = (sum(p["unit_prices"]) / len(p["unit_prices"])) if p["unit_prices"] else 0.0
+            products_list.append({
+                "item_id": p["item_id"],
+                "name": p["name"],
+                "category_name": p["category_name"],
+                "image_url": p["image_url"],
+                "average_unit_price": round(avg_price, 2),
+                "total_quantity_sold": p["total_quantity_sold"],
+                "total_revenue": round(p["total_revenue"], 2),
+                "orders_count": len(p["orders_set"]),
+                "first_sale_date": p["first_sale"].strftime("%b %d, %Y") if p["first_sale"] else None,
+                "last_sale_date": p["last_sale"].strftime("%b %d, %Y") if p["last_sale"] else None,
+            })
+
+        # Sort by total revenue descending
+        products_list.sort(key=lambda x: (x["total_revenue"], x["total_quantity_sold"]), reverse=True)
+
+        if search and search.strip():
+            st = search.strip().lower()
+            products_list = [p for p in products_list if st in p["name"].lower() or (p["category_name"] and st in p["category_name"].lower())]
+
+        # Top selling product by quantity
+        by_qty = sorted(products_list, key=lambda x: x["total_quantity_sold"], reverse=True)
+        top_selling = by_qty[0] if by_qty else None
+        highest_revenue = products_list[0] if products_list else None
+
+        # Build daily timeline
+        active_daily = daily_agg_selected if selected_norm else daily_agg_overall
+        daily_sales_points = []
+
+        curr_d = since.date()
+        end_d = until.date()
+        # Cap daily points loop to maximum 180 days to prevent large iteration
+        diff_days = min(180, max(1, (end_d - curr_d).days))
+        for i in range(diff_days + 1):
+            d_obj = curr_d + timedelta(days=i)
+            d_key = d_obj.strftime("%Y-%m-%d")
+            entry = active_daily.get(d_key, {"qty": 0, "rev": 0.0, "orders": set()})
+            daily_sales_points.append({
+                "date": d_key,
+                "quantity_sold": entry["qty"],
+                "revenue": round(entry["rev"], 2),
+                "orders_count": len(entry["orders"]) if isinstance(entry["orders"], set) else 0
+            })
+
+        selected_product_stats = None
+        if selected_norm:
+            selected_product_stats = next((p for p in products_list if p["name"].lower() == selected_norm or selected_norm in p["name"].lower()), None)
+
+        return {
+            "total_products_sold_count": total_products_sold_count,
+            "total_product_revenue": round(total_product_revenue, 2),
+            "total_unique_products_sold": len(product_agg),
+            "total_orders_count": len(overall_order_ids),
+            "selected_product_name": product_name if selected_norm else None,
+            "selected_product_stats": selected_product_stats,
+            "top_selling_product": top_selling,
+            "highest_revenue_product": highest_revenue,
+            "products": products_list,
+            "daily_sales": daily_sales_points,
+            "recent_sales": recent_sales_list[:100]
+        }
+
 

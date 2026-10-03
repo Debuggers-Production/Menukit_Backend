@@ -163,7 +163,7 @@ async def send_phone_otp(
 
     # 2. Send via SMSService (MSG91 Widget)
     from app.services.sms_service import sms_service
-    verification_id = await sms_service.send_otp(mobile_number=formatted_phone, country_code=country_code.replace("+", ""))
+    verification_id = await sms_service.send_otp(mobile_number=formatted_phone, country_code=country_code.replace("+", ""), code=code)
     
     if not verification_id and not sms_service.mock_mode:
         raise HTTPException(
