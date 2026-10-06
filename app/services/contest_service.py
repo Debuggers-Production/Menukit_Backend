@@ -110,8 +110,10 @@ class ContestService:
             print(f"Error sending contest cancellation WhatsApp: {err}")
 
     async def _get_user_shop(self, user_id: uuid.UUID) -> Shop:
-        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
-        shop = result.scalar_one_or_none()
+        result = await self.db.execute(
+            select(Shop).where(Shop.user_id == user_id).order_by(Shop.created_at.asc())
+        )
+        shop = result.scalars().first()
         if not shop:
             raise NotFoundException("Shop not found. Create a shop first.")
         return shop

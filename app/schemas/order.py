@@ -7,7 +7,7 @@ from datetime import datetime
 
 
 class OrderItemBase(BaseModel):
-    menu_item_id: uuid.UUID
+    menu_item_id: Optional[uuid.UUID] = None
     name: str
     quantity: int
     price: float
@@ -109,3 +109,9 @@ class PaymentStatusUpdate(BaseModel):
     payment_status: str  # 'pending', 'paid', 'failed', 'refunded'
     payment_method: Optional[str] = None  # 'cash', 'upi', 'card', 'online', 'split', 'other'
     split_payments: Optional[List[dict]] = None
+
+
+class OrderApplyDiscount(BaseModel):
+    discount_type: str = "percentage"  # 'percentage' or 'fixed'
+    discount_value: float = 0.0  # 0 to remove discount
+

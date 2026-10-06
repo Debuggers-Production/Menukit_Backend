@@ -25,8 +25,10 @@ class MenuService:
 
     async def _get_user_shop(self, user_id: uuid.UUID) -> Shop:
         """Get the shop owned by the user."""
-        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
-        shop = result.scalar_one_or_none()
+        result = await self.db.execute(
+            select(Shop).where(Shop.user_id == user_id).order_by(Shop.created_at.asc())
+        )
+        shop = result.scalars().first()
         if not shop:
             raise NotFoundException("Shop not found. Create a shop first.")
         return shop
@@ -482,10 +484,9 @@ class MenuService:
 
         return image
 
-    async def delete_menu_image(self, user_id: uuid.UUID, item_id: uuid.UUID, image_id: uuid.UUID):
-        shop = await self._get_user_shop(user_id)
+    async def delete_menu_image(self, shop_id: uuid.UUID, item_id: uuid.UUID, image_id: uuid.UUID):
         # Verify item belongs to shop's catalog
-        catalog_id = await self._get_catalog_id(shop.id)
+        catalog_id = await self._get_catalog_id(shop_id)
         item = await self.get_menu_item(item_id)
         if not item or item.menu_catalog_id != catalog_id:
             raise NotFoundException("Menu item not found")
@@ -503,10 +504,9 @@ class MenuService:
         await self.db.flush()
         await self.db.commit()
 
-    async def set_primary_menu_image(self, user_id: uuid.UUID, item_id: uuid.UUID, image_id: uuid.UUID):
-        shop = await self._get_user_shop(user_id)
+    async def set_primary_menu_image(self, shop_id: uuid.UUID, item_id: uuid.UUID, image_id: uuid.UUID):
         # Verify item belongs to shop's catalog
-        catalog_id = await self._get_catalog_id(shop.id)
+        catalog_id = await self._get_catalog_id(shop_id)
         item = await self.get_menu_item(item_id)
         if not item or item.menu_catalog_id != catalog_id:
             raise NotFoundException("Menu item not found")

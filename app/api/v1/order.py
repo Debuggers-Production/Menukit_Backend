@@ -225,7 +225,7 @@ async def create_manual_order(
     """Manually create an order by merchant/staff in the merchant portal."""
     await check_orders_subscription(shop, db)
     service = OrderService(db)
-    order = await service.create_order(shop.id, order_data)
+    order = await service.create_order(shop.id, order_data, is_manual=True)
     
     is_paid = (order_data.payment_status or "").lower() == "paid"
     if is_paid:
@@ -356,6 +356,31 @@ async def replace_order_item_preview(
         replace_data=replace_data,
     )
     return preview
+
+
+from app.schemas.order import OrderApplyDiscount
+
+@router.put("/{order_id}/discount", response_model=OrderResponse)
+async def apply_order_discount(
+    order_id: str,
+    data: OrderApplyDiscount,
+    shop = Depends(require_permission("orders", "write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Apply, update, or remove discount on an existing order."""
+    import uuid
+    await check_orders_subscription(shop, db)
+    service = OrderService(db)
+    order = await service.apply_order_discount(
+        uuid.UUID(order_id),
+        shop.id,
+        discount_type=data.discount_type,
+        discount_value=data.discount_value,
+    )
+    await db.commit()
+    await db.refresh(order)
+    return OrderResponse.model_validate(order)
+
 
 
 

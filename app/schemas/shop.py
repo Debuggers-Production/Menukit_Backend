@@ -73,6 +73,7 @@ class ShopSettingsUpdate(BaseModel):
     max_delivery_distance: Optional[float] = None
     takeaway_enabled: Optional[bool] = None
     dinein_enabled: Optional[bool] = None
+    dinein_tables_enabled: Optional[bool] = None
     dinein_tables_count: Optional[int] = None
     auto_accept_orders: Optional[bool] = None
     online_payments_enabled: Optional[bool] = None
@@ -100,6 +101,15 @@ class ShopSettingsUpdate(BaseModel):
     serial_number_prefix: Optional[str] = None
     serial_number_digits: Optional[int] = None
     auto_serial_number_enabled: Optional[bool] = None
+    # Return, Refund & Replacement Policies
+    return_allowed: Optional[bool] = None
+    return_window_days: Optional[int] = None
+    return_policy_notes: Optional[str] = None
+    refund_allowed: Optional[bool] = None
+    refund_policy_notes: Optional[str] = None
+    replacement_allowed: Optional[bool] = None
+    replacement_window_days: Optional[int] = None
+    replacement_policy_notes: Optional[str] = None
 
 
 class ThemeSettingsUpdate(BaseModel):
@@ -152,6 +162,7 @@ class ShopSettingsResponse(BaseModel):
     max_delivery_distance: float = 0.0
     takeaway_enabled: bool
     dinein_enabled: bool
+    dinein_tables_enabled: bool = True
     dinein_tables_count: int = 10
     auto_accept_orders: bool
     cashfree_app_id: str
@@ -182,6 +193,15 @@ class ShopSettingsResponse(BaseModel):
     serial_number_prefix: Optional[str] = ""
     serial_number_digits: int = 3
     auto_serial_number_enabled: bool = False
+    # Return, Refund & Replacement Policies
+    return_allowed: bool = False
+    return_window_days: int = 0
+    return_policy_notes: Optional[str] = None
+    refund_allowed: bool = False
+    refund_policy_notes: Optional[str] = None
+    replacement_allowed: bool = True
+    replacement_window_days: int = 0
+    replacement_policy_notes: Optional[str] = None
 
     class Config:
         from_attributes = True

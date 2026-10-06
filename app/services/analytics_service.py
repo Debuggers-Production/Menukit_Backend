@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
-from sqlalchemy import select, func, desc, text, or_
+from sqlalchemy import select, func, desc, text, or_, and_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -381,8 +381,16 @@ class AnalyticsService:
                 Order.shop_id == shop_id,
                 Order.created_at >= since,
                 Order.created_at <= until,
-                func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
-                func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded"
+                or_(
+                    and_(
+                        func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                        func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded"
+                    ),
+                    and_(
+                        func.lower(Order.order_status).in_(["cancelled", "rejected"]),
+                        func.lower(func.coalesce(Order.payment_status, "pending")) == "paid"
+                    )
+                )
             )
             .order_by(desc(Order.created_at))
         )
@@ -395,8 +403,16 @@ class AnalyticsService:
                 Order.shop_id == shop_id,
                 Order.created_at >= prev_since,
                 Order.created_at < prev_until,
-                func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
-                func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded"
+                or_(
+                    and_(
+                        func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                        func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded"
+                    ),
+                    and_(
+                        func.lower(Order.order_status).in_(["cancelled", "rejected"]),
+                        func.lower(func.coalesce(Order.payment_status, "pending")) == "paid"
+                    )
+                )
             )
         )
         prev_revenue = float(prev_orders_q.scalar() or 0.0)
@@ -505,8 +521,16 @@ class AnalyticsService:
                 Order.shop_id == shop_id,
                 Order.created_at >= since,
                 Order.created_at <= until,
-                func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
-                func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded"
+                or_(
+                    and_(
+                        func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                        func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded"
+                    ),
+                    and_(
+                        func.lower(Order.order_status).in_(["cancelled", "rejected"]),
+                        func.lower(func.coalesce(Order.payment_status, "pending")) == "paid"
+                    )
+                )
             )
             .group_by(func.date(Order.created_at))
             .order_by(func.date(Order.created_at))
@@ -671,7 +695,16 @@ class AnalyticsService:
                 Order.shop_id == shop_id,
                 Order.created_at >= since,
                 Order.created_at <= until,
-                Order.order_status.notin_(["rejected", "cancelled", "REJECTED", "CANCELLED"])
+                or_(
+                    and_(
+                        func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                        func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded"
+                    ),
+                    and_(
+                        func.lower(Order.order_status).in_(["cancelled", "rejected"]),
+                        func.lower(func.coalesce(Order.payment_status, "pending")) == "paid"
+                    )
+                )
             )
             .order_by(desc(Order.created_at))
         )

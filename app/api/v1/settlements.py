@@ -87,14 +87,36 @@ async def get_settlements_summary(
 
     cutoff_7d = now - timedelta(days=7)
 
+    # Filter strictly for payments actually made through Razorpay
+    razorpay_actual_payment = and_(
+        func.lower(Order.payment_status).in_(["paid", "settled"]),
+        func.lower(Order.payment_method) == "online",
+        or_(
+            and_(
+                Order.payment_session_id.is_not(None),
+                Order.payment_session_id.startswith("pay_"),
+                ~Order.payment_session_id.startswith("pay_mock_")
+            ),
+            and_(
+                Order.razorpay_order_id.is_not(None),
+                Order.razorpay_order_id.startswith("order_"),
+                ~Order.razorpay_order_id.startswith("order_mock_")
+            ),
+            and_(
+                Order.razorpay_transfer_id.is_not(None),
+                Order.razorpay_transfer_id != "",
+                ~Order.razorpay_transfer_id.startswith("trf_mock_")
+            )
+        )
+    )
+
     # Base filtering conditions
     base_conditions = [
         Order.shop_id == shop.id,
         Order.created_at >= since,
         Order.created_at <= until,
         func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
-        Order.payment_method == "online",
-        Order.payment_status == "paid"
+        razorpay_actual_payment
     ]
 
     # Backend Search Filter
@@ -106,7 +128,8 @@ async def get_settlements_summary(
                 Order.customer_phone.ilike(term),
                 cast(Order.id, String).ilike(term),
                 Order.cashfree_order_id.ilike(term),
-                Order.payment_session_id.ilike(term)
+                Order.payment_session_id.ilike(term),
+                Order.razorpay_order_id.ilike(term)
             )
         )
 
@@ -168,13 +191,16 @@ async def get_settlements_summary(
         total_fee = 0.0
         net = round(gross, 2)
 
-
         created_dt = o.created_at if o.created_at.tzinfo else o.created_at.replace(tzinfo=timezone.utc)
         est_payout_dt = created_dt + timedelta(days=7)
         
         settlement_status = o.settlement_status or ("settled" if now >= est_payout_dt else "pending")
         inv_no = f"SETTL-{created_dt.strftime('%Y%m%d')}-{str(o.id)[:6].upper()}"
-        pay_ref = o.cashfree_order_id or o.payment_session_id or f"TXN-{str(o.id)[:8].upper()}"
+        pay_ref = (
+            o.payment_session_id 
+            if (o.payment_session_id and o.payment_session_id.startswith("pay_"))
+            else (o.razorpay_order_id or o.cashfree_order_id or f"RZP-{str(o.id)[:8].upper()}")
+        )
         pm = (o.payment_method or "").lower()
 
         settlements_list.append(SettlementItemSchema(

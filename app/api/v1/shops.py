@@ -47,7 +47,25 @@ async def create_additional_shop_order(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create Razorpay order for ₹50 shop creation fee + 3% payment gateway fee + 18% GST."""
+    """Create Razorpay order for ₹50 shop creation fee for additional shops (first shop is free)."""
+    service = ShopService(db)
+    shops_info = await service.get_shops_for_user(user.id)
+    owned_count = len(shops_info.get("owned", []))
+
+    # First shop is completely free of charge
+    if owned_count == 0:
+        return {
+            "required": False,
+            "mock_mode": False,
+            "order_id": None,
+            "base_amount": 0.0,
+            "pg_fee": 0.0,
+            "gst_on_fee": 0.0,
+            "amount": 0.0,
+            "currency": "INR",
+            "key_id": settings.RAZORPAY_KEY_ID or "rzp_mock_key"
+        }
+
     base_amount = 50.0
     pg_fee = round(base_amount * 0.03, 2)         # ₹1.50 (3%)
     gst_on_fee = round(pg_fee * 0.18, 2)         # ₹0.27 (18% on ₹1.50)
@@ -118,7 +136,7 @@ async def create_shop(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new shop profile (with ₹50 one-time fee for every new shop)."""
+    """Create a new shop profile (first shop is free, additional shops require ₹50 fee)."""
     if not user.phone or not user.phone_verified:
         raise HTTPException(
             status_code=403,
@@ -129,28 +147,29 @@ async def create_shop(
     shops_info = await service.get_shops_for_user(user.id)
     owned_count = len(shops_info.get("owned", []))
 
-    # Every new shop creation strictly requires ₹50 payment
-    has_payment = bool(data.razorpay_payment_id or data.razorpay_order_id)
-    is_mock_payment = (
-        getattr(settings, "MOCK_PAYMENT_MODE", False) or 
-        str(data.razorpay_payment_id or "").startswith("pay_mock_") or
-        str(data.razorpay_order_id or "").startswith("order_mock_")
-    )
-    
-    if not has_payment and not is_mock_payment:
-        raise HTTPException(
-            status_code=402,
-            detail="Shop creation requires a ₹50 one-time fee. Please complete payment before creating a shop."
+    # If the user already has 1 or more shops, additional shop creation requires ₹50 payment
+    if owned_count > 0:
+        has_payment = bool(data.razorpay_payment_id or data.razorpay_order_id)
+        is_mock_payment = (
+            getattr(settings, "MOCK_PAYMENT_MODE", False) or 
+            str(data.razorpay_payment_id or "").startswith("pay_mock_") or
+            str(data.razorpay_order_id or "").startswith("order_mock_")
         )
         
-    if not is_mock_payment and settings.RAZORPAY_KEY_SECRET and data.razorpay_signature:
-        generated_sig = hmac.new(
-            settings.RAZORPAY_KEY_SECRET.encode(),
-            f"{data.razorpay_order_id}|{data.razorpay_payment_id}".encode(),
-            hashlib.sha256
-        ).hexdigest()
-        if generated_sig != data.razorpay_signature:
-            raise HTTPException(status_code=400, detail="Invalid payment signature")
+        if not has_payment and not is_mock_payment:
+            raise HTTPException(
+                status_code=402,
+                detail="Additional shop creation requires a ₹50 one-time fee. Please complete payment before creating a shop."
+            )
+            
+        if not is_mock_payment and settings.RAZORPAY_KEY_SECRET and data.razorpay_signature:
+            generated_sig = hmac.new(
+                settings.RAZORPAY_KEY_SECRET.encode(),
+                f"{data.razorpay_order_id}|{data.razorpay_payment_id}".encode(),
+                hashlib.sha256
+            ).hexdigest()
+            if generated_sig != data.razorpay_signature:
+                raise HTTPException(status_code=400, detail="Invalid payment signature")
 
     shop_dict = data.model_dump(exclude_none=True)
     order_id = shop_dict.pop("razorpay_order_id", None)

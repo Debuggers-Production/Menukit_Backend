@@ -32,6 +32,7 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     max_delivery_distance: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     takeaway_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     dinein_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    dinein_tables_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     dinein_tables_count: Mapped[int] = mapped_column(default=10, nullable=False)
     auto_accept_orders: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     cashfree_app_id: Mapped[str] = mapped_column(String(255), default="", nullable=False)
@@ -65,6 +66,18 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     serial_number_prefix: Mapped[str | None] = mapped_column(String(20), default="", nullable=True)
     serial_number_digits: Mapped[int] = mapped_column(default=3, nullable=False)
     auto_serial_number_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Return, Refund & Replacement Policies
+    return_allowed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    return_window_days: Mapped[int] = mapped_column(default=0, nullable=False)
+    return_policy_notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    refund_allowed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    refund_policy_notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    replacement_allowed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    replacement_window_days: Mapped[int] = mapped_column(default=0, nullable=False)
+    replacement_policy_notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Relationships
     shop = relationship("Shop", back_populates="settings")

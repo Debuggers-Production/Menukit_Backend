@@ -155,9 +155,9 @@ async def require_active_subscription(
     from app.api.v1.subscription import get_shop_subscription_status
     from sqlalchemy import select
 
-    stmt = select(Shop).where(Shop.user_id == current_user.id)
+    stmt = select(Shop).where(Shop.user_id == current_user.id).order_by(Shop.created_at.asc())
     res = await db.execute(stmt)
-    shop = res.scalar_one_or_none()
+    shop = res.scalars().first()
 
     if shop:
         sub_info = await get_shop_subscription_status(shop, db)

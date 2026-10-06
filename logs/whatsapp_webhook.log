@@ -6324,3 +6324,485 @@
   }
 }
 [2026-10-03 14:07:58,336] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"911234567890","wa_id":"911234567890"}],"messages":[{"id":"wamid.HBgMOTExMjM0NTY3ODkwFQIAERgSOERCQTBDRjRGOThFOTFGRkYyAA==","message_status":"accepted"}]}
+[2026-10-06 12:14:58,613] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "911234567890",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Csutomer A"
+          },
+          {
+            "type": "text",
+            "text": "3"
+          },
+          {
+            "type": "text",
+            "text": "tEST SHOP"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91055.40"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/b46f230d-7f5c-4872-8349-204aa0c645d9/order/7ced8d64-e447-4f1c-b9a7-5a7f0de78d39"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-06 12:15:01,075] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"911234567890","wa_id":"911234567890"}],"messages":[{"id":"wamid.HBgMOTExMjM0NTY3ODkwFQIAERgSNzJBMDZENkRBRURBNkE4NkEwAA==","message_status":"accepted"}]}
+[2026-10-06 12:15:12,088] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "911234567890",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Csutomer A"
+          },
+          {
+            "type": "text",
+            "text": "tEST SHOP"
+          },
+          {
+            "type": "text",
+            "text": "#3"
+          },
+          {
+            "type": "text",
+            "text": "\u20b91055.40"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-06 12:15:14,195] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"911234567890","wa_id":"911234567890"}],"messages":[{"id":"wamid.HBgMOTExMjM0NTY3ODkwFQIAERgSNTU0OUU3MUI3RDA5NkQ4QUEyAA==","message_status":"accepted"}]}
+[2026-10-06 12:16:25,987] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "911234567890",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Csutomer A"
+          },
+          {
+            "type": "text",
+            "text": "3"
+          },
+          {
+            "type": "text",
+            "text": "tEST SHOP"
+          },
+          {
+            "type": "text",
+            "text": "Cancelled Order = Rs.1000.00"
+          },
+          {
+            "type": "text",
+            "text": "Item out of stock / Ingredients unavailable"
+          },
+          {
+            "type": "text",
+            "text": "1000"
+          },
+          {
+            "type": "text",
+            "text": "3"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/b46f230d-7f5c-4872-8349-204aa0c645d9/order/7ced8d64-e447-4f1c-b9a7-5a7f0de78d39"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-06 12:16:27,969] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"911234567890","wa_id":"911234567890"}],"messages":[{"id":"wamid.HBgMOTExMjM0NTY3ODkwFQIAERgSQzIzN0Y0RUNFREJGMjk4MzZFAA==","message_status":"accepted"}]}
+[2026-10-06 12:17:52,696] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "5"
+          },
+          {
+            "type": "text",
+            "text": "tEST SHOP"
+          },
+          {
+            "type": "text",
+            "text": "\u20b94.22"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/b46f230d-7f5c-4872-8349-204aa0c645d9/order/f22b2c2d-c5ec-402c-86ae-0ead3ef9ac6d"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-06 12:17:54,672] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQTdDQUU0MzBEOEJCMTNEMTFCAA==","message_status":"accepted"}]}
+[2026-10-06 12:17:57,427] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "tEST SHOP"
+          },
+          {
+            "type": "text",
+            "text": "#5"
+          },
+          {
+            "type": "text",
+            "text": "\u20b94.22"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-06 12:18:00,035] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRUMzQjZCMzQ3QkEzMzRDMTkwAA==","message_status":"accepted"}]}
+[2026-10-06 12:18:25,948] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_refund_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "5"
+          },
+          {
+            "type": "text",
+            "text": "tEST SHOP"
+          },
+          {
+            "type": "text",
+            "text": "Cancelled Order = Rs.4.00"
+          },
+          {
+            "type": "text",
+            "text": "Item out of stock / Ingredients unavailable"
+          },
+          {
+            "type": "text",
+            "text": "4"
+          },
+          {
+            "type": "text",
+            "text": "5"
+          },
+          {
+            "type": "text",
+            "text": "Online"
+          },
+          {
+            "type": "text",
+            "text": "5-7"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/b46f230d-7f5c-4872-8349-204aa0c645d9/order/f22b2c2d-c5ec-402c-86ae-0ead3ef9ac6d"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-06 12:18:27,927] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQjFCMjExQkM0NTFBNjk4RURGAA==","message_status":"accepted"}]}
+[2026-10-06 12:21:38,276] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "6"
+          },
+          {
+            "type": "text",
+            "text": "tEST SHOP"
+          },
+          {
+            "type": "text",
+            "text": "\u20b95.28"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/b46f230d-7f5c-4872-8349-204aa0c645d9/order/7be6c46a-f692-47ce-8d06-02495914c66a"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-06 12:21:40,228] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSRjcxOUNFQTlCOUFGMzA2MTQ4AA==","message_status":"accepted"}]}
+[2026-10-06 12:21:41,916] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "tEST SHOP"
+          },
+          {
+            "type": "text",
+            "text": "#6"
+          },
+          {
+            "type": "text",
+            "text": "\u20b95.28"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-06 12:21:43,352] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMDgwQkEwRUVFQzFGMkIzQkU4AA==","message_status":"accepted"}]}
+[2026-10-06 12:54:02,862] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_accepted_payment_required_template",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Rajan"
+          },
+          {
+            "type": "text",
+            "text": "2"
+          },
+          {
+            "type": "text",
+            "text": "Siva Crackers"
+          },
+          {
+            "type": "text",
+            "text": "\u20b955.41"
+          }
+        ]
+      },
+      {
+        "type": "button",
+        "sub_type": "url",
+        "index": "0",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "shop/d35dc89f-5d77-40b5-84d1-ae257ae630b1/order/fafa9a4f-5635-4393-8574-9e354c181d56"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-06 12:54:04,433] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMDdFNDRFRDJCRURCMDlFQjY2AA==","message_status":"accepted"}]}
+[2026-10-06 12:54:09,989] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Siva Rajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Crackers"
+          },
+          {
+            "type": "text",
+            "text": "#2"
+          },
+          {
+            "type": "text",
+            "text": "\u20b955.41"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-06 12:54:11,948] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSMjZBNkQxMDFEOUY1MkVENjIyAA==","message_status":"accepted"}]}

@@ -254,7 +254,7 @@ class OrderService:
         except Exception as e:
             print(f"Error in _broadcast_order_live: {e}")
 
-    async def create_order(self, shop_id: uuid.UUID, data: OrderCreate) -> Order:
+    async def create_order(self, shop_id: uuid.UUID, data: OrderCreate, is_manual: bool = False) -> Order:
         """Create a new customer order and initialize payment session if online."""
         # 1. Fetch shop and settings
         result = await self.db.execute(select(Shop).where(Shop.id == shop_id))
@@ -262,55 +262,57 @@ class OrderService:
         if not shop:
             raise HTTPException(status_code=404, detail="Restaurant not found")
 
-        # 1b. Check if restaurant is active and open for business
-        is_open, closed_msg = check_shop_operating_status(shop)
-        if not is_open:
-            raise HTTPException(status_code=400, detail=closed_msg or "Restaurant is currently closed for orders.")
+        # 1b. Check if restaurant is active and open for business (public customer orders only)
+        if not is_manual:
+            is_open, closed_msg = check_shop_operating_status(shop)
+            if not is_open:
+                raise HTTPException(status_code=400, detail=closed_msg or "Restaurant is currently closed for orders.")
 
         settings_result = await self.db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop.id))
         settings = settings_result.scalar_one_or_none()
         if not settings:
             raise HTTPException(status_code=400, detail="Ordering is not configured for this restaurant")
 
-        # 2. Check channel availability & bank verification
-        is_bank_verified = bool(settings.bank_account_last4) and settings.razorpay_route_status in ["activated", "active"]
-        if not is_bank_verified:
-            raise HTTPException(status_code=400, detail="Ordering is temporarily unavailable as restaurant settlement account verification is pending.")
+        # 2. Check channel availability & bank verification (public customer orders only)
+        if not is_manual:
+            is_bank_verified = bool(settings.bank_account_last4) and settings.razorpay_route_status in ["activated", "active"]
+            if not is_bank_verified:
+                raise HTTPException(status_code=400, detail="Ordering is temporarily unavailable as restaurant settlement account verification is pending.")
 
-        if data.order_type == "delivery":
-            if not settings.delivery_enabled:
-                raise HTTPException(status_code=400, detail="Delivery option is not available")
-            
-            # Check maximum coverable delivery distance
-            max_dist = float(getattr(settings, "max_delivery_distance", 0.0) or 0.0)
-            if max_dist > 0 and shop.latitude and shop.longitude and data.delivery_address:
-                import re
-                import math
-                loc_match = re.search(r"\[loc=(-?\d+\.?\d*),(-?\d+\.?\d*)\]", data.delivery_address)
-                if loc_match:
-                    try:
-                        cust_lat = float(loc_match.group(1))
-                        cust_lng = float(loc_match.group(2))
-                        
-                        # Haversine distance formula
-                        r = 6371.0  # Earth radius in km
-                        dlat = math.radians(cust_lat - float(shop.latitude))
-                        dlon = math.radians(cust_lng - float(shop.longitude))
-                        a = math.sin(dlat / 2.0) ** 2 + math.cos(math.radians(float(shop.latitude))) * math.cos(math.radians(cust_lat)) * math.sin(dlon / 2.0) ** 2
-                        c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
-                        dist_km = r * c
-                        
-                        if dist_km > max_dist:
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Delivery is out of range. The restaurant only delivers within {max_dist:.1f} km (your location is {dist_km:.1f} km away)."
-                            )
-                    except (ValueError, TypeError):
-                        pass
-        if data.order_type == "takeaway" and not settings.takeaway_enabled:
-            raise HTTPException(status_code=400, detail="Takeaway option is not available")
-        if data.order_type == "dine_in" and not settings.dinein_enabled:
-            raise HTTPException(status_code=400, detail="Dine-in option is not available")
+            if data.order_type == "delivery":
+                if not settings.delivery_enabled:
+                    raise HTTPException(status_code=400, detail="Delivery option is not available")
+                
+                # Check maximum coverable delivery distance
+                max_dist = float(getattr(settings, "max_delivery_distance", 0.0) or 0.0)
+                if max_dist > 0 and shop.latitude and shop.longitude and data.delivery_address:
+                    import re
+                    import math
+                    loc_match = re.search(r"\[loc=(-?\d+\.?\d*),(-?\d+\.?\d*)\]", data.delivery_address)
+                    if loc_match:
+                        try:
+                            cust_lat = float(loc_match.group(1))
+                            cust_lng = float(loc_match.group(2))
+                            
+                            # Haversine distance formula
+                            r = 6371.0  # Earth radius in km
+                            dlat = math.radians(cust_lat - float(shop.latitude))
+                            dlon = math.radians(cust_lng - float(shop.longitude))
+                            a = math.sin(dlat / 2.0) ** 2 + math.cos(math.radians(float(shop.latitude))) * math.cos(math.radians(cust_lat)) * math.sin(dlon / 2.0) ** 2
+                            c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+                            dist_km = r * c
+                            
+                            if dist_km > max_dist:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"Delivery is out of range. The restaurant only delivers within {max_dist:.1f} km (your location is {dist_km:.1f} km away)."
+                                )
+                        except (ValueError, TypeError):
+                            pass
+            if data.order_type == "takeaway" and not settings.takeaway_enabled:
+                raise HTTPException(status_code=400, detail="Takeaway option is not available")
+            if data.order_type == "dine_in" and not settings.dinein_enabled:
+                raise HTTPException(status_code=400, detail="Dine-in option is not available")
 
         from datetime import datetime, timezone
         import pytz
@@ -320,7 +322,7 @@ class OrderService:
         today_start_utc = today_start_ist.astimezone(timezone.utc)
 
         clean_req_phone = "".join(filter(str.isdigit, data.customer_phone or ""))
-        if clean_req_phone:
+        if not is_manual and clean_req_phone:
             phone_10 = clean_req_phone[-10:]
             phone_variants = [phone_10, f"+91{phone_10}", f"91{phone_10}", f"0{phone_10}"]
 
@@ -464,31 +466,34 @@ class OrderService:
                 if is_same_customer:
                     # Validate all menu items exist
                     from app.models.menu_item import MenuItem
-                    menu_item_ids = [it.menu_item_id for it in data.items]
-                    from app.models.category import Category
-                    val_res = await self.db.execute(
-                        select(MenuItem).join(Category).where(
-                            MenuItem.id.in_(menu_item_ids),
-                            MenuItem.is_available == True,
-                            Category.is_active == True
+                    menu_item_ids = [it.menu_item_id for it in data.items if it.menu_item_id is not None]
+                    item_map = {}
+                    if menu_item_ids:
+                        from app.models.category import Category
+                        val_res = await self.db.execute(
+                            select(MenuItem).join(Category).where(
+                                MenuItem.id.in_(menu_item_ids),
+                                MenuItem.is_available == True,
+                                Category.is_active == True
+                            )
                         )
-                    )
-                    existing_items = val_res.scalars().all()
-                    item_map = {item.id: item for item in existing_items}
+                        existing_items = val_res.scalars().all()
+                        item_map = {item.id: item for item in existing_items}
 
                     for it in data.items:
-                        if it.menu_item_id not in item_map:
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Item '{it.name}' is no longer available. Please remove it from your cart and try again."
+                        if it.menu_item_id is not None:
+                            if it.menu_item_id not in item_map:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"Item '{it.name}' is no longer available. Please remove it from your cart and try again."
+                                )
+                            # Multiplier validation
+                            validate_item_multiplier(
+                                item=item_map[it.menu_item_id],
+                                quantity=it.quantity,
+                                variant_info=it.variant_info,
+                                price_tier=getattr(data, "price_tier", "retail") or getattr(existing_dinein_order, "price_tier", "retail")
                             )
-                        # Multiplier validation
-                        validate_item_multiplier(
-                            item=item_map[it.menu_item_id],
-                            quantity=it.quantity,
-                            variant_info=it.variant_info,
-                            price_tier=getattr(data, "price_tier", "retail") or getattr(existing_dinein_order, "price_tier", "retail")
-                        )
 
                     # Append new items to existing active dine-in order
                     for it in data.items:
@@ -556,31 +561,34 @@ class OrderService:
 
         # 1. Validate that all menu items exist in the database
         from app.models.menu_item import MenuItem
-        menu_item_ids = [it.menu_item_id for it in data.items]
-        from app.models.category import Category
-        result = await self.db.execute(
-            select(MenuItem).join(Category).where(
-                MenuItem.id.in_(menu_item_ids),
-                MenuItem.is_available == True,
-                Category.is_active == True
+        menu_item_ids = [it.menu_item_id for it in data.items if it.menu_item_id is not None]
+        item_map = {}
+        if menu_item_ids:
+            from app.models.category import Category
+            result = await self.db.execute(
+                select(MenuItem).join(Category).where(
+                    MenuItem.id.in_(menu_item_ids),
+                    MenuItem.is_available == True,
+                    Category.is_active == True
+                )
             )
-        )
-        existing_items = result.scalars().all()
-        item_map = {item.id: item for item in existing_items}
+            existing_items = result.scalars().all()
+            item_map = {item.id: item for item in existing_items}
 
         for it in data.items:
-            if it.menu_item_id not in item_map:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Item '{it.name}' is no longer available. Please remove it from your cart and try again."
+            if it.menu_item_id is not None:
+                if it.menu_item_id not in item_map:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item '{it.name}' is no longer available. Please remove it from your cart and try again."
+                    )
+                # Multiplier validation
+                validate_item_multiplier(
+                    item=item_map[it.menu_item_id],
+                    quantity=it.quantity,
+                    variant_info=it.variant_info,
+                    price_tier=getattr(data, "price_tier", "retail")
                 )
-            # Multiplier validation
-            validate_item_multiplier(
-                item=item_map[it.menu_item_id],
-                quantity=it.quantity,
-                variant_info=it.variant_info,
-                price_tier=getattr(data, "price_tier", "retail")
-            )
 
         # 2. Customer Lookup & Auto-Link/Create
         customer = None
@@ -1113,8 +1121,10 @@ class OrderService:
     async def get_orders_by_user(self, user_id: uuid.UUID) -> list[Order]:
         """Fetch all orders for a merchant's shop based on user ID."""
         # Find shop first
-        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
-        shop = result.scalar_one_or_none()
+        result = await self.db.execute(
+            select(Shop).where(Shop.user_id == user_id).order_by(Shop.created_at.asc())
+        )
+        shop = result.scalars().first()
         if not shop:
             raise HTTPException(status_code=404, detail="Shop not found")
         return await self.get_shop_orders(shop.id)
@@ -1164,6 +1174,13 @@ class OrderService:
 
         # Auto-refund via Razorpay if marking as refunded and payment was online
         if payment_status == "refunded":
+            settings_stmt = select(ShopSettings).where(ShopSettings.shop_id == shop_id)
+            settings_res = await self.db.execute(settings_stmt)
+            shop_st = settings_res.scalar_one_or_none()
+            refund_allowed = getattr(shop_st, "refund_allowed", True) if shop_st else True
+            if not refund_allowed:
+                raise HTTPException(status_code=400, detail="Online refunds are disabled in this shop's policy settings.")
+
             if str(order.payment_status or "").lower() not in ["paid", "partially_refunded", "refund_pending", "refund_failed"]:
                 raise HTTPException(status_code=400, detail="Cannot refund an order that has not been paid.")
             if str(order.payment_method or "").lower() != "online":
@@ -1407,24 +1424,33 @@ class OrderService:
                 if not it.cancellation_reason:
                     it.cancellation_reason = cancellation_reason or "Order cancelled"
 
-            # Case A: Order has paid / captured funds → auto-refund accurately via centralized calculation
+            # Check shop settings for refund policy
+            st_stmt = select(ShopSettings).where(ShopSettings.shop_id == order.shop_id)
+            st_res = await self.db.execute(st_stmt)
+            shop_st = st_res.scalar_one_or_none()
+            refund_allowed = getattr(shop_st, "refund_allowed", True) if shop_st else True
+
+            # Case A: Order has paid / captured funds → auto-refund accurately via centralized calculation (if allowed)
             refundable_order_amt = self._calculate_refundable_product_amount(order, None)
             if is_online and refundable_order_amt > 0:
-                chosen_reason = cancellation_reason or order.cancellation_reason or "Order cancelled by restaurant"
-                await self._process_online_refund(
-                    order=order,
-                    refund_amount=refundable_order_amt,
-                    note=chosen_reason,
-                    items_summary=f"Cancelled Order = Rs.{refundable_order_amt:.2f}",
-                    cancel_reason=chosen_reason
-                )
+                if refund_allowed:
+                    chosen_reason = cancellation_reason or order.cancellation_reason or "Order cancelled by restaurant"
+                    await self._process_online_refund(
+                        order=order,
+                        refund_amount=refundable_order_amt,
+                        note=chosen_reason,
+                        items_summary=f"Cancelled Order = Rs.{refundable_order_amt:.2f}",
+                        cancel_reason=chosen_reason
+                    )
+                else:
+                    print(f"\033[93m\033[1m⚠️  [REFUND SKIPPED] Order {order_ref} cancelled but shop has refund policy disabled (refund_allowed=False). No Razorpay refund or WhatsApp triggered.\033[0m")
 
             # Case B: Customer is mid-payment (Razorpay checkout open, not yet captured)
             # Mark cancelled now — when the customer completes payment and the Razorpay
             # verify_public_order_payment endpoint fires, it already detects CANCELLED status
-            # and auto-refunds the captured amount immediately.
+            # and auto-refunds the captured amount immediately (if refund_allowed is True).
             elif is_online and is_mid_payment:
-                print(f"\033[93m\033[1m⚠️  [ADMIN CANCEL MID-PAYMENT] Order {order_ref} cancelled while customer was paying. Razorpay verify will auto-refund on confirmation.\033[0m")
+                print(f"\033[93m\033[1m⚠️  [ADMIN CANCEL MID-PAYMENT] Order {order_ref} cancelled while customer was paying. (refund_allowed={refund_allowed})\033[0m")
 
         order.order_status = status
         
@@ -1695,30 +1721,36 @@ class OrderService:
 
         # Validate menu items and multipliers
         from app.models.menu_item import MenuItem
-        m_ids = [uuid.UUID(str(it["menu_item_id"])) if isinstance(it["menu_item_id"], str) else it["menu_item_id"] for it in new_items]
-        m_res = await self.db.execute(select(MenuItem).where(MenuItem.id.in_(m_ids)))
-        item_map = {item.id: item for item in m_res.scalars().all()}
+        m_ids = [uuid.UUID(str(it["menu_item_id"])) if isinstance(it["menu_item_id"], str) else it["menu_item_id"] for it in new_items if it.get("menu_item_id") is not None]
+        item_map = {}
+        if m_ids:
+            m_res = await self.db.execute(select(MenuItem).where(MenuItem.id.in_(m_ids)))
+            item_map = {item.id: item for item in m_res.scalars().all()}
 
         for it in new_items:
-            m_id = uuid.UUID(str(it["menu_item_id"])) if isinstance(it["menu_item_id"], str) else it["menu_item_id"]
-            if m_id in item_map:
-                validate_item_multiplier(
-                    item=item_map[m_id],
-                    quantity=int(it.get("quantity", 1)),
-                    variant_info=it.get("variant_info"),
-                    price_tier=getattr(order, "price_tier", "retail")
-                )
+            raw_mid = it.get("menu_item_id")
+            if raw_mid is not None:
+                m_id = uuid.UUID(str(raw_mid)) if isinstance(raw_mid, str) else raw_mid
+                if m_id in item_map:
+                    validate_item_multiplier(
+                        item=item_map[m_id],
+                        quantity=int(it.get("quantity", 1)),
+                        variant_info=it.get("variant_info"),
+                        price_tier=getattr(order, "price_tier", "retail")
+                    )
 
         added_amount = 0.0
         for it in new_items:
             item_price = float(it.get("price", 0.0))
             quantity = int(it.get("quantity", 1))
             added_amount += item_price * quantity
+            raw_mid = it.get("menu_item_id")
+            parsed_mid = (uuid.UUID(str(raw_mid)) if isinstance(raw_mid, str) else raw_mid) if raw_mid is not None else None
 
             item = OrderItem(
                 id=uuid.uuid4(),
                 order_id=order.id,
-                menu_item_id=uuid.UUID(str(it["menu_item_id"])) if isinstance(it["menu_item_id"], str) else it["menu_item_id"],
+                menu_item_id=parsed_mid,
                 name=it["name"],
                 quantity=quantity,
                 price=item_price,
@@ -1840,6 +1872,14 @@ class OrderService:
             return False
 
         order_ref = f"#{order.daily_order_number or order.id.hex[:8]}"
+
+        # Strict Rule 0: Shop must have refund policy enabled
+        settings_res = await self.db.execute(select(ShopSettings).where(ShopSettings.shop_id == order.shop_id))
+        shop_st = settings_res.scalar_one_or_none()
+        refund_allowed = getattr(shop_st, "refund_allowed", True) if shop_st else True
+        if not refund_allowed:
+            print(f"[REFUND SKIPPED] Order {order_ref} - Shop has refund policy disabled (refund_allowed=False). No Razorpay refund or WhatsApp message triggered.")
+            return False
 
         # Strict Rule 1: Only refund if the order was paid or has a captured payment session
         is_paid = str(order.payment_status or "").lower() in ["paid", "partially_refunded"]
@@ -2128,6 +2168,13 @@ class OrderService:
         order = result.scalar_one_or_none()
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
+
+        # Staff/Admin can replace items from dashboard even if public replacement policy is disabled
+        settings_stmt = select(ShopSettings).where(ShopSettings.shop_id == shop_id)
+        settings_res = await self.db.execute(settings_stmt)
+        shop_st = settings_res.scalar_one_or_none()
+        replacement_allowed = getattr(shop_st, "replacement_allowed", True) if shop_st else True
+
 
         if str(order.order_status or "").upper() in ["COMPLETED", "CANCELLED", "REJECTED"]:
             raise HTTPException(status_code=400, detail="Cannot modify items of a completed or cancelled order")
@@ -2702,6 +2749,91 @@ class OrderService:
             else:
                 # Keep active and transfer to replacement
                 r.menu_item_id = new_menu_item_id
+
+    async def apply_order_discount(
+        self,
+        order_id: uuid.UUID,
+        shop_id: uuid.UUID,
+        discount_type: str,
+        discount_value: float,
+    ) -> Order:
+        """Apply, update, or remove a manual discount on an existing active order and recompute total."""
+        result = await self.db.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(Order.id == order_id, Order.shop_id == shop_id)
+        )
+        order = result.scalar_one_or_none()
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        if str(order.order_status or "").upper() in ["COMPLETED", "CANCELLED", "REJECTED"]:
+            raise HTTPException(status_code=400, detail="Cannot modify discount on a completed or cancelled order")
+
+        # 1. Calculate active items subtotal
+        active_items = [it for it in (order.items or []) if not it.is_cancelled]
+        items_subtotal = sum(float(it.price or 0.0) * int(it.quantity or 1) for it in active_items)
+
+        # 2. Fetch shop settings for GST & delivery fee
+        settings_stmt = select(ShopSettings).where(ShopSettings.shop_id == shop_id)
+        settings_res = await self.db.execute(settings_stmt)
+        shop_st = settings_res.scalar_one_or_none()
+
+        # 3. Calculate manual discount amount
+        discount_value = max(0.0, float(discount_value or 0.0))
+        discount_amount = 0.0
+        discount_label = None
+
+        if discount_value > 0:
+            if discount_type == "percentage":
+                pct = min(100.0, discount_value)
+                discount_amount = round(items_subtotal * (pct / 100.0), 2)
+                discount_label = f"Discount ({pct:g}% - ₹{discount_amount:.2f})"
+            else:
+                discount_amount = min(items_subtotal, round(discount_value, 2))
+                discount_label = f"Flat Discount (₹{discount_amount:.2f})"
+
+        discounted_food = max(0.0, items_subtotal - discount_amount)
+
+        # 4. GST calculation
+        tax_amount = 0.0
+        if shop_st and shop_st.gst_enabled and not shop_st.inclusive_tax:
+            cgst_rate = float(shop_st.cgst_rate or 0.0)
+            sgst_rate = float(shop_st.sgst_rate or 0.0)
+            total_tax_rate = cgst_rate + sgst_rate
+            if total_tax_rate > 0:
+                tax_amount = round(discounted_food * (total_tax_rate / 100.0), 2)
+
+        # 5. Delivery fee preservation
+        delivery_fee = 0.0
+        if str(order.order_type or "").lower() == "delivery":
+            delivery_fee = float(getattr(shop_st, "delivery_charge", 0.0) or 0.0) if shop_st else 0.0
+
+        new_final_total = round(discounted_food + tax_amount + delivery_fee, 2)
+
+        # 6. Retain any catalog promotion codes and replace/add manual discount
+        current_codes = list(order.applied_discount_codes or [])
+        filtered_codes = [
+            c for c in current_codes
+            if not (c.startswith("Discount (") or c.startswith("Flat Discount ("))
+        ]
+        if discount_label:
+            filtered_codes.append(discount_label)
+
+        order.applied_discount_codes = filtered_codes
+        order.total_amount = new_final_total
+        order.version = (order.version or 1) + 1
+
+        # Broadcast live update
+        await self._broadcast_order_live(
+            order,
+            event_type="order_updated",
+            title=f"Order #{order.daily_order_number or str(order.id)[:8]} Updated",
+            message=f"Discount of ₹{discount_amount:.2f} applied. New total: ₹{new_final_total:.2f}" if discount_amount > 0 else f"Discount cleared. New total: ₹{new_final_total:.2f}"
+        )
+
+        return order
+
 
 
 

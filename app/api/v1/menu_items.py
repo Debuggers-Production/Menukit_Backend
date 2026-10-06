@@ -191,13 +191,15 @@ async def reorder_items(
 async def delete_menu_image(
     item_id: str,
     image_id: str,
-    user: User = Depends(get_current_user),
+    shop = Depends(require_permission("menu_items", "write")),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a menu item image."""
     service = MenuService(db)
-    await service.delete_menu_image(user.id, uuid.UUID(item_id), uuid.UUID(image_id))
+    await service.delete_menu_image(shop.id, uuid.UUID(item_id), uuid.UUID(image_id))
     await db.commit()
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return MessageResponse(message="Image deleted successfully")
 
 
@@ -205,13 +207,15 @@ async def delete_menu_image(
 async def set_primary_image(
     item_id: str,
     image_id: str,
-    user: User = Depends(get_current_user),
+    shop = Depends(require_permission("menu_items", "write")),
     db: AsyncSession = Depends(get_db),
 ):
     """Set a menu item image as primary."""
     service = MenuService(db)
-    await service.set_primary_menu_image(user.id, uuid.UUID(item_id), uuid.UUID(image_id))
+    await service.set_primary_menu_image(shop.id, uuid.UUID(item_id), uuid.UUID(image_id))
     await db.commit()
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return MessageResponse(message="Primary image updated successfully")
 
 
@@ -224,18 +228,13 @@ class ImageUrlRequest(BaseModel):
 @router.get("/{item_id}/search-images")
 async def search_item_images(
     item_id: str,
-    user: User = Depends(get_current_user),
+    shop = Depends(require_permission("menu_items", "read")),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Search for food images and return a list of URLs for the user to choose from.
     """
     menu_service = MenuService(db)
-    shop_service = ShopService(db)
-
-    shop = await shop_service.get_shop_by_user(user.id)
-    if not shop:
-        raise HTTPException(status_code=404, detail="Shop not found")
 
     item = await menu_service.get_menu_item(uuid.UUID(item_id))
     if not item or item.menu_catalog_id != shop.menu_catalog_id:
@@ -250,18 +249,13 @@ async def search_item_images(
 async def save_item_image_url(
     item_id: str,
     payload: ImageUrlRequest,
-    user: User = Depends(get_current_user),
+    shop = Depends(require_permission("menu_items", "write")),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Download a specific image URL and save it to the menu item.
     """
     menu_service = MenuService(db)
-    shop_service = ShopService(db)
-
-    shop = await shop_service.get_shop_by_user(user.id)
-    if not shop:
-        raise HTTPException(status_code=404, detail="Shop not found")
 
     item = await menu_service.get_menu_item(uuid.UUID(item_id))
     if not item or item.menu_catalog_id != shop.menu_catalog_id:
@@ -309,6 +303,8 @@ async def save_item_image_url(
             is_primary=should_be_primary
         )
         await db.commit()
+        from app.database.redis import invalidate_shop_cache
+        await invalidate_shop_cache(shop.id)
         return MenuImageResponse(
             id=str(menu_image.id),
             image_url=menu_image.image_url,
@@ -327,7 +323,7 @@ async def save_item_image_url(
 @router.post("/{item_id}/auto-image", response_model=MenuImageResponse)
 async def auto_fetch_item_image(
     item_id: str,
-    user: User = Depends(get_current_user),
+    shop = Depends(require_permission("menu_items", "write")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -335,12 +331,6 @@ async def auto_fetch_item_image(
     Downloads from Unsplash/DuckDuckGo, uploads to MinIO, and saves as primary image.
     """
     menu_service = MenuService(db)
-    shop_service = ShopService(db)
-
-    # Ensure the item belongs to this user's shop
-    shop = await shop_service.get_shop_by_user(user.id)
-    if not shop:
-        raise HTTPException(status_code=404, detail="Shop not found")
 
     item = await menu_service.get_menu_item(uuid.UUID(item_id))
     if not item or item.menu_catalog_id != shop.menu_catalog_id:
@@ -376,6 +366,8 @@ async def auto_fetch_item_image(
     )
 
     await db.commit()
+    from app.database.redis import invalidate_shop_cache
+    await invalidate_shop_cache(shop.id)
     return MenuImageResponse(
         id=str(image.id),
         image_url=image.image_url,
@@ -466,18 +458,13 @@ def _item_response(item, avg_rating: float = None, review_count: int = 0) -> Men
 @router.get("/{item_id}/reviews")
 async def get_item_reviews(
     item_id: str,
-    user: User = Depends(get_current_user),
+    shop = Depends(require_permission("menu_items", "read")),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all reviews for a menu item (owner view)."""
     from sqlalchemy import select, func
     from app.models.review import MenuItemReview
     from app.schemas.review import ReviewResponse, ReviewSummary
-
-    shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_user(user.id)
-    if not shop:
-        raise HTTPException(status_code=404, detail="Shop not found")
 
     item = await MenuService(db).get_menu_item(uuid.UUID(item_id))
     if not item or item.menu_catalog_id != shop.menu_catalog_id:

@@ -1580,9 +1580,22 @@ async def verify_public_order_payment(
 
     # Optimistic Concurrency Control Check — handles race condition where admin cancels while customer pays
     if order.order_status.upper() in ["CANCELLED", "REJECTED"]:
-        # The order was cancelled (by admin or payment timeout) while payment was in flight.
-        # Money was captured by Razorpay — must refund immediately!
+        from app.models.shop_settings import ShopSettings
+        st_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+        shop_st = st_res.scalar_one_or_none()
+        refund_allowed = getattr(shop_st, "refund_allowed", True) if shop_st else True
+
         order_ref = f"#{order.daily_order_number or order.id.hex[:8]}"
+
+        if not refund_allowed:
+            print(f"\033[93m\033[1m⚠️  [RACE CONDITION] Order {order_ref} already CANCELLED/REJECTED. Shop has refund policy disabled (refund_allowed=False). No refund processed.\033[0m")
+            order.payment_status = "paid_non_refundable"
+            order.payment_session_id = razorpay_payment_id
+            await db.commit()
+            return OrderResponse.model_validate(order)
+
+        # The order was cancelled (by admin or payment timeout) while payment was in flight.
+        # Money was captured by Razorpay — refund if refund policy is allowed!
         refund_done = False
 
         if not settings.MOCK_PAYMENT_MODE and not razorpay_payment_id.startswith("pay_mock_"):

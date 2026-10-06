@@ -166,6 +166,7 @@ async def init_chalkboard_table():
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS delivery_enabled BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS takeaway_enabled BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS dinein_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS dinein_tables_enabled BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS dinein_tables_count INTEGER NOT NULL DEFAULT 10;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS auto_accept_orders BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS online_payments_enabled BOOLEAN NOT NULL DEFAULT TRUE;
@@ -183,6 +184,15 @@ async def init_chalkboard_table():
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS cgst_rate FLOAT NOT NULL DEFAULT 2.5;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS sgst_rate FLOAT NOT NULL DEFAULT 2.5;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS tax_invoice_notes VARCHAR(500);
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS return_allowed BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS return_window_days INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS return_policy_notes VARCHAR(500);
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS refund_allowed BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS refund_policy_notes VARCHAR(500);
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS replacement_allowed BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS replacement_window_days INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS replacement_policy_notes VARCHAR(500);
+        ALTER TABLE order_items ALTER COLUMN menu_item_id DROP NOT NULL;
 
         -- 8. High-performance composite query indexes
         CREATE INDEX IF NOT EXISTS ix_orders_shop_created ON orders(shop_id, created_at DESC);
