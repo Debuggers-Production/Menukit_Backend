@@ -40,6 +40,26 @@ def format_razorpay_route_email(base_email: Optional[str], shop_id: uuid.UUID) -
         return f"vendor_{shop_suffix}@menukit.in"
 
 
+def format_razorpay_route_phone(raw_phone: Optional[str]) -> str:
+    """
+    Format a phone number into a 10-digit Indian mobile format required by Razorpay Route V2 API.
+    Razorpay requires standard 10 digits (starting with 6-9) for Indian accounts.
+    """
+    if not raw_phone:
+        return "9876543210"
+    digits = "".join(filter(str.isdigit, str(raw_phone)))
+    if digits.startswith("91") and len(digits) == 12:
+        digits = digits[2:]
+    elif digits.startswith("0") and len(digits) == 11:
+        digits = digits[1:]
+    elif len(digits) > 10:
+        digits = digits[-10:]
+    
+    if len(digits) == 10 and digits[0] in "6789":
+        return digits
+    return "9876543210"
+
+
 class ShopService:
     """Handles shop CRUD operations."""
 
@@ -417,10 +437,11 @@ class ShopService:
                     postal_code = 600001
                     country = "IN"
 
+                raw_user_phone = getattr(data, "owner_phone", None) or shop.phone or (shop.user.phone if hasattr(shop, "user") and shop.user else None)
                 class MockDataCreate:
                     owner_name = ben_name
                     owner_email = getattr(shop.user, "email", f"vendor_{shop.id}@menukit.com") if hasattr(shop, "user") and shop.user else f"vendor_{shop.id}@menukit.com"
-                    owner_phone = shop.phone or "9999999999"
+                    owner_phone = format_razorpay_route_phone(raw_user_phone)
                     business_type = "individual"
                     business_address = MockAddress()
                     
@@ -477,10 +498,13 @@ class ShopService:
             raw_email = getattr(shop.user, "email", None)
         unique_email = format_razorpay_route_email(raw_email, shop.id)
 
+        raw_phone = getattr(data, "owner_phone", None) or shop.phone or (shop.user.phone if hasattr(shop, "user") and shop.user else None)
+        formatted_phone = format_razorpay_route_phone(raw_phone)
+
         account_url = "https://api.razorpay.com/v2/accounts"
         account_payload = {
             "email": unique_email,
-            "phone": getattr(data, "owner_phone", None) or shop.phone or (shop.user.phone if hasattr(shop, "user") and shop.user else None) or "9999999999",
+            "phone": formatted_phone,
             "legal_business_name": (getattr(data, "owner_name", None) or (shop.user.full_name if hasattr(shop, "user") and shop.user else None) or shop.name)[:50],
             "business_type": getattr(data, "business_type", "individual"),
             "customer_facing_business_name": shop.name[:50],

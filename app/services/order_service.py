@@ -408,8 +408,9 @@ class OrderService:
                             )
 
         # 3. Determine status
-        if getattr(settings, "accept_after_payment", False) and data.payment_method not in ["cash", "cash_on_delivery", "counter"]:
-            initial_status = "PENDING_VENDOR"
+        is_accept_after_payment = getattr(settings, "accept_after_payment", False) and data.payment_method not in ["cash", "cash_on_delivery", "counter"]
+        if is_accept_after_payment:
+            initial_status = "PAYMENT_PENDING"
         elif settings.auto_accept_orders:
             # For dine-in or cash orders with auto-accept, set directly to ACCEPTED (paid on delivery/counter/at last)
             if data.order_type == "dine_in" or data.payment_method in ["cash", "cash_on_delivery", "counter"]:
@@ -527,6 +528,22 @@ class OrderService:
                         sgst_rate = float(settings.sgst_rate or 0.0)
                         total_tax_rate = cgst_rate + sgst_rate
                         tax_amount = round(active_subtotal * (total_tax_rate / 100.0), 2)
+
+                    # If the existing order was already paid, record prior paid base into split_payments and mark payment as pending for the newly added items
+                    if str(existing_dinein_order.payment_status or "").lower() == "paid":
+                        prior_paid = float(existing_dinein_order.total_amount or 0.0)
+                        existing_splits = list(existing_dinein_order.split_payments or [])
+                        if not existing_splits:
+                            existing_splits.append({
+                                "amount": prior_paid,
+                                "base_amount": prior_paid,
+                                "method": existing_dinein_order.payment_method or "online",
+                                "payment_id": existing_dinein_order.payment_session_id or existing_dinein_order.razorpay_order_id or "prior_payment",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "note": "Initial order items payment"
+                            })
+                            existing_dinein_order.split_payments = existing_splits
+                        existing_dinein_order.payment_status = "pending"
 
                     existing_dinein_order.total_amount = round(active_subtotal + tax_amount, 2)
                     existing_dinein_order.version = (existing_dinein_order.version or 1) + 1
@@ -755,25 +772,33 @@ class OrderService:
         if applied_ids or applied_codes:
             await self._record_discount_usages(order, applied_ids, applied_codes)
 
-        # Create persistent notification for merchant (for non-online payment methods or dine-in orders)
-        if data.payment_method != "online" or data.order_type == "dine_in":
-            from app.services.notification_service import NotificationService
-            notif_service = NotificationService(self.db)
-            await notif_service.create_notification(
-                shop_id=shop.id,
-                type="NEW_ORDER",
-                title="New Order Received",
-                message=f"New order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})",
-                metadata={"order_id": str(order.id)}
-            )
-
-        # 0-delay Instant WebSocket broadcast to Merchant & Customer
-        await self._broadcast_order_live(
-            order=order,
-            event_type="NEW_ORDER",
-            title="New Order Received",
-            message=f"New order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})"
+        # Only notify merchant upon order creation IF the order does NOT require upfront payment first
+        is_awaiting_upfront_payment = (
+            getattr(settings, "accept_after_payment", False)
+            and initial_pay_status != "paid"
+            and data.payment_method not in ["cash", "cash_on_delivery", "counter"]
         )
+
+        if not is_awaiting_upfront_payment:
+            # Create persistent notification for merchant (for non-online payment methods or dine-in orders)
+            if data.payment_method != "online" or data.order_type == "dine_in":
+                from app.services.notification_service import NotificationService
+                notif_service = NotificationService(self.db)
+                await notif_service.create_notification(
+                    shop_id=shop.id,
+                    type="NEW_ORDER",
+                    title="New Order Received",
+                    message=f"New order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})",
+                    metadata={"order_id": str(order.id)}
+                )
+
+            # 0-delay Instant WebSocket broadcast to Merchant & Customer
+            await self._broadcast_order_live(
+                order=order,
+                event_type="NEW_ORDER",
+                title="New Order Received",
+                message=f"New order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})"
+            )
 
         await self.db.flush()
         
@@ -1370,7 +1395,15 @@ class OrderService:
             print(f"\033[91m\033[1m❌ [MANUAL REFUND FAILED] Order {order_ref} → {e}\033[0m")
             raise HTTPException(status_code=502, detail=f"Razorpay refund failed: {str(e)}")
 
-    async def update_order_status(self, order_id: uuid.UUID, status: str, shop_id: uuid.UUID, cancellation_reason: str = None, user_id: Optional[uuid.UUID] = None) -> Order:
+    async def update_order_status(
+        self, 
+        order_id: uuid.UUID, 
+        status: str, 
+        shop_id: uuid.UUID, 
+        cancellation_reason: str = None, 
+        user_id: Optional[uuid.UUID] = None,
+        with_refund: bool = True
+    ) -> Order:
         """Update the status of an order (merchant only)."""
         
         order = await self.get_order_by_id(order_id)
@@ -1410,7 +1443,7 @@ class OrderService:
             raise HTTPException(status_code=400, detail="Cannot proceed with order preparation until customer payment is confirmed.")
 
         # ──────────────────────────────────────────────────────────────────────
-        # RACE CONDITION HANDLING: Admin cancels while customer is paying (Razorpay)
+        # RACE CONDITION & REFUND HANDLING: Admin cancels whole order
         # ──────────────────────────────────────────────────────────────────────
         if status == "CANCELLED":
             order_ref = f"#{order.daily_order_number or order.id.hex[:8]}"
@@ -1424,16 +1457,10 @@ class OrderService:
                 if not it.cancellation_reason:
                     it.cancellation_reason = cancellation_reason or "Order cancelled"
 
-            # Check shop settings for refund policy
-            st_stmt = select(ShopSettings).where(ShopSettings.shop_id == order.shop_id)
-            st_res = await self.db.execute(st_stmt)
-            shop_st = st_res.scalar_one_or_none()
-            refund_allowed = getattr(shop_st, "refund_allowed", True) if shop_st else True
-
-            # Case A: Order has paid / captured funds → auto-refund accurately via centralized calculation (if allowed)
-            refundable_order_amt = self._calculate_refundable_product_amount(order, None)
-            if is_online and refundable_order_amt > 0:
-                if refund_allowed:
+            if with_refund:
+                # Case A: Order has paid / captured funds
+                refundable_order_amt = self._calculate_refundable_product_amount(order, None)
+                if is_online and refundable_order_amt > 0:
                     chosen_reason = cancellation_reason or order.cancellation_reason or "Order cancelled by restaurant"
                     await self._process_online_refund(
                         order=order,
@@ -1442,15 +1469,16 @@ class OrderService:
                         items_summary=f"Cancelled Order = Rs.{refundable_order_amt:.2f}",
                         cancel_reason=chosen_reason
                     )
-                else:
-                    print(f"\033[93m\033[1m⚠️  [REFUND SKIPPED] Order {order_ref} cancelled but shop has refund policy disabled (refund_allowed=False). No Razorpay refund or WhatsApp triggered.\033[0m")
+                elif not is_online and is_paid:
+                    # Offline payments (cash, upi qr counter, etc.): mark as refunded to exclude from revenue reports
+                    order.payment_status = "refunded"
+                    print(f"\033[92m\033[1m✅ [OFFLINE REFUND] Order {order_ref} ({order.payment_method}) marked as refunded upon cancellation.\033[0m")
 
-            # Case B: Customer is mid-payment (Razorpay checkout open, not yet captured)
-            # Mark cancelled now — when the customer completes payment and the Razorpay
-            # verify_public_order_payment endpoint fires, it already detects CANCELLED status
-            # and auto-refunds the captured amount immediately (if refund_allowed is True).
-            elif is_online and is_mid_payment:
-                print(f"\033[93m\033[1m⚠️  [ADMIN CANCEL MID-PAYMENT] Order {order_ref} cancelled while customer was paying. (refund_allowed={refund_allowed})\033[0m")
+                # Case B: Customer is mid-payment (Razorpay checkout open, not yet captured)
+                elif is_online and is_mid_payment:
+                    print(f"\033[93m\033[1m⚠️  [ADMIN CANCEL MID-PAYMENT] Order {order_ref} cancelled while customer was paying. (with_refund=True)\033[0m")
+            else:
+                print(f"\033[93m\033[1mℹ️  [CANCEL WITHOUT REFUND] Order {order_ref} cancelled by admin without refund (with_refund=False).\033[0m")
 
         order.order_status = status
         
@@ -2008,9 +2036,9 @@ class OrderService:
         return True
 
     async def toggle_order_item_cancel(
-        self, order_id: uuid.UUID, item_id: uuid.UUID, shop_id: uuid.UUID, reason: Optional[str] = None
+        self, order_id: uuid.UUID, item_id: uuid.UUID, shop_id: uuid.UUID, reason: Optional[str] = None, with_refund: bool = True
     ) -> Order:
-        """Cancel an individual order item, refund product price if paid online, and permanently block recovery for refunded items."""
+        """Cancel an individual order item, refund product price if paid online (and with_refund=True), and permanently block recovery for refunded items."""
         result = await self.db.execute(
             select(Order)
             .options(
@@ -2047,12 +2075,12 @@ class OrderService:
                     status_code=400,
                     detail="This item was replaced with another item and cannot be restored."
                 )
-            if is_paid:
+            if is_paid and with_refund:
                 raise HTTPException(
                     status_code=400,
                     detail="This item was already cancelled and refunded to the customer. It cannot be recovered."
                 )
-            # Unpaid order item restore
+            # Unpaid or non-refunded order item restore
             item.is_cancelled = False
             item.cancellation_reason = None
             broadcast_title = "Item Restored"
@@ -2068,49 +2096,54 @@ class OrderService:
             broadcast_msg = f"Item '{item.name}' was cancelled."
             event_type = "ORDER_UPDATED"
 
-            # Auto-refund the appropriate product price amount if order was paid online
-            refundable_amount = self._calculate_refundable_product_amount(order, item)
-            if is_online and refundable_amount > 0:
-                currency = "Rs."
-                if hasattr(order, "shop") and order.shop and hasattr(order.shop, "settings") and order.shop.settings:
-                    currency = getattr(order.shop.settings, "currency", "Rs.") or "Rs."
+            # Auto-refund the appropriate product price amount if order was paid online and with_refund is True
+            if with_refund:
+                refundable_amount = self._calculate_refundable_product_amount(order, item)
+                if is_online and refundable_amount > 0:
+                    currency = "Rs."
+                    if hasattr(order, "shop") and order.shop and hasattr(order.shop, "settings") and order.shop.settings:
+                        currency = getattr(order.shop.settings, "currency", "Rs.") or "Rs."
 
-                amt_str = f"{refundable_amount:.2f}" if not float(refundable_amount).is_integer() else f"{int(refundable_amount)}"
-                chosen_reason = item.cancellation_reason or "Cancelled by staff"
-                item_summary = f"{item.name} x {item.quantity} = {currency}{amt_str}"
+                    amt_str = f"{refundable_amount:.2f}" if not float(refundable_amount).is_integer() else f"{int(refundable_amount)}"
+                    chosen_reason = item.cancellation_reason or "Cancelled by staff"
+                    item_summary = f"{item.name} x {item.quantity} = {currency}{amt_str}"
 
-                await self._process_online_refund(
-                    order=order,
-                    refund_amount=refundable_amount,
-                    note=f"Item '{item.name}' cancelled (Product price refund)",
-                    items_summary=item_summary,
-                    cancel_reason=chosen_reason
-                )
-                broadcast_title = "Item Cancelled - Refund Initiated"
-                broadcast_msg = f"Item '{item.name}' was cancelled. Product price of {currency}{refundable_amount:.2f} has been refunded to your original payment method."
-                event_type = "ITEM_CANCELLED_REFUND"
+                    await self._process_online_refund(
+                        order=order,
+                        refund_amount=refundable_amount,
+                        note=f"Item '{item.name}' cancelled (Product price refund)",
+                        items_summary=item_summary,
+                        cancel_reason=chosen_reason
+                    )
+                    broadcast_title = "Item Cancelled - Refund Initiated"
+                    broadcast_msg = f"Item '{item.name}' was cancelled. Product price of {currency}{refundable_amount:.2f} has been refunded to your original payment method."
+                    event_type = "ITEM_CANCELLED_REFUND"
 
             # Check and restore discount usage if this was the only qualifying item for a discount
             await self._restore_discount_usages_for_item(order, item.id, item.menu_item_id)
 
         # Re-compute total_amount based on all active items and shop tax settings
-        active_items_subtotal = sum(
-            float(it.price or 0.0) * int(it.quantity or 1)
-            for it in (order.items or [])
-            if not it.is_cancelled
-        )
-        settings_stmt = select(ShopSettings).where(ShopSettings.shop_id == order.shop_id)
-        settings_res = await self.db.execute(settings_stmt)
-        shop_st = settings_res.scalar_one_or_none()
-        
-        tax_amount = 0.0
-        if shop_st and shop_st.gst_enabled and not shop_st.inclusive_tax:
-            cgst_rate = float(shop_st.cgst_rate or 0.0)
-            sgst_rate = float(shop_st.sgst_rate or 0.0)
-            total_tax_rate = cgst_rate + sgst_rate
-            tax_amount = round(active_items_subtotal * (total_tax_rate / 100.0), 2)
+        # If the item was cancelled without refund on a paid order, the collected total_amount is retained as revenue.
+        if is_paid and not with_refund:
+            pass
+        else:
+            active_items_subtotal = sum(
+                float(it.price or 0.0) * int(it.quantity or 1)
+                for it in (order.items or [])
+                if not it.is_cancelled
+            )
+            settings_stmt = select(ShopSettings).where(ShopSettings.shop_id == order.shop_id)
+            settings_res = await self.db.execute(settings_stmt)
+            shop_st = settings_res.scalar_one_or_none()
+            
+            tax_amount = 0.0
+            if shop_st and shop_st.gst_enabled and not shop_st.inclusive_tax:
+                cgst_rate = float(shop_st.cgst_rate or 0.0)
+                sgst_rate = float(shop_st.sgst_rate or 0.0)
+                total_tax_rate = cgst_rate + sgst_rate
+                tax_amount = round(active_items_subtotal * (total_tax_rate / 100.0), 2)
 
-        order.total_amount = round(active_items_subtotal + tax_amount, 2)
+            order.total_amount = round(active_items_subtotal + tax_amount, 2)
 
         # Automatic Order Status Transition:
         # If all items in the order are now cancelled, automatically mark the whole order as CANCELLED while preserving total_amount.
@@ -2127,16 +2160,21 @@ class OrderService:
             )
             order.total_amount = round(presented_items_subtotal, 2)
             if is_paid_online:
-                if not order.refund_id or str(order.payment_status or "").lower() == "refund_failed":
-                    order.payment_status = "refund_failed"
-                    broadcast_title = "Order Cancelled — Awaiting Refund"
-                    broadcast_msg = f"All items in Order #{order.daily_order_number or order.id.hex[:8]} were cancelled. Online refund is awaiting retry."
-                    event_type = "ORDER_UPDATED"
-                else:
-                    order.payment_status = "refunded"
-                    broadcast_title = "Order Cancelled — Refund Processed"
-                    broadcast_msg = f"All items in Order #{order.daily_order_number or order.id.hex[:8]} were cancelled. Product price has been refunded (charges excluded)."
-                    event_type = "ORDER_CANCELLED_REFUND"
+                if with_refund:
+                    if not order.refund_id or str(order.payment_status or "").lower() == "refund_failed":
+                        order.payment_status = "refund_failed"
+                        broadcast_title = "Order Cancelled — Awaiting Refund"
+                        broadcast_msg = f"All items in Order #{order.daily_order_number or order.id.hex[:8]} were cancelled. Online refund is awaiting retry."
+                        event_type = "ORDER_UPDATED"
+                    else:
+                        order.payment_status = "refunded"
+                        broadcast_title = "Order Cancelled — Refund Processed"
+                        broadcast_msg = f"All items in Order #{order.daily_order_number or order.id.hex[:8]} were cancelled. Product price has been refunded (charges excluded)."
+                        event_type = "ORDER_CANCELLED_REFUND"
+            elif is_paid and with_refund:
+                order.payment_status = "refunded"
+                broadcast_title = "Order Cancelled"
+                broadcast_msg = f"All items in Order #{order.daily_order_number or order.id.hex[:8]} were cancelled."
             else:
                 broadcast_title = "Order Cancelled"
                 broadcast_msg = f"All items in Order #{order.daily_order_number or order.id.hex[:8]} were cancelled."

@@ -1388,7 +1388,15 @@ async def pay_public_order(
     settings_result = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
     shop_settings = settings_result.scalar_one_or_none()
 
-    if order.payment_status == "paid":
+    already_paid_base = 0.0
+    if order.split_payments and isinstance(order.split_payments, list):
+        already_paid_base = sum(float(sp.get("base_amount", sp.get("amount", 0))) for sp in order.split_payments)
+    elif str(order.payment_status or "").lower() == "paid":
+        already_paid_base = float(order.total_amount)
+
+    remaining_base = max(0.0, round(float(order.total_amount) - already_paid_base, 2))
+
+    if remaining_base <= 0.01 and str(order.payment_status or "").lower() == "paid":
         raise HTTPException(status_code=400, detail="Order has already been paid")
 
     # Merchant must accept the order before customer can initiate payment UNLESS accept_after_payment is enabled
@@ -1423,7 +1431,10 @@ async def pay_public_order(
     has_prior_payment = bool(order.payment_session_id or order.razorpay_order_id or order.refund_id or str(order.payment_status or "").lower() in ["paid", "partially_refunded"])
     replaced_credit = calculate_order_replacement_credit(order.items or [], is_paid=False)
 
-    base_total = max(0.0, round(float(order.total_amount) - replaced_credit, 2)) if replaced_credit > 0 else float(order.total_amount)
+    base_total = remaining_base if (remaining_base > 0 and already_paid_base > 0) else float(order.total_amount)
+    if replaced_credit > 0:
+        base_total = max(0.0, round(base_total - replaced_credit, 2))
+
     pricing = calculate_order_pricing(base_total, is_online=True)
     platform_fee = pricing.platform_fee
     pg_fee = pricing.gateway_fee
@@ -1547,10 +1558,15 @@ async def verify_public_order_payment(
         select(Order).where(Order.id == order_id, Order.shop_id == shop_id)
     )
     order = result.scalar_one_or_none()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+    already_paid_base = 0.0
+    if order.split_payments and isinstance(order.split_payments, list):
+        already_paid_base = sum(float(sp.get("base_amount", sp.get("amount", 0))) for sp in order.split_payments)
+    elif str(order.payment_status or "").lower() == "paid":
+        already_paid_base = float(order.total_amount)
 
-    if order.payment_status == "paid":
+    remaining_base = max(0.0, round(float(order.total_amount) - already_paid_base, 2))
+
+    if remaining_base <= 0.01 and str(order.payment_status or "").lower() == "paid":
         return OrderResponse.model_validate(order)
 
     # Mock / test mode — accept any payment ID starting with mock prefix
@@ -1657,7 +1673,8 @@ async def verify_public_order_payment(
         return OrderResponse.model_validate(order)
 
     # If it wasn't cancelled, calculate exact paid amount (including convenience/gateway fees) and mark as PAID!
-    pricing = calculate_order_pricing(float(order.total_amount), is_online=True)
+    base_paid_now = remaining_base if (remaining_base > 0 and already_paid_base > 0) else float(order.total_amount)
+    pricing = calculate_order_pricing(base_paid_now, is_online=True)
     paid_total = pricing.total_payable
 
     # Try fetching exact paid amount from Razorpay if available
@@ -1671,13 +1688,35 @@ async def verify_public_order_payment(
         except Exception as p_err:
             print(f"Could not fetch razorpay payment amount: {p_err}")
 
+    # Record this payment into split_payments list
+    new_splits = list(order.split_payments or [])
+    new_splits.append({
+        "amount": float(paid_total),
+        "base_amount": float(base_paid_now),
+        "method": "online",
+        "payment_id": razorpay_payment_id,
+        "razorpay_order_id": razorpay_order_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "note": "Online payment"
+    })
+
     from app.models.shop_settings import ShopSettings
     settings_result = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
     shop_settings = settings_result.scalar_one_or_none()
     is_accept_after_payment = getattr(shop_settings, "accept_after_payment", False) if shop_settings else False
 
     current_status_upper = str(order.order_status or "").upper()
-    post_payment_status = "PENDING_VENDOR" if (is_accept_after_payment or current_status_upper in ["PENDING_VENDOR", "PENDING"]) else "PAID"
+    is_existing_active = current_status_upper in ["ACCEPTED", "PREPARING", "COOKING", "READY", "DELIVERED", "COMPLETED", "PAID"] or len(new_splits) > 1
+
+    # Preserve order status if order was already accepted/in-progress; only new unaccepted orders go to PENDING_VENDOR or ACCEPTED
+    if is_existing_active and current_status_upper not in ["PENDING_VENDOR", "PENDING", "PAYMENT_PENDING"]:
+        post_payment_status = order.order_status
+    elif getattr(shop_settings, "auto_accept_orders", False):
+        post_payment_status = "ACCEPTED"
+    elif is_accept_after_payment or current_status_upper in ["PENDING_VENDOR", "PENDING", "PAYMENT_PENDING"]:
+        post_payment_status = "PENDING_VENDOR"
+    else:
+        post_payment_status = "PAID"
 
     from sqlalchemy import update
     update_stmt = (
@@ -1689,6 +1728,7 @@ async def verify_public_order_payment(
             order_status=post_payment_status,
             razorpay_order_id=razorpay_order_id,
             payment_session_id=razorpay_payment_id,
+            split_payments=new_splits,
             version=Order.version + 1
         )
     )
@@ -1711,20 +1751,24 @@ async def verify_public_order_payment(
     # Create notification for merchant now that payment is confirmed
     from app.services.notification_service import NotificationService
     notif_service = NotificationService(db)
+    order_ref = f"#{order.daily_order_number}" if order.daily_order_number else f"#{order.id.hex[:8]}"
+    notif_title = f"Items Added & Paid — {order.table_number}" if (is_existing_active and order.table_number) else "New Paid Order Received"
+    notif_msg = f"Additional items paid for {order_ref} by {order.customer_name}" if is_existing_active else f"New paid order {order_ref} placed by {order.customer_name} ({order.order_type})"
+
     await notif_service.create_notification(
         shop_id=shop_id,
-        type="NEW_ORDER",
-        title="New Paid Order Received",
-        message=f"New paid order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})",
+        type="ORDER_UPDATED" if is_existing_active else "NEW_ORDER",
+        title=notif_title,
+        message=notif_msg,
         metadata={"order_id": str(order.id)}
     )
 
     # Broadcast live to shop and customer with 0 delay
     await order_service._broadcast_order_live(
         order=order,
-        event_type="NEW_ORDER",
-        title="New Paid Order Received",
-        message=f"New paid order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})"
+        event_type="ITEMS_ADDED" if is_existing_active else "NEW_ORDER",
+        title=notif_title,
+        message=notif_msg
     )
 
     # Send WhatsApp template notification 'menukit_order_create'

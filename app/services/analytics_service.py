@@ -558,9 +558,15 @@ class AnalyticsService:
                 Order.shop_id == shop_id,
                 Order.created_at >= since,
                 Order.created_at <= until,
-                func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
                 func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded",
-                OrderItem.is_cancelled == False
+                OrderItem.is_cancelled == False,
+                or_(
+                    func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                    and_(
+                        func.lower(Order.order_status).in_(["cancelled", "rejected"]),
+                        func.lower(func.coalesce(Order.payment_status, "pending")) == "paid"
+                    )
+                )
             )
             .group_by(OrderItem.name)
             .order_by(desc("total_rev"))
@@ -864,9 +870,15 @@ class AnalyticsService:
                 Order.shop_id == shop_id,
                 Order.created_at >= since,
                 Order.created_at <= until,
-                func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
                 func.lower(func.coalesce(Order.payment_status, "pending")) != "refunded",
-                OrderItem.is_cancelled == False
+                OrderItem.is_cancelled == False,
+                or_(
+                    func.lower(Order.order_status).notin_(["rejected", "cancelled", "void"]),
+                    and_(
+                        func.lower(Order.order_status).in_(["cancelled", "rejected"]),
+                        func.lower(func.coalesce(Order.payment_status, "pending")) == "paid"
+                    )
+                )
             )
             .order_by(desc(Order.created_at))
         )

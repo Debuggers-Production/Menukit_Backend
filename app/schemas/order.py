@@ -29,6 +29,7 @@ class OrderAddItems(BaseModel):
 
 class OrderItemCancel(BaseModel):
     reason: Optional[str] = "Cancelled by staff"
+    with_refund: Optional[bool] = True
 
 
 class OrderItemReplace(BaseModel):
@@ -103,6 +104,7 @@ class OrderResponse(OrderBase):
 class OrderStatusUpdate(BaseModel):
     status: str  # 'pending', 'accepted', 'rejected', 'completed', 'cancelled'
     cancellation_reason: Optional[str] = None
+    with_refund: Optional[bool] = True
 
 
 class PaymentStatusUpdate(BaseModel):

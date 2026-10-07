@@ -101,7 +101,8 @@ async def update_order_status(
         status_data.status, 
         shop.id,
         status_data.cancellation_reason,
-        user_id=current_user.id
+        user_id=current_user.id,
+        with_refund=status_data.with_refund if status_data.with_refund is not None else True
     )
     await db.commit()
     return OrderResponse.model_validate(order)
@@ -304,11 +305,13 @@ async def toggle_item_cancel(
     await check_orders_subscription(shop, db)
     service = OrderService(db)
     reason = cancel_data.reason if cancel_data else None
+    with_refund = cancel_data.with_refund if (cancel_data and cancel_data.with_refund is not None) else True
     order = await service.toggle_order_item_cancel(
         uuid.UUID(order_id),
         uuid.UUID(item_id),
         shop.id,
         reason=reason,
+        with_refund=with_refund
     )
     await db.commit()
     await db.refresh(order)

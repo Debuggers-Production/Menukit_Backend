@@ -207,6 +207,10 @@ async def init_chalkboard_table():
         CREATE INDEX IF NOT EXISTS ix_customer_codes_cust_ident ON customer_discount_codes(customer_identifier);
         CREATE INDEX IF NOT EXISTS ix_discount_redemptions_cust_ident ON discount_redemptions(customer_identifier);
         CREATE INDEX IF NOT EXISTS ix_discount_redemptions_shop_status ON discount_redemptions(shop_id, status);
+        CREATE INDEX IF NOT EXISTS ix_menu_views_shop_viewed ON menu_views(shop_id, viewed_at DESC);
+        CREATE INDEX IF NOT EXISTS ix_menu_views_category_id ON menu_views(category_id);
+        CREATE INDEX IF NOT EXISTS ix_qr_scans_shop_scanned ON qr_scans(shop_id, scanned_at DESC);
+        CREATE INDEX IF NOT EXISTS ix_membership_events_shop_time ON membership_events(shop_id, event_time DESC);
     """
 
     try:
