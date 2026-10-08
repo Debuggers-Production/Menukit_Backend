@@ -44,7 +44,7 @@ async def create_category(
 async def get_categories(
     response: Response,
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=1000),
+    limit: int = Query(500, ge=1, le=1000),
     search: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
     shop = Depends(require_permission("menu_categories", "read")),
@@ -167,18 +167,23 @@ async def reorder_categories(
 
 from sqlalchemy import inspect
 
-def _category_response(category) -> CategoryResponse:
+def _category_response(category, item_count: Optional[int] = None) -> CategoryResponse:
     """Convert Category model to response."""
-    state = inspect(category)
-    item_count = 0
-    if "menu_items" not in state.unloaded:
-        item_count = len(category.menu_items) if category.menu_items else 0
+    if item_count is None:
+        if hasattr(category, "item_count") and getattr(category, "item_count") is not None:
+            item_count = getattr(category, "item_count")
+        else:
+            state = inspect(category)
+            if "menu_items" not in state.unloaded:
+                item_count = len(category.menu_items) if category.menu_items else 0
+            else:
+                item_count = 0
     return CategoryResponse(
         id=str(category.id),
         name=category.name,
         image_url=category.image_url,
         display_order=category.display_order,
         is_active=category.is_active,
-        item_count=item_count,
+        item_count=item_count or 0,
         created_at=str(category.created_at),
     )

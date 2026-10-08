@@ -1031,15 +1031,26 @@ class OrderService:
 
         if date_filter and date_filter.strip():
             try:
-                from datetime import datetime, date, time
+                from datetime import datetime, date, time, timezone
+                try:
+                    from zoneinfo import ZoneInfo
+                    tz = ZoneInfo("Asia/Kolkata")
+                except Exception:
+                    import pytz
+                    tz = pytz.timezone("Asia/Kolkata")
+
                 d = date.fromisoformat(date_filter.strip())
-                start_dt = datetime.combine(d, time.min)
-                end_dt = datetime.combine(d, time.max)
+                if hasattr(tz, "localize"):
+                    start_dt_ist = tz.localize(datetime.combine(d, time.min))
+                    end_dt_ist = tz.localize(datetime.combine(d, time.max))
+                else:
+                    start_dt_ist = datetime.combine(d, time.min, tzinfo=tz)
+                    end_dt_ist = datetime.combine(d, time.max, tzinfo=tz)
+                start_dt_utc = start_dt_ist.astimezone(timezone.utc)
+                end_dt_utc = end_dt_ist.astimezone(timezone.utc)
+
                 conditions.append(
-                    or_(
-                        func.date(Order.created_at) == d,
-                        (Order.created_at >= start_dt) & (Order.created_at <= end_dt)
-                    )
+                    (Order.created_at >= start_dt_utc) & (Order.created_at <= end_dt_utc)
                 )
             except ValueError:
                 pass
@@ -1079,15 +1090,26 @@ class OrderService:
 
         if date_filter and date_filter.strip():
             try:
-                from datetime import datetime, date, time
+                from datetime import datetime, date, time, timezone
+                try:
+                    from zoneinfo import ZoneInfo
+                    tz = ZoneInfo("Asia/Kolkata")
+                except Exception:
+                    import pytz
+                    tz = pytz.timezone("Asia/Kolkata")
+
                 d = date.fromisoformat(date_filter.strip())
-                start_dt = datetime.combine(d, time.min)
-                end_dt = datetime.combine(d, time.max)
+                if hasattr(tz, "localize"):
+                    start_dt_ist = tz.localize(datetime.combine(d, time.min))
+                    end_dt_ist = tz.localize(datetime.combine(d, time.max))
+                else:
+                    start_dt_ist = datetime.combine(d, time.min, tzinfo=tz)
+                    end_dt_ist = datetime.combine(d, time.max, tzinfo=tz)
+                start_dt_utc = start_dt_ist.astimezone(timezone.utc)
+                end_dt_utc = end_dt_ist.astimezone(timezone.utc)
+
                 conditions.append(
-                    or_(
-                        func.date(Order.created_at) == d,
-                        (Order.created_at >= start_dt) & (Order.created_at <= end_dt)
-                    )
+                    (Order.created_at >= start_dt_utc) & (Order.created_at <= end_dt_utc)
                 )
             except ValueError:
                 pass

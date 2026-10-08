@@ -1385,6 +1385,19 @@ async def pay_public_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    norm_status = str(order.order_status or "").upper()
+    if norm_status in ["CANCELLED", "REJECTED", "VOID"] or str(order.payment_status or "").lower() == "cancelled":
+        raise HTTPException(
+            status_code=400,
+            detail="This order has been cancelled and cannot be paid."
+        )
+
+    if norm_status in ["DELIVERED", "COMPLETED"] and str(order.payment_status or "").lower() == "paid":
+        raise HTTPException(
+            status_code=400,
+            detail="This order is already completed and paid."
+        )
+
     settings_result = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
     shop_settings = settings_result.scalar_one_or_none()
 

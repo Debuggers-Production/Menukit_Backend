@@ -3,7 +3,7 @@
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException,Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
@@ -43,6 +43,7 @@ async def create_menu_item(
 
 @router.get("", response_model=List[MenuItemResponse])
 async def get_menu_items(
+    response: Response,
     category_id: Optional[str] = Query(None),
     food_type: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
@@ -64,9 +65,12 @@ async def get_menu_items(
         limit=limit,
     )
     
+    total_shop_items = await service.get_total_menu_items_count(shop.id)
+    response.headers["x-total-count"] = str(total_shop_items)
+    
     import logging
     logger = logging.getLogger(__name__)
-    logger.info(f"get_menu_items retrieved {len(items)} items")
+    logger.info(f"get_menu_items retrieved {len(items)} items (total: {total_shop_items})")
     
     return [_item_response(i) for i in items]
 

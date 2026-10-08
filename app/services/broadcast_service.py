@@ -354,13 +354,25 @@ class BroadcastService:
         if date_filter and date_filter.strip():
             try:
                 # Expect YYYY-MM-DD
+                from datetime import time
+                try:
+                    from zoneinfo import ZoneInfo
+                    tz = ZoneInfo("Asia/Kolkata")
+                except Exception:
+                    import pytz
+                    tz = pytz.timezone("Asia/Kolkata")
+
                 d = datetime.strptime(date_filter.strip(), "%Y-%m-%d").date()
-                start_dt = datetime.combine(d, time.min).replace(tzinfo=timezone.utc) - timedelta(hours=6)
-                end_dt = datetime.combine(d, time.max).replace(tzinfo=timezone.utc) + timedelta(hours=6)
-                date_clause = or_(
-                    func.date(BroadcastCampaign.created_at) == d,
-                    (BroadcastCampaign.created_at >= start_dt) & (BroadcastCampaign.created_at <= end_dt)
-                )
+                if hasattr(tz, "localize"):
+                    start_dt_ist = tz.localize(datetime.combine(d, time.min))
+                    end_dt_ist = tz.localize(datetime.combine(d, time.max))
+                else:
+                    start_dt_ist = datetime.combine(d, time.min, tzinfo=tz)
+                    end_dt_ist = datetime.combine(d, time.max, tzinfo=tz)
+                start_dt_utc = start_dt_ist.astimezone(timezone.utc)
+                end_dt_utc = end_dt_ist.astimezone(timezone.utc)
+
+                date_clause = (BroadcastCampaign.created_at >= start_dt_utc) & (BroadcastCampaign.created_at <= end_dt_utc)
                 stmt = stmt.where(date_clause)
                 count_stmt = count_stmt.where(date_clause)
             except ValueError:

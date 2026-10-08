@@ -75,17 +75,38 @@ class MenuService:
         count_res = await self.db.execute(count_stmt)
         total_count = count_res.scalar() or 0
 
+        item_count_sub = (
+            select(func.count(MenuItem.id))
+            .where(MenuItem.category_id == Category.id)
+            .scalar_subquery()
+        )
+
         result = await self.db.execute(
-            select(Category)
+            select(Category, item_count_sub.label("item_count"))
             .where(*conditions)
             .order_by(Category.display_order)
             .offset(skip)
             .limit(limit)
         )
-        categories = list(result.scalars().all())
+        rows = result.all()
+        categories = []
+        for cat, cnt in rows:
+            cat.item_count = cnt or 0
+            categories.append(cat)
+
         has_more = (skip + len(categories)) < total_count
 
         return categories, total_count, has_more
+
+    async def get_total_menu_items_count(self, shop_id: uuid.UUID) -> int:
+        """Get total count of menu items for a shop."""
+        catalog_id = await self._get_catalog_id(shop_id)
+        if not catalog_id:
+            return 0
+        res = await self.db.execute(
+            select(func.count(MenuItem.id)).where(MenuItem.menu_catalog_id == catalog_id)
+        )
+        return res.scalar() or 0
 
     async def update_category(self, shop_id: uuid.UUID, user_id: uuid.UUID, category_id: uuid.UUID, data: dict) -> Category:
         """Update a category."""
