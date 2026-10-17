@@ -800,6 +800,10 @@ class OrderService:
                 message=f"New order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})"
             )
 
+            # Trigger real-time new order email notification to admin
+            import asyncio
+            asyncio.create_task(self._send_order_admin_email_notification(order=order, shop_obj=shop))
+
         await self.db.flush()
         
         # Automatically award 0.15 contest credits if order total >= ₹100 for non-online orders
@@ -1328,6 +1332,10 @@ class OrderService:
                     "message": f"Order {order_ref} marked as paid."
                 }
                 await manager.broadcast_to_shop(str(shop_id), ws_msg)
+
+                # Send real-time paid order email to admin
+                import asyncio
+                asyncio.create_task(self._send_order_admin_email_notification(order=order))
             except Exception as e:
                 print(f"Failed to broadcast shop paid event: {e}")
             
@@ -1754,6 +1762,103 @@ class OrderService:
                 else:
                     credit.credits = round(float(credit.credits) + 0.15, 2)
                 order.credits_rewarded = True
+
+    async def _send_order_admin_email_notification(self, order: Order, shop_obj: Optional[Shop] = None):
+        """Send immediate email notification to admin/owner when a new order is placed."""
+        if not order:
+            return
+
+        from app.database.redis import get_redis
+        redis_client = await get_redis()
+        cache_key = f"order_admin_email_sent:{order.id}"
+
+        if redis_client:
+            try:
+                # Deduplication: Ensure only 1 email per order within 48 hours
+                already_sent = await redis_client.get(cache_key)
+                if already_sent:
+                    return
+                await redis_client.set(cache_key, "1", ex=172800)
+            except Exception as e:
+                logger.warning(f"Redis cache check failed for order email: {e}")
+
+        try:
+            from app.models.shop import Shop
+            from app.models.user import User
+            from app.models.order import OrderItem
+            from app.services.email_service import email_service
+            from app.core.config import get_settings
+            import pytz
+
+            settings = get_settings()
+
+            # Fetch shop and owner user
+            if not shop_obj:
+                shop_res = await self.db.execute(
+                    select(Shop).options(selectinload(Shop.user)).where(Shop.id == order.shop_id)
+                )
+                shop_obj = shop_res.scalar_one_or_none()
+
+            if not shop_obj:
+                return
+
+            shop_name = shop_obj.name or "Restaurant"
+            owner_email = None
+            if hasattr(shop_obj, "user") and shop_obj.user and shop_obj.user.email:
+                owner_email = shop_obj.user.email
+            else:
+                user_res = await self.db.execute(select(User).where(User.id == shop_obj.user_id))
+                user_obj = user_res.scalar_one_or_none()
+                if user_obj and user_obj.email:
+                    owner_email = user_obj.email
+
+            # Target recipients: Owner email + platform admin notification email
+            recipients = set()
+            if owner_email and "@" in str(owner_email):
+                recipients.add(str(owner_email).strip().lower())
+
+            admin_email = getattr(settings, "ADMIN_NOTIFICATION_EMAIL", None)
+            if admin_email and "@" in str(admin_email):
+                recipients.add(str(admin_email).strip().lower())
+
+            if not recipients:
+                return
+
+            # Order details formatting
+            order_ref = f"#{order.daily_order_number}" if order.daily_order_number else f"#{order.id.hex[:8]}"
+            ist_tz = pytz.timezone("Asia/Kolkata")
+            created_dt = order.created_at
+            if created_dt:
+                if created_dt.tzinfo is None:
+                    created_dt = pytz.utc.localize(created_dt)
+                created_str = created_dt.astimezone(ist_tz).strftime("%d %b %Y, %I:%M %p IST")
+            else:
+                created_str = datetime.now(ist_tz).strftime("%d %b %Y, %I:%M %p IST")
+
+            # Load order items
+            items_list = order.items if hasattr(order, "items") and order.items else []
+            if not items_list:
+                items_res = await self.db.execute(select(OrderItem).where(OrderItem.order_id == order.id))
+                items_list = items_res.scalars().all()
+
+            for recipient in recipients:
+                await email_service.send_new_order_admin_email(
+                    email=recipient,
+                    shop_name=shop_name,
+                    order_ref=order_ref,
+                    customer_name=order.customer_name or "Walk-in Customer",
+                    customer_phone=order.customer_phone or "N/A",
+                    order_type=order.order_type or "dine_in",
+                    table_number=order.table_number,
+                    delivery_address=order.delivery_address,
+                    payment_method=order.payment_method or "cash",
+                    payment_status=order.payment_status or "pending",
+                    total_amount=float(order.total_amount or 0.0),
+                    items=items_list,
+                    created_at_str=created_str,
+                )
+        except Exception as e:
+            logger.error(f"Failed to send admin order email for order {order.id}: {e}")
 
     async def append_items_to_order(self, order_id: uuid.UUID, shop_id: uuid.UUID, new_items: List[dict]) -> Order:
         """Append new order items to an existing active order and update total amount."""

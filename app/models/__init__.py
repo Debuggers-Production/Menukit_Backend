@@ -26,8 +26,12 @@ from app.models.menu_catalog import MenuCatalog
 from app.models.branch_item_override import BranchItemOverride
 from app.models.broadcast import BroadcastCampaign
 from app.models.chalkboard import Chalkboard
+from app.models.scheme import Scheme, SchemeMember, SchemePayment
 
 __all__ = [
+    "Scheme",
+    "SchemeMember",
+    "SchemePayment",
     "BroadcastCampaign",
     "Chalkboard",
     "User",

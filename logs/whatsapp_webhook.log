@@ -8076,3 +8076,43 @@
   }
 }
 [2026-10-08 00:42:29,886] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSREIyNTcxNkE5MzVFMkE1QUNGAA==","message_status":"accepted"}]}
+[2026-10-17 11:37:07,716] INFO - 📤 Outgoing WhatsApp Payload:
+{
+  "messaging_product": "whatsapp",
+  "to": "918248692839",
+  "type": "template",
+  "template": {
+    "name": "menukit_order_created",
+    "language": {
+      "code": "en"
+    },
+    "components": [
+      {
+        "type": "body",
+        "parameters": [
+          {
+            "type": "text",
+            "text": "Sivarajan"
+          },
+          {
+            "type": "text",
+            "text": "Siva Hotel"
+          },
+          {
+            "type": "text",
+            "text": "#1"
+          },
+          {
+            "type": "text",
+            "text": "\u20b910.55"
+          },
+          {
+            "type": "text",
+            "text": "https://menukit.debuggerstechnologies.com/customer/"
+          }
+        ]
+      }
+    ]
+  }
+}
+[2026-10-17 11:37:10,098] INFO - 📥 WhatsApp Meta API Response (200): {"messaging_product":"whatsapp","contacts":[{"input":"918248692839","wa_id":"918248692839"}],"messages":[{"id":"wamid.HBgMOTE4MjQ4NjkyODM5FQIAERgSQzAxRjVFMzgzM0ZGRDM2NENCAA==","message_status":"accepted"}]}

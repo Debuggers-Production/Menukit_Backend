@@ -28,9 +28,10 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up SmartMenu QR backend with migration...")
     try:
-        await init_chalkboard_table()
+        import asyncio
+        # await asyncio.wait_for(init_chalkboard_table(), timeout=5.0)
     except Exception as e:
-        logger.warning(f"Chalkboard table init failed: {e}")
+        logger.warning(f"Chalkboard table init failed or timed out: {e}")
     try:
         await init_redis()
         logger.info("Redis connected.")
@@ -61,14 +62,41 @@ async def lifespan(app: FastAPI):
     async def run_timeout_job():
         await asyncio.sleep(5)
         await process_payment_timeouts()
+
+    from app.services.scheduled_notification_service import ScheduledNotificationService
+
+    async def run_scheduled_notifications_job():
+        # Wait 20 seconds after app startup
+        await asyncio.sleep(20)
+        while True:
+            try:
+                async with async_session_factory() as db:
+                    # 1. Check subscriptions (3 days before and every 2 days after expired)
+                    sub_res = await ScheduledNotificationService.process_subscription_expiry_checks(db)
+                    logger.info(f"Scheduled subscription check completed: {sub_res}")
+
+                    # 2. Check weekend customer report (every weekend in IST)
+                    weekend_res = await ScheduledNotificationService.process_weekend_customer_reports(db)
+                    logger.info(f"Weekend customer reports check completed: {weekend_res}")
+
+                    # 3. Check scheme fund payment reminders (1 day before due date)
+                    scheme_res = await ScheduledNotificationService.process_scheme_payment_reminders(db)
+                    logger.info(f"Scheme payment reminders check completed: {scheme_res}")
+            except Exception as e:
+                logger.error(f"Error in scheduled notifications job: {e}")
+            finally:
+                # Run periodically every 1 hour (3600 seconds)
+                await asyncio.sleep(3600)
         
     timeout_task = asyncio.create_task(run_timeout_job())
     job_task = asyncio.create_task(run_reconciliation_job())
+    sched_notif_task = asyncio.create_task(run_scheduled_notifications_job())
     
     yield
     
     timeout_task.cancel()
     job_task.cancel()
+    sched_notif_task.cancel()
     
     # Shutdown
     logger.info("Shutting down...")
@@ -78,10 +106,15 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    is_prod = getattr(settings, "is_production", False)
+
     app = FastAPI(
         title=settings.APP_NAME,
         version="1.0.0",
         lifespan=lifespan,
+        docs_url=None if is_prod else "/docs",
+        redoc_url=None if is_prod else "/redoc",
+        openapi_url=None if is_prod else "/openapi.json",
     )
 
     # Configure CORS

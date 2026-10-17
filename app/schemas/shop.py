@@ -2,8 +2,9 @@
 
 import uuid
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.schemas.chalkboard import ChalkboardResponse
+from app.utils.media import resolve_image_url, strip_image_base_url
 
 
 class ShopCreate(BaseModel):
@@ -30,6 +31,11 @@ class ShopCreate(BaseModel):
     razorpay_payment_id: Optional[str] = None
     razorpay_signature: Optional[str] = None
 
+    @field_validator("logo_url", "banner_url", mode="before")
+    @classmethod
+    def strip_image_urls(cls, v):
+        return strip_image_base_url(v)
+
     class Config:
         extra = "ignore"
 
@@ -54,6 +60,11 @@ class ShopUpdate(BaseModel):
     longitude: Optional[float] = None
     google_review_link: Optional[str] = None
     review_widget_code: Optional[str] = None
+
+    @field_validator("logo_url", "banner_url", mode="before")
+    @classmethod
+    def strip_image_urls(cls, v):
+        return strip_image_base_url(v)
 
 
 class ShopSettingsUpdate(BaseModel):
@@ -236,6 +247,11 @@ class ShopResponse(BaseModel):
     chalkboard: Optional[ChalkboardResponse] = None
     created_at: Optional[str] = None
     employee_permissions: Optional[dict] = None
+
+    @field_validator("logo_url", "banner_url", mode="before")
+    @classmethod
+    def resolve_image_urls(cls, v):
+        return resolve_image_url(v)
 
     class Config:
         from_attributes = True

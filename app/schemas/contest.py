@@ -2,7 +2,8 @@
 
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from app.utils.media import resolve_image_url, strip_image_base_url
 
 
 class ContestCreate(BaseModel):
@@ -55,6 +56,11 @@ class ContestParticipationSubmit(BaseModel):
     text_content: Optional[str] = None
     media_url: Optional[str] = None
 
+    @field_validator("media_url", mode="before")
+    @classmethod
+    def strip_media_url(cls, v):
+        return strip_image_base_url(v)
+
 
 class ContestParticipationResponse(BaseModel):
     id: str
@@ -73,6 +79,11 @@ class ContestParticipationResponse(BaseModel):
     timer_last_updated_at: Optional[datetime] = None
     is_submitted: bool
     created_at: datetime
+
+    @field_validator("media_url", mode="before")
+    @classmethod
+    def resolve_media_url(cls, v):
+        return resolve_image_url(v)
 
     class Config:
         from_attributes = True

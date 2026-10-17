@@ -15,6 +15,7 @@ from app.models.theme_settings import ThemeSettings
 from app.models.chalkboard import Chalkboard
 from app.models.activity_log import ActivityLog
 from app.core.exceptions import NotFoundException, ConflictException
+from app.utils.media import strip_image_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,11 @@ class ShopService:
 
         clone_from_shop_id = data.pop("clone_from_shop_id", None)
         slug = await self._generate_unique_slug(data["name"])
+
+        if "logo_url" in data and data["logo_url"]:
+            data["logo_url"] = strip_image_base_url(data["logo_url"])
+        if "banner_url" in data and data["banner_url"]:
+            data["banner_url"] = strip_image_base_url(data["banner_url"])
 
         shop = Shop(
             user_id=user_id,
@@ -234,18 +240,22 @@ class ShopService:
         upload_service = UploadService()
 
         # Delete old logo if a new logo_url is provided
-        if "logo_url" in data and data["logo_url"] and shop.logo_url and data["logo_url"] != shop.logo_url:
-            try:
-                await upload_service.delete_image_by_url(shop.logo_url)
-            except Exception as e:
-                logger.warning(f"Failed to delete old logo: {e}")
+        if "logo_url" in data and data["logo_url"]:
+            data["logo_url"] = strip_image_base_url(data["logo_url"])
+            if shop.logo_url and data["logo_url"] != shop.logo_url:
+                try:
+                    await upload_service.delete_image_by_url(shop.logo_url)
+                except Exception as e:
+                    logger.warning(f"Failed to delete old logo: {e}")
 
         # Delete old banner if a new banner_url is provided
-        if "banner_url" in data and data["banner_url"] and shop.banner_url and data["banner_url"] != shop.banner_url:
-            try:
-                await upload_service.delete_image_by_url(shop.banner_url)
-            except Exception as e:
-                logger.warning(f"Failed to delete old banner: {e}")
+        if "banner_url" in data and data["banner_url"]:
+            data["banner_url"] = strip_image_base_url(data["banner_url"])
+            if shop.banner_url and data["banner_url"] != shop.banner_url:
+                try:
+                    await upload_service.delete_image_by_url(shop.banner_url)
+                except Exception as e:
+                    logger.warning(f"Failed to delete old banner: {e}")
 
         for key, value in data.items():
             if hasattr(shop, key):

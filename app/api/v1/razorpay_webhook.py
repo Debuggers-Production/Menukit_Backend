@@ -147,5 +147,122 @@ async def razorpay_webhook(
                         print(f"[SMS NOTIFICATION TO CUSTOMER {order.customer_phone}]: Your amount of ₹{order.total_amount} was refunded successfully by Menukit.")
             
             background_tasks.add_task(process_refund_async, payment_id, refund_id)
-            
+
+    elif event == "subscription.charged":
+        sub_entity = payload.get("payload", {}).get("subscription", {}).get("entity", {})
+        pay_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        sub_id = sub_entity.get("id")
+        pay_id = pay_entity.get("id")
+        amount = (pay_entity.get("amount") or 0) / 100.0
+
+        if sub_id:
+            async def process_sub_charged_async(s_id, p_id, amt):
+                from app.database.session import async_session_factory
+                from app.models.subscription import Subscription, PaymentTransaction
+                from app.models.shop import Shop
+                from app.models.user import User
+                from app.services.invoice_service import InvoiceService
+                from app.services.email_service import EmailService
+                from datetime import timedelta
+
+                async with async_session_factory() as db_session:
+                    sub_stmt = select(Subscription).where(Subscription.razorpay_subscription_id == s_id)
+                    res = await db_session.execute(sub_stmt)
+                    sub = res.scalar_one_or_none()
+                    if not sub:
+                        return
+
+                    cycle = getattr(sub, "billing_cycle", "monthly") or "monthly"
+                    duration_days = 365 if cycle == "yearly" else 30
+                    now = datetime.now(timezone.utc)
+                    existing_end = sub.current_period_end
+                    if existing_end and existing_end.tzinfo is None:
+                        existing_end = existing_end.replace(tzinfo=timezone.utc)
+                    base_dt = existing_end if (existing_end and existing_end > now) else now
+                    new_period_end = base_dt + timedelta(days=duration_days)
+
+                    # Update module expirations
+                    raw_exp = dict(getattr(sub, "module_expirations", {}) or {})
+                    for k in raw_exp.keys():
+                        raw_exp[k] = new_period_end.isoformat()
+                    sub.module_expirations = raw_exp
+                    sub.current_period_end = new_period_end
+                    sub.is_active = True
+                    sub.auto_renew = True
+
+                    # Record transaction
+                    new_tx = PaymentTransaction(
+                        shop_id=sub.shop_id,
+                        razorpay_order_id=s_id,
+                        razorpay_payment_id=p_id,
+                        amount=amt,
+                        currency="INR",
+                        status="success",
+                        is_all_access=getattr(sub, "is_all_access", False),
+                        purchased_modules=sub.active_modules,
+                        billing_cycle=cycle,
+                        is_autopay=True
+                    )
+                    db_session.add(new_tx)
+                    await db_session.flush()
+
+                    inv_num = InvoiceService.generate_invoice_number(str(new_tx.id))
+                    new_tx.invoice_number = inv_num
+
+                    # Sync renewal to other shops owned by user
+                    try:
+                        shop_res = await db_session.execute(
+                            select(Shop, User).join(User, Shop.user_id == User.id).where(Shop.id == sub.shop_id)
+                        )
+                        shop_user = shop_res.first()
+                        if shop_user and shop_user.User:
+                            all_user_shops = await db_session.execute(
+                                select(Shop).where(Shop.user_id == shop_user.User.id, Shop.id != sub.shop_id)
+                            )
+                            for o_s in all_user_shops.scalars().all():
+                                o_sub_r = await db_session.execute(select(Subscription).where(Subscription.shop_id == o_s.id))
+                                o_sub = o_sub_r.scalar_one_or_none()
+                                if o_sub:
+                                    o_sub.current_period_end = new_period_end
+                                    o_sub.module_expirations = raw_exp
+                                    o_sub.is_active = True
+                                    o_sub.auto_renew = True
+                    except Exception as sync_err:
+                        print(f"Failed to sync recurring renewal across shops: {sync_err}")
+
+                    await db_session.commit()
+
+                    # Send invoice email
+                    try:
+                        if shop_user and shop_user.User and shop_user.User.email:
+                            inv_data = InvoiceService.build_invoice_data(
+                                transaction=new_tx,
+                                user_email=shop_user.User.email,
+                                shop_name=shop_user.Shop.name,
+                                invoice_number=inv_num
+                            )
+                            email_svc = EmailService()
+                            await email_svc.send_subscription_invoice_email(shop_user.User.email, inv_data)
+                    except Exception as em_err:
+                        print(f"Failed to send recurring invoice email: {em_err}")
+
+            background_tasks.add_task(process_sub_charged_async, sub_id, pay_id, amount)
+
+    elif event in ["subscription.cancelled", "subscription.paused"]:
+        sub_entity = payload.get("payload", {}).get("subscription", {}).get("entity", {})
+        sub_id = sub_entity.get("id")
+        if sub_id:
+            async def process_sub_cancelled_async(s_id):
+                from app.database.session import async_session_factory
+                from app.models.subscription import Subscription
+                async with async_session_factory() as db_session:
+                    stmt = select(Subscription).where(Subscription.razorpay_subscription_id == s_id)
+                    res = await db_session.execute(stmt)
+                    sub = res.scalar_one_or_none()
+                    if sub:
+                        sub.auto_renew = False
+                        await db_session.commit()
+
+            background_tasks.add_task(process_sub_cancelled_async, sub_id)
+
     return {"status": "ok"}

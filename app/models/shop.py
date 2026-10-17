@@ -58,3 +58,4 @@ class Shop(Base, UUIDMixin, TimestampMixin):
     orders = relationship("Order", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     contests = relationship("Contest", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
     employees = relationship("Employee", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")
+    schemes = relationship("Scheme", back_populates="shop", lazy="dynamic", cascade="all, delete-orphan")

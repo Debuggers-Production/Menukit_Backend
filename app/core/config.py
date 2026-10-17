@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     SEO_FRONTEND_URL:str="http://localhost:5174"
     API_V1_PREFIX: str = "/api/v1"
 
+    @property
+    def is_production(self) -> bool:
+        """Returns True if running in production environment."""
+        return str(self.APP_ENV).strip().lower() in ("production", "prod")
+
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:437734@localhost:5432/smartmenu_db"
 
@@ -37,6 +42,7 @@ class Settings(BaseSettings):
     SMTP_USER: str = "siva967763@gmail.com"
     SMTP_PASSWORD: str = "esyr iqiq mzbo bppj"
     SMTP_FROM_EMAIL: str = "noreply@smartmenuqr.com"
+    ADMIN_NOTIFICATION_EMAIL: Optional[str] = "siva967763@gmail.com"
 
     # Azure Blob Storage
     AZURE_STORAGE_CONNECTION_STRING: Optional[str] = None
@@ -45,6 +51,7 @@ class Settings(BaseSettings):
     # Upload
     UPLOAD_DIR: str = "uploads"
     MAX_IMAGE_SIZE_MB: int = 5
+    IMAGE_BASE_URL: str = ""
 
     # OTP
     OTP_EXPIRE_SECONDS: int = 300  # 5 minutes

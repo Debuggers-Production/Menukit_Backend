@@ -1,7 +1,8 @@
 """Analytics schemas."""
 
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from app.utils.media import resolve_image_url
 
 
 class OverviewStats(BaseModel):
@@ -79,6 +80,11 @@ class TopOrderedFoodItem(BaseModel):
     total_quantity: int
     total_revenue: float
     image_url: Optional[str] = None
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def resolve_image_url(cls, v):
+        return resolve_image_url(v)
 
 
 class DailySalesReportPoint(BaseModel):
@@ -219,6 +225,11 @@ class ProductSalesItemStat(BaseModel):
     orders_count: int
     first_sale_date: Optional[str] = None
     last_sale_date: Optional[str] = None
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def resolve_image_url(cls, v):
+        return resolve_image_url(v)
 
 
 class ProductSalesAnalyticsSummary(BaseModel):

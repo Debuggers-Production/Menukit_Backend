@@ -8,6 +8,7 @@ import math
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from app.services.fx_service import fx_service
+from app.core.config import get_settings
 
 
 @dataclass
@@ -260,6 +261,12 @@ class PricingEngine:
             billing_cycle
         )
 
+        settings = get_settings()
+        if not settings.is_production:
+            all_access_calc["selected_price"] = 1.0
+            all_access_calc["monthly_price"] = 1.0
+            all_access_calc["yearly_price"] = 1.0
+
         # Addon Modules
         modules = []
         for mod_meta in MODULE_METADATA:
@@ -323,6 +330,23 @@ class PricingEngine:
         and final total in customer currency + INR equivalent for payment gateway.
         """
         config = cls.get_country_config(country_code)
+        settings = get_settings()
+
+        if is_all_access and not settings.is_production:
+            return {
+                "country_code": config.code,
+                "currency": config.currency,
+                "currency_symbol": config.symbol,
+                "base_subtotal": 1.0,
+                "pg_fee": 0.0,
+                "gst_on_fee": 0.0,
+                "final_total": 1.0,
+                "inr_equivalent": 1.0,
+                "amount_subunits": 100,  # 1 INR = 100 paise
+                "fx_rate": 1.0,
+                "billing_cycle": billing_cycle,
+                "is_all_access": True,
+            }
         
         base_subtotal = 0.0
         if is_all_access:

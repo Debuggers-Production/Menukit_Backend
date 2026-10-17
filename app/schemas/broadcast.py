@@ -2,7 +2,8 @@
 
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from app.utils.media import resolve_image_url, strip_image_base_url
 
 
 class AudienceCountRequest(BaseModel):
@@ -21,6 +22,11 @@ class BroadcastTestSendRequest(BaseModel):
     message: str
     image_url: Optional[str] = None
 
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def resolve_test_image_url(cls, v):
+        return resolve_image_url(v)
+
 
 class BroadcastCampaignCreate(BaseModel):
     title: Optional[str] = None
@@ -29,6 +35,11 @@ class BroadcastCampaignCreate(BaseModel):
     target_audience: str = "all"
     min_visits: Optional[int] = 2
     scheduled_at: Optional[datetime] = None
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def strip_campaign_image_url(cls, v):
+        return strip_image_base_url(v)
 
 
 
@@ -47,6 +58,11 @@ class BroadcastCampaignResponse(BaseModel):
     sent_count: int
     failed_count: int
     created_at: Optional[datetime] = None
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def resolve_campaign_image_url(cls, v):
+        return resolve_image_url(v)
 
     class Config:
         from_attributes = True

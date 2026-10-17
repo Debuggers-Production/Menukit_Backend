@@ -11,6 +11,7 @@ from minio import Minio
 from minio.error import S3Error
 
 from app.core.config import get_settings
+from app.utils.media import resolve_image_url, strip_image_base_url
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -100,7 +101,7 @@ class UploadService:
         with open(main_file, "wb") as f:
             f.write(main_bytes)
 
-        image_url = f"http://localhost:8000/uploads/{main_path}"
+        image_url = resolve_image_url(main_path)
         logger.info(f"Saved locally: {main_file}")
 
         return {
@@ -186,12 +187,7 @@ class UploadService:
 
             await asyncio.to_thread(_do_put)
 
-            protocol = "https" if getattr(self, "secure", True) else "http"
-            image_url = (
-                f"{protocol}://{self.minio_endpoint}/"
-                f"{self.bucket_name}/{main_path}"
-            )
-
+            image_url = resolve_image_url(main_path)
             logger.info(f"MinIO uploaded successfully: {main_path}")
 
             return {
@@ -232,6 +228,8 @@ class UploadService:
     async def delete_image(self, filename: str):
         if not filename:
             return
+        # Ensure clean relative path
+        filename = strip_image_base_url(filename) or filename
         if getattr(self, "minio_available", False):
             try:
                 self.minio_client.remove_object(
@@ -256,19 +254,8 @@ class UploadService:
         if not image_url:
             return
         
-        # 1. Try MinIO deletion
-        if getattr(self, "minio_available", False) and self.bucket_name and self.bucket_name in image_url:
-            try:
-                object_name = image_url.split(f"{self.bucket_name}/")[-1]
-                await self.delete_image(object_name)
-                return
-            except Exception as e:
-                logger.warning(f"Failed to delete image from MinIO by URL ({image_url}): {e}")
+        rel_path = strip_image_base_url(image_url)
+        if not rel_path:
+            return
 
-        # 2. Try local disk deletion
-        if "/uploads/" in image_url:
-            try:
-                rel_path = image_url.split("/uploads/")[-1]
-                await self.delete_image(rel_path)
-            except Exception as e:
-                logger.warning(f"Failed to delete local image by URL ({image_url}): {e}")
+        await self.delete_image(rel_path)

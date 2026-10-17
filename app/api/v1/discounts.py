@@ -51,6 +51,7 @@ def _discount_response(d, is_already_used: bool = False) -> DiscountResponse:
         available_days=d.available_days,
         available_time_presets=d.available_time_presets,
         is_active=d.is_active,
+        is_price_drop=getattr(d, "is_price_drop", False) or False,
         visibility_type=d.visibility_type,
         display_order=d.display_order,
         is_already_used=is_already_used,

@@ -4,6 +4,7 @@ import re
 import requests
 from typing import Optional
 from app.core.config import get_settings
+from app.utils.media import resolve_image_url
 
 logger = logging.getLogger("whatsapp_webhook")
 
@@ -157,8 +158,8 @@ class WhatsAppClient:
         """
         frontend_url = get_settings().FRONTEND_URL or "https://menukit.debuggerstechnologies.com"
         full_contest_url = f"{frontend_url.rstrip('/')}/{contest_url_suffix.lstrip('/')}"
-        image_link = header_image_url or "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
-        # image_link = "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
+        resolved = resolve_image_url(header_image_url)
+        image_link = resolved if resolved and resolved.strip().startswith("http") else "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
         clean_phone = "".join(filter(str.isdigit, phone_number))
         
         formatted_contest_type = f"{str(contest_type).capitalize()} Contest"
@@ -501,9 +502,10 @@ class WhatsAppClient:
             clean_phone = f"91{clean_phone}"
 
         # Default fallback image if none provided
+        resolved = resolve_image_url(header_image_url)
         image_link = (
-            header_image_url
-            if header_image_url and header_image_url.strip().startswith("http")
+            resolved
+            if resolved and resolved.strip().startswith("http")
             else "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?fm=jpg&w=800&q=90"
         )
 
@@ -566,6 +568,78 @@ class WhatsAppClient:
 
         return res
 
+    def send_scheme_fund_reminder(
+        self,
+        phone_number: str,
+        customer_name: str,
+        scheme_title: str,
+        shop_name: str,
+        due_date_str: str,
+        amount_with_currency: str,
+        shop_id: str,
+    ) -> dict:
+        """
+        Sends the 'menukit_fund_reminder' WhatsApp payment reminder template.
 
+        Template: menukit_fund_reminder
+        Body variables:
+          {{1}} = Customer Name (e.g. "Siva")
+          {{2}} = Scheme Title  (e.g. "Diwali Fund")
+          {{3}} = Shop Name     (e.g. "Siva Sweets")
+          {{4}} = Due Date      (e.g. "14-05-2026")
+          {{5}} = Amount        (e.g. "150 rs" or "150 ₹")
+        CTA Button:
+          'Pay' button linking to: shop/{shop_id}/schemes
+        """
+        clean_phone = "".join(filter(str.isdigit, str(phone_number)))
+        if len(clean_phone) == 10:
+            clean_phone = f"91{clean_phone}"
 
+        button_suffix = f"shop/{str(shop_id)}/schemes"
 
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": clean_phone,
+            "type": "template",
+            "template": {
+                "name": "menukit_fund_reminder",
+                "language": {
+                    "code": "en",
+                },
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": self._clean_param(customer_name, "Customer")},
+                            {"type": "text", "text": self._clean_param(scheme_title, "Savings Scheme")},
+                            {"type": "text", "text": self._clean_param(shop_name, "Shop")},
+                            {"type": "text", "text": self._clean_param(due_date_str, "")},
+                            {"type": "text", "text": self._clean_param(amount_with_currency, "")},
+                        ],
+                    },
+                    {
+                        "type": "button",
+                        "sub_type": "url",
+                        "index": "0",
+                        "parameters": [
+                            {
+                                "type": "text",
+                                "text": button_suffix,
+                            }
+                        ],
+                    },
+                ],
+            },
+        }
+
+        res = self._post(payload)
+        # If error occurs due to button parameter mismatch (e.g. static button in Meta template), retry without button component
+        if isinstance(res, dict) and ("error" in res or res.get("status_code", 200) >= 400):
+            err_msg = str(res.get("error", "")).lower()
+            if "button" in err_msg or "parameter" in err_msg or res.get("status_code") == 400:
+                payload["template"]["components"] = [
+                    c for c in payload["template"]["components"] if c.get("type") != "button"
+                ]
+                res = self._post(payload)
+
+        return res

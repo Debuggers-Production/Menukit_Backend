@@ -41,10 +41,12 @@ class CreateOrderRequest(BaseModel):
     selected_modules: List[str]
     billing_cycle: Optional[str] = "monthly"
     country_code: Optional[str] = None
+    is_autopay: Optional[bool] = True
 
 
 class VerifyPaymentRequest(BaseModel):
-    razorpay_order_id: str
+    razorpay_order_id: Optional[str] = None
+    razorpay_subscription_id: Optional[str] = None
     razorpay_payment_id: str
     razorpay_signature: str
 
@@ -116,6 +118,8 @@ async def create_order(
     amount_subunits = calc["amount_subunits"]
     fx_rate = calc["fx_rate"]
 
+    is_autopay = True if request.is_autopay is None else bool(request.is_autopay)
+
     # 1. Mock / Fallback Mode
     if settings.MOCK_PAYMENT_MODE:
         mock_order_id = f"order_mock_{uuid.uuid4().hex[:14]}"
@@ -130,7 +134,8 @@ async def create_order(
             status="created",
             is_all_access=request.is_all_access,
             purchased_modules=request.selected_modules,
-            billing_cycle=request.billing_cycle or "monthly"
+            billing_cycle=request.billing_cycle or "monthly",
+            is_autopay=is_autopay
         )
         db.add(transaction)
         await db.commit()
@@ -145,11 +150,94 @@ async def create_order(
             "currency": currency,
             "currency_symbol": calc["currency_symbol"],
             "mock_mode": True,
+            "is_autopay": is_autopay,
+            "billing_cycle": request.billing_cycle or "monthly",
             "key": settings.RAZORPAY_KEY_ID or "rzp_test_mock"
         }
 
     # 2. Real Razorpay Mode
     try:
+        # A. AUTOPAY / RECURRING MANDATE (Razorpay Subscriptions)
+        if is_autopay:
+            try:
+                cycle = request.billing_cycle or "monthly"
+                period = "yearly" if cycle == "yearly" else "monthly"
+                plan_name = f"Menukit {'All-Access' if request.is_all_access else 'Modular'} ({cycle.title()})"
+
+                sub_amount = amount_subunits
+                sub_curr = currency
+                if sub_curr != "INR":
+                    sub_amount = int(round(calc["inr_equivalent"] * 100))
+                    sub_curr = "INR"
+
+                plan_payload = {
+                    "period": period,
+                    "interval": 1,
+                    "item": {
+                        "name": plan_name,
+                        "amount": sub_amount,
+                        "currency": sub_curr,
+                        "description": f"Menukit Subscription - {cycle.title()} Auto-Pay"
+                    }
+                }
+                plan = razorpay_client.plan.create(data=plan_payload)
+
+                sub_payload = {
+                    "plan_id": plan["id"],
+                    "total_count": 60 if cycle == "monthly" else 10,
+                    "quantity": 1,
+                    "customer_notify": 1,
+                    "notes": {
+                        "shop_id": str(shop.id),
+                        "is_all_access": "true" if request.is_all_access else "false",
+                        "billing_cycle": cycle,
+                        "is_autopay": "true",
+                        "country_code": calc["country_code"],
+                        "currency": currency,
+                        "base_amount": str(calc["base_subtotal"]),
+                        "pg_fee": str(calc["pg_fee"]),
+                        "gst_on_fee": str(calc["gst_on_fee"]),
+                        "fx_rate": str(fx_rate)
+                    }
+                }
+                sub_res = razorpay_client.subscription.create(data=sub_payload)
+                sub_id = sub_res["id"]
+
+                transaction = PaymentTransaction(
+                    shop_id=shop.id,
+                    razorpay_order_id=sub_id,
+                    amount=final_total,
+                    currency=currency,
+                    country_code=calc["country_code"],
+                    fx_rate=fx_rate,
+                    status="created",
+                    is_all_access=request.is_all_access,
+                    purchased_modules=request.selected_modules,
+                    billing_cycle=cycle,
+                    is_autopay=True
+                )
+                db.add(transaction)
+                await db.commit()
+
+                return {
+                    "subscription_id": sub_id,
+                    "order_id": sub_id,
+                    "base_amount": calc["base_subtotal"],
+                    "pg_fee": calc["pg_fee"],
+                    "gst_on_fee": calc["gst_on_fee"],
+                    "final_total": final_total,
+                    "amount": sub_amount,
+                    "currency": sub_curr,
+                    "currency_symbol": calc["currency_symbol"],
+                    "mock_mode": False,
+                    "is_autopay": True,
+                    "billing_cycle": cycle,
+                    "key": settings.RAZORPAY_KEY_ID
+                }
+            except Exception as rzp_sub_err:
+                logger.error(f"Razorpay subscription creation failed: {rzp_sub_err}, falling back to direct order")
+
+        # B. DIRECT ONE-TIME ORDER (When is_autopay is False, or fallback)
         order_data = {
             "amount": amount_subunits,
             "currency": currency,
@@ -158,6 +246,7 @@ async def create_order(
                 "shop_id": str(shop.id),
                 "is_all_access": "true" if request.is_all_access else "false",
                 "billing_cycle": request.billing_cycle or "monthly",
+                "is_autopay": "false",
                 "country_code": calc["country_code"],
                 "currency": currency,
                 "base_amount": str(calc["base_subtotal"]),
@@ -190,12 +279,14 @@ async def create_order(
             status="created",
             is_all_access=request.is_all_access,
             purchased_modules=request.selected_modules,
-            billing_cycle=request.billing_cycle or "monthly"
+            billing_cycle=request.billing_cycle or "monthly",
+            is_autopay=is_autopay
         )
         db.add(transaction)
         await db.commit()
         
         return {
+            "subscription_id": None,
             "order_id": order['id'],
             "base_amount": calc["base_subtotal"],
             "pg_fee": calc["pg_fee"],
@@ -205,11 +296,13 @@ async def create_order(
             "currency": order['currency'],
             "currency_symbol": calc["currency_symbol"],
             "mock_mode": False,
+            "is_autopay": is_autopay,
+            "billing_cycle": request.billing_cycle or "monthly",
             "key": settings.RAZORPAY_KEY_ID
         }
     except Exception as e:
-        print(f"Razorpay order creation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create Razorpay order: {str(e)}")
+        logger.error(f"Razorpay order creation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create Razorpay payment: {str(e)}")
 
 
 @router.post("/verify")
@@ -219,20 +312,26 @@ async def verify_payment(
     db: AsyncSession = Depends(get_db)
 ):
     """Verifies Razorpay payment signature and activates the subscription."""
-    
-    stmt = select(PaymentTransaction).where(PaymentTransaction.razorpay_order_id == request.razorpay_order_id)
+    search_id = request.razorpay_subscription_id or request.razorpay_order_id
+    if not search_id:
+        raise HTTPException(status_code=400, detail="Missing razorpay_order_id or razorpay_subscription_id")
+
+    stmt = select(PaymentTransaction).where(
+        (PaymentTransaction.razorpay_order_id == search_id) |
+        (PaymentTransaction.razorpay_payment_id == request.razorpay_payment_id)
+    )
     result = await db.execute(stmt)
     transaction = result.scalar_one_or_none()
     
     if not transaction:
-        raise HTTPException(status_code=404, detail="Order transaction not found")
+        raise HTTPException(status_code=404, detail="Order or subscription transaction not found")
         
     if transaction.status == "success":
         return {"status": "already_verified", "message": "Subscription active"}
 
     is_valid = False
     
-    if settings.MOCK_PAYMENT_MODE and request.razorpay_order_id.startswith("order_mock_"):
+    if settings.MOCK_PAYMENT_MODE and search_id.startswith("order_mock_"):
         # Accept mock payments
         is_valid = True
     else:
@@ -240,15 +339,26 @@ async def verify_payment(
             raise HTTPException(status_code=500, detail="Razorpay client is not configured")
             
         try:
-            params_dict = {
-                'razorpay_order_id': request.razorpay_order_id,
-                'razorpay_payment_id': request.razorpay_payment_id,
-                'razorpay_signature': request.razorpay_signature
-            }
-            razorpay_client.utility.verify_payment_signature(params_dict)
-            is_valid = True
+            if request.razorpay_subscription_id:
+                # Razorpay Subscriptions / AutoPay Signature Verification
+                params_dict = {
+                    'razorpay_subscription_id': request.razorpay_subscription_id,
+                    'razorpay_payment_id': request.razorpay_payment_id,
+                    'razorpay_signature': request.razorpay_signature
+                }
+                razorpay_client.utility.verify_subscription_payment_signature(params_dict)
+                is_valid = True
+            else:
+                # Razorpay Standard Order Signature Verification
+                params_dict = {
+                    'razorpay_order_id': request.razorpay_order_id,
+                    'razorpay_payment_id': request.razorpay_payment_id,
+                    'razorpay_signature': request.razorpay_signature
+                }
+                razorpay_client.utility.verify_payment_signature(params_dict)
+                is_valid = True
         except Exception as e:
-            print(f"Razorpay signature verification failed: {e}")
+            logger.error(f"Razorpay signature verification failed: {e}")
             is_valid = False
 
     if not is_valid:
@@ -344,6 +454,19 @@ async def verify_payment(
         subscription.is_all_access = False
 
     subscription.is_trial = False
+    subscription.auto_renew = getattr(transaction, "is_autopay", True) if getattr(transaction, "is_autopay", None) is not None else True
+    subscription.billing_cycle = getattr(transaction, "billing_cycle", "monthly") or "monthly"
+
+    # Cancel previous Razorpay subscription mandate if switching cycle or plan
+    if subscription.razorpay_subscription_id and request.razorpay_subscription_id and subscription.razorpay_subscription_id != request.razorpay_subscription_id and razorpay_client:
+        try:
+            razorpay_client.subscription.cancel(subscription.razorpay_subscription_id)
+            logger.info(f"Cancelled previous Razorpay subscription {subscription.razorpay_subscription_id} after cycle switch to {transaction.billing_cycle}")
+        except Exception as old_sub_err:
+            logger.warning(f"Could not cancel previous Razorpay subscription {subscription.razorpay_subscription_id}: {old_sub_err}")
+
+    if request.razorpay_subscription_id:
+        subscription.razorpay_subscription_id = request.razorpay_subscription_id
 
     # Save serialized ISO strings
     subscription.module_expirations = {
@@ -375,6 +498,9 @@ async def verify_payment(
                 o_sub.is_active = subscription.is_active
                 o_sub.is_all_access = subscription.is_all_access
                 o_sub.is_trial = subscription.is_trial
+                o_sub.auto_renew = subscription.auto_renew
+                o_sub.billing_cycle = subscription.billing_cycle
+                o_sub.razorpay_subscription_id = subscription.razorpay_subscription_id
                 o_sub.module_expirations = subscription.module_expirations
                 o_sub.current_period_end = subscription.current_period_end
     except Exception as sync_err:
@@ -622,7 +748,101 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         "has_expiring_modules": (core_days_left <= 5 and not is_expired and not is_grace_period),
         "free_trial_days": settings.FREE_TRIAL_DAYS,
         "grace_period_days": settings.GRACE_PERIOD_DAYS,
-        "status_message": status_msg
+        "status_message": status_msg,
+        "auto_renew": bool(
+            getattr(subscription, "auto_renew", False)
+            and getattr(subscription, "razorpay_subscription_id", None)
+            and not is_trial
+        ),
+        "has_mandate": bool(getattr(subscription, "razorpay_subscription_id", None)),
+        "billing_cycle": getattr(subscription, "billing_cycle", "monthly") or "monthly",
+    }
+
+
+class ToggleAutopayRequest(BaseModel):
+    auto_renew: bool
+
+
+@router.post("/toggle-autopay")
+async def toggle_autopay(
+    payload: ToggleAutopayRequest,
+    shop: Shop = Depends(get_current_shop_context),
+    db: AsyncSession = Depends(get_db)
+):
+    """Toggle auto-pay / auto-renew for the shop's subscription."""
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+
+    stmt = select(Subscription).where(Subscription.shop_id == shop.id)
+    result = await db.execute(stmt)
+    subscription = result.scalar_one_or_none()
+
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    # Handle Disabling Auto-Pay: Cancel mandate on gateway
+    if not payload.auto_renew:
+        subscription.auto_renew = False
+        if subscription.razorpay_subscription_id and razorpay_client:
+            try:
+                razorpay_client.subscription.cancel(subscription.razorpay_subscription_id)
+                logger.info(f"Cancelled Razorpay subscription mandate {subscription.razorpay_subscription_id} immediately on gateway.")
+            except Exception as rzp_cancel_err:
+                logger.warning(f"Failed to cancel Razorpay subscription {subscription.razorpay_subscription_id}: {rzp_cancel_err}")
+    else:
+        # Handle Enabling Auto-Pay: Check if an active mandate exists
+        needs_mandate_setup = False
+        if subscription.razorpay_subscription_id and razorpay_client:
+            try:
+                rzp_sub = razorpay_client.subscription.fetch(subscription.razorpay_subscription_id)
+                if rzp_sub.get("status") in ["cancelled", "completed"]:
+                    needs_mandate_setup = True
+            except Exception as check_err:
+                logger.warning(f"Error checking razorpay subscription status: {check_err}")
+                needs_mandate_setup = True
+        else:
+            needs_mandate_setup = True
+
+        if needs_mandate_setup:
+            return {
+                "status": "mandate_required",
+                "auto_renew": False,
+                "needs_mandate_setup": True,
+                "message": "To reactivate Auto-Pay, please authorize your new recurring mandate."
+            }
+
+        subscription.auto_renew = True
+
+    # Sync across all shops owned by the user
+    try:
+        if shop.user_id:
+            all_user_shops_res = await db.execute(
+                select(Shop).where(Shop.user_id == shop.user_id, Shop.id != shop.id)
+            )
+            for o_shop in all_user_shops_res.scalars().all():
+                o_sub_res = await db.execute(select(Subscription).where(Subscription.shop_id == o_shop.id))
+                o_sub = o_sub_res.scalar_one_or_none()
+                if o_sub:
+                    o_sub.auto_renew = payload.auto_renew
+    except Exception as e:
+        logger.warning(f"Failed to sync autopay state across shops: {e}")
+
+    await db.commit()
+
+    cycle = getattr(subscription, "billing_cycle", "monthly") or "monthly"
+    freq = "every year" if cycle == "yearly" else "every month"
+
+    msg = (
+        f"Autopay enabled. Your subscription will automatically renew {freq}."
+        if payload.auto_renew
+        else "Autopay disabled. Your subscription will remain active until its expiration date and will not automatically renew."
+    )
+
+    return {
+        "status": "success",
+        "auto_renew": subscription.auto_renew,
+        "billing_cycle": cycle,
+        "message": msg
     }
 
 

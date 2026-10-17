@@ -2,7 +2,8 @@
 
 from typing import Optional, List
 from decimal import Decimal
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, field_validator
+from app.utils.media import resolve_image_url
 
 
 class MenuImageResponse(BaseModel):
@@ -12,6 +13,11 @@ class MenuImageResponse(BaseModel):
     thumbnail_url: Optional[str] = None
     is_primary: bool
     display_order: int
+
+    @field_validator("image_url", "thumbnail_url", mode="before")
+    @classmethod
+    def resolve_image_urls(cls, v):
+        return resolve_image_url(v)
 
     class Config:
         from_attributes = True
@@ -194,5 +200,11 @@ class MenuItemResponse(BaseModel):
     review_count: int = 0
     created_at: str
 
+    @field_validator("image_url", "thumbnail_url", mode="before")
+    @classmethod
+    def resolve_image_urls(cls, v):
+        return resolve_image_url(v)
+
     class Config:
         from_attributes = True
+

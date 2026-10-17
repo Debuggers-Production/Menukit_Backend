@@ -48,6 +48,7 @@ async def get_menu_items(
     food_type: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    has_image: Optional[bool] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     shop = Depends(require_permission("menu_items", "read")),
@@ -61,6 +62,7 @@ async def get_menu_items(
         food_type=food_type,
         search=search,
         status=status,
+        has_image=has_image,
         skip=skip,
         limit=limit,
     )

@@ -14,6 +14,7 @@ from app.models.shop import Shop
 from app.models.shop_settings import ShopSettings
 from app.models.order import Order
 from app.models.contest import Contest, ContestParticipation
+from app.models.scheme import Scheme, SchemeMember, SchemePayment
 
 
 router = APIRouter(prefix="/settlements", tags=["Settlements"])
@@ -66,7 +67,10 @@ async def get_settlements_summary(
     shop = Depends(require_permission("settlements", "read")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get merchant online payment settlements summary and paginated transaction list with search."""
+    """Get merchant online payment settlements summary and paginated transaction list with search,
+
+    including both online orders and online scheme installment payments.
+    """
 
     # Safely query shop settings to prevent async MissingGreenlet on un-loaded relation
     settings_q = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop.id))
@@ -87,7 +91,9 @@ async def get_settlements_summary(
 
     cutoff_7d = now - timedelta(days=7)
 
-    # Filter strictly for payments actually made through Razorpay
+    # -------------------------------------------------------------
+    # 1. ORDER ONLINE PAYMENTS
+    # -------------------------------------------------------------
     razorpay_actual_payment = and_(
         func.lower(Order.payment_status).in_(["paid", "settled"]),
         func.lower(Order.payment_method) == "online",
@@ -110,8 +116,7 @@ async def get_settlements_summary(
         )
     )
 
-    # Base filtering conditions
-    base_conditions = [
+    order_base_conditions = [
         Order.shop_id == shop.id,
         Order.created_at >= since,
         Order.created_at <= until,
@@ -119,10 +124,9 @@ async def get_settlements_summary(
         razorpay_actual_payment
     ]
 
-    # Backend Search Filter
     if search and search.strip():
         term = f"%{search.strip()}%"
-        base_conditions.append(
+        order_base_conditions.append(
             or_(
                 Order.customer_name.ilike(term),
                 Order.customer_phone.ilike(term),
@@ -133,62 +137,171 @@ async def get_settlements_summary(
             )
         )
 
-    # Status Filter
-    settled_condition = or_(
+    order_settled_condition = or_(
         Order.settlement_status == "settled",
         and_(Order.settlement_status.is_(None), Order.created_at <= cutoff_7d)
     )
-    pending_condition = or_(
+    order_pending_condition = or_(
         Order.settlement_status == "pending",
         and_(Order.settlement_status.is_(None), Order.created_at > cutoff_7d)
     )
 
     if status_filter == "settled":
-        base_conditions.append(settled_condition)
+        order_base_conditions.append(order_settled_condition)
     elif status_filter == "pending":
-        base_conditions.append(pending_condition)
+        order_base_conditions.append(order_pending_condition)
 
-    # Calculate Totals & Counts
-    total_count_q = await db.execute(select(func.count(Order.id)).where(*base_conditions))
-    total_transactions_count = total_count_q.scalar() or 0
-
-    total_gross_q = await db.execute(select(func.coalesce(func.sum(Order.total_amount), 0.0)).where(*base_conditions))
-    total_online_sales = float(total_gross_q.scalar() or 0.0)
-
-    # Settled & Pending Counts and Amounts
-    settled_q = await db.execute(
-        select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0.0))
-        .where(*base_conditions, settled_condition)
+    # -------------------------------------------------------------
+    # 2. SCHEME ONLINE INSTALLMENT PAYMENTS
+    # -------------------------------------------------------------
+    scheme_online_payment = and_(
+        func.lower(SchemePayment.status) == "paid",
+        or_(
+            func.lower(SchemePayment.payment_method).in_(["online", "razorpay"]),
+            and_(
+                SchemePayment.transaction_id.is_not(None),
+                SchemePayment.transaction_id.startswith("pay_")
+            ),
+            and_(
+                SchemePayment.notes.is_not(None),
+                SchemePayment.notes.ilike("%razorpay%")
+            )
+        )
     )
-    settled_res = settled_q.first()
-    settled_count = settled_res[0] or 0
-    settled_gross = float(settled_res[1] or 0.0)
-    total_settled_amount = round(settled_gross, 2)  # 100% net to vendor (0% fee)
 
-    pending_q = await db.execute(
-        select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0.0))
-        .where(*base_conditions, pending_condition)
+    scheme_base_conditions = [
+        SchemePayment.shop_id == shop.id,
+        SchemePayment.paid_at >= since,
+        SchemePayment.paid_at <= until,
+        scheme_online_payment
+    ]
+
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        scheme_base_conditions.append(
+            or_(
+                SchemeMember.customer_name.ilike(term),
+                SchemeMember.customer_phone.ilike(term),
+                cast(SchemePayment.id, String).ilike(term),
+                SchemePayment.transaction_id.ilike(term),
+                SchemePayment.notes.ilike(term),
+                Scheme.title.ilike(term)
+            )
+        )
+
+    scheme_settled_condition = or_(
+        SchemePayment.settlement_status == "settled",
+        and_(SchemePayment.settlement_status.is_(None), SchemePayment.paid_at <= cutoff_7d)
     )
-    pending_res = pending_q.first()
-    pending_count = pending_res[0] or 0
-    pending_gross = float(pending_res[1] or 0.0)
-    total_pending_settlement = round(pending_gross, 2)  # 100% net to vendor (0% fee)
+    scheme_pending_condition = or_(
+        SchemePayment.settlement_status == "pending",
+        and_(SchemePayment.settlement_status.is_(None), SchemePayment.paid_at > cutoff_7d)
+    )
 
-    # Paginated Orders Retrieval
+    if status_filter == "settled":
+        scheme_base_conditions.append(scheme_settled_condition)
+    elif status_filter == "pending":
+        scheme_base_conditions.append(scheme_pending_condition)
+
+    # -------------------------------------------------------------
+    # 3. AGGREGATE TOTALS & COUNTS
+    # -------------------------------------------------------------
+    # Order Totals
+    order_total_count_q = await db.execute(select(func.count(Order.id)).where(*order_base_conditions))
+    order_transactions_count = order_total_count_q.scalar() or 0
+
+    order_total_gross_q = await db.execute(select(func.coalesce(func.sum(Order.total_amount), 0.0)).where(*order_base_conditions))
+    order_online_sales = float(order_total_gross_q.scalar() or 0.0)
+
+    order_settled_q = await db.execute(
+        select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0.0))
+        .where(*order_base_conditions, order_settled_condition)
+    )
+    order_settled_res = order_settled_q.first()
+    order_settled_count = order_settled_res[0] or 0
+    order_settled_gross = float(order_settled_res[1] or 0.0)
+
+    order_pending_q = await db.execute(
+        select(func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0.0))
+        .where(*order_base_conditions, order_pending_condition)
+    )
+    order_pending_res = order_pending_q.first()
+    order_pending_count = order_pending_res[0] or 0
+    order_pending_gross = float(order_pending_res[1] or 0.0)
+
+    # Scheme Payments Totals
+    scheme_total_count_q = await db.execute(
+        select(func.count(SchemePayment.id))
+        .join(SchemeMember, SchemePayment.member_id == SchemeMember.id)
+        .join(Scheme, SchemePayment.scheme_id == Scheme.id)
+        .where(*scheme_base_conditions)
+    )
+    scheme_transactions_count = scheme_total_count_q.scalar() or 0
+
+    scheme_total_gross_q = await db.execute(
+        select(func.coalesce(func.sum(SchemePayment.amount), 0.0))
+        .join(SchemeMember, SchemePayment.member_id == SchemeMember.id)
+        .join(Scheme, SchemePayment.scheme_id == Scheme.id)
+        .where(*scheme_base_conditions)
+    )
+    scheme_online_sales = float(scheme_total_gross_q.scalar() or 0.0)
+
+    scheme_settled_q = await db.execute(
+        select(func.count(SchemePayment.id), func.coalesce(func.sum(SchemePayment.amount), 0.0))
+        .join(SchemeMember, SchemePayment.member_id == SchemeMember.id)
+        .join(Scheme, SchemePayment.scheme_id == Scheme.id)
+        .where(*scheme_base_conditions, scheme_settled_condition)
+    )
+    scheme_settled_res = scheme_settled_q.first()
+    scheme_settled_count = scheme_settled_res[0] or 0
+    scheme_settled_gross = float(scheme_settled_res[1] or 0.0)
+
+    scheme_pending_q = await db.execute(
+        select(func.count(SchemePayment.id), func.coalesce(func.sum(SchemePayment.amount), 0.0))
+        .join(SchemeMember, SchemePayment.member_id == SchemeMember.id)
+        .join(Scheme, SchemePayment.scheme_id == Scheme.id)
+        .where(*scheme_base_conditions, scheme_pending_condition)
+    )
+    scheme_pending_res = scheme_pending_q.first()
+    scheme_pending_count = scheme_pending_res[0] or 0
+    scheme_pending_gross = float(scheme_pending_res[1] or 0.0)
+
+    # Combined Totals
+    total_transactions_count = order_transactions_count + scheme_transactions_count
+    total_online_sales = round(order_online_sales + scheme_online_sales, 2)
+    total_settled_amount = round(order_settled_gross + scheme_settled_gross, 2)
+    total_pending_settlement = round(order_pending_gross + scheme_pending_gross, 2)
+    settled_count = order_settled_count + scheme_settled_count
+    pending_count = order_pending_count + scheme_pending_count
+
+    # -------------------------------------------------------------
+    # 4. PAGINATED TRANSACTIONS RETRIEVAL
+    # -------------------------------------------------------------
+    fetch_window = skip + limit
+
     orders_q = await db.execute(
         select(Order)
-        .where(*base_conditions)
+        .where(*order_base_conditions)
         .order_by(desc(Order.created_at))
-        .offset(skip)
-        .limit(limit)
+        .limit(fetch_window)
     )
     paginated_orders = list(orders_q.scalars().all())
 
-    settlements_list = []
+    scheme_q = await db.execute(
+        select(SchemePayment, SchemeMember, Scheme)
+        .join(SchemeMember, SchemePayment.member_id == SchemeMember.id)
+        .join(Scheme, SchemePayment.scheme_id == Scheme.id)
+        .where(*scheme_base_conditions)
+        .order_by(desc(SchemePayment.paid_at))
+        .limit(fetch_window)
+    )
+    paginated_schemes = scheme_q.all()
+
+    combined_items: List[SettlementItemSchema] = []
+
+    # Format Orders
     for o in paginated_orders:
         gross = float(o.total_amount or 0.0)
-        gateway_fee = 0.0
-        total_fee = 0.0
         net = round(gross, 2)
 
         created_dt = o.created_at if o.created_at.tzinfo else o.created_at.replace(tzinfo=timezone.utc)
@@ -203,7 +316,7 @@ async def get_settlements_summary(
         )
         pm = (o.payment_method or "").lower()
 
-        settlements_list.append(SettlementItemSchema(
+        combined_items.append(SettlementItemSchema(
             order_id=str(o.id),
             invoice_no=inv_no,
             payment_reference=pay_ref,
@@ -211,15 +324,51 @@ async def get_settlements_summary(
             customer_name=o.customer_name or "Customer",
             customer_phone=o.customer_phone or "",
             gross_amount=round(gross, 2),
-            platform_fee=total_fee,
+            platform_fee=0.0,
             net_settlement_amount=net,
             order_status=o.order_status,
             payment_status=o.payment_status,
             settlement_status=settlement_status,
             created_at=created_dt.isoformat(),
             estimated_payout_date=est_payout_dt.isoformat(),
-            actual_settled_date=o.settled_at.isoformat() if o.settled_at else None
+            actual_settled_date=o.settled_at.isoformat() if o.settled_at else (est_payout_dt.isoformat() if settlement_status == "settled" else None)
         ))
+
+    # Format Scheme Payments
+    for sp, member, sc in paginated_schemes:
+        gross = float(sp.amount or 0.0)
+        net = round(gross, 2)
+
+        paid_dt = sp.paid_at if sp.paid_at.tzinfo else sp.paid_at.replace(tzinfo=timezone.utc)
+        est_payout_dt = paid_dt + timedelta(days=7)
+
+        settlement_status = sp.settlement_status or ("settled" if now >= est_payout_dt else "pending")
+        inv_no = f"SCHEME-{paid_dt.strftime('%Y%m%d')}-{str(sp.id)[:6].upper()}"
+        pay_ref = sp.transaction_id or f"RZP-SCH-{str(sp.id)[:8].upper()}"
+
+        combined_items.append(SettlementItemSchema(
+            order_id=str(sp.id),
+            invoice_no=inv_no,
+            payment_reference=pay_ref,
+            payment_method="online (Scheme)",
+            customer_name=f"{member.customer_name} ({sc.title} #{sp.installment_number})",
+            customer_phone=member.customer_phone or "",
+            gross_amount=round(gross, 2),
+            platform_fee=0.0,
+            net_settlement_amount=net,
+            order_status="completed",
+            payment_status=sp.status or "paid",
+            settlement_status=settlement_status,
+            created_at=paid_dt.isoformat(),
+            estimated_payout_date=est_payout_dt.isoformat(),
+            actual_settled_date=sp.settled_at.isoformat() if sp.settled_at else (est_payout_dt.isoformat() if settlement_status == "settled" else None)
+        ))
+
+    # Sort all items chronologically by created_at descending
+    combined_items.sort(key=lambda item: item.created_at, reverse=True)
+
+    # Slice for current pagination offset
+    paginated_settlements = combined_items[skip : skip + limit]
 
     # Calculate contest settlements
     contest_q = await db.execute(
@@ -235,12 +384,12 @@ async def get_settlements_summary(
     contest_participants_count = contest_q.scalar() or 0
     contest_settlement_amount = round(contest_participants_count * 2.0, 2)
 
-    has_more = (skip + len(paginated_orders)) < total_transactions_count
+    has_more = (skip + len(paginated_settlements)) < total_transactions_count
 
     return SettlementSummaryResponse(
-        total_online_sales=round(total_online_sales, 2),
-        total_settled_amount=round(total_settled_amount, 2),
-        total_pending_settlement=round(total_pending_settlement, 2),
+        total_online_sales=total_online_sales,
+        total_settled_amount=total_settled_amount,
+        total_pending_settlement=total_pending_settlement,
         total_transactions_count=total_transactions_count,
         settled_count=settled_count,
         pending_count=pending_count,
@@ -251,5 +400,5 @@ async def get_settlements_summary(
         has_more=has_more,
         skip=skip,
         limit=limit,
-        settlements=settlements_list
+        settlements=paginated_settlements
     )

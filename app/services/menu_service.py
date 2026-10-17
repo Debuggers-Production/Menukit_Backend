@@ -14,6 +14,7 @@ from app.models.activity_log import ActivityLog
 from app.models.shop import Shop
 from app.core.exceptions import NotFoundException, ForbiddenException, BadRequestException
 from app.services.upload_service import UploadService
+from app.utils.media import strip_image_base_url
 
 
 class MenuService:
@@ -48,6 +49,8 @@ class MenuService:
     async def create_category(self, shop_id: uuid.UUID, user_id: uuid.UUID, data: dict) -> Category:
         """Create a new menu category linked to the shop's catalog."""
         catalog_id = await self._get_catalog_id(shop_id)
+        if "image_url" in data and data["image_url"]:
+            data["image_url"] = strip_image_base_url(data["image_url"])
         category = Category(menu_catalog_id=catalog_id, **data)
         self.db.add(category)
 
@@ -118,14 +121,15 @@ class MenuService:
         if not category:
             raise NotFoundException("Category not found")
 
-        # Delete old category image if a new image_url is provided
-        if "image_url" in data and data["image_url"] and category.image_url and data["image_url"] != category.image_url:
-            try:
-                from app.services.upload_service import UploadService
-                await UploadService().delete_image_by_url(category.image_url)
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Failed to delete old category image: {e}")
+        # Normalize and delete old category image if a new image_url is provided
+        if "image_url" in data and data["image_url"]:
+            data["image_url"] = strip_image_base_url(data["image_url"])
+            if category.image_url and data["image_url"] != category.image_url:
+                try:
+                    await self.upload_service.delete_image_by_url(category.image_url)
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Failed to delete old category image: {e}")
 
         for key, value in data.items():
             if value is not None and hasattr(category, key):
@@ -286,6 +290,7 @@ class MenuService:
         food_type: Optional[str] = None,
         search: Optional[str] = None,
         status: Optional[str] = None,
+        has_image: Optional[bool] = None,
         skip: int = 0,
         limit: int = 100,
     ) -> List[MenuItem]:
@@ -331,6 +336,16 @@ class MenuService:
                 query = query.where(MenuItem.is_bestseller == True)
             elif status == "chef_special":
                 query = query.where(MenuItem.is_highlighted == True)
+            elif status in ("contain_image", "has_image", "with_image"):
+                query = query.where(MenuItem.images.any((MenuImage.image_url.is_not(None)) & (MenuImage.image_url != "")))
+            elif status in ("non_contain_image", "no_image", "without_image"):
+                query = query.where(~MenuItem.images.any((MenuImage.image_url.is_not(None)) & (MenuImage.image_url != "")))
+
+        if has_image is not None:
+            if has_image:
+                query = query.where(MenuItem.images.any((MenuImage.image_url.is_not(None)) & (MenuImage.image_url != "")))
+            else:
+                query = query.where(~MenuItem.images.any((MenuImage.image_url.is_not(None)) & (MenuImage.image_url != "")))
 
         query = query.offset(skip).limit(limit)
         result = await self.db.execute(query)
@@ -465,9 +480,16 @@ class MenuService:
         if not menu_item:
             raise ValueError("Menu item not found")
 
-        # Check if exact image URL already exists for this item
+        # Clean URL/path so only relative path is stored in DB
+        clean_img = strip_image_base_url(image_url) or image_url
+        clean_thumb = strip_image_base_url(thumbnail_url) if thumbnail_url else clean_img
+
+        # Check if exact image URL/path already exists for this item
         existing_result = await self.db.execute(
-            select(MenuImage).where(MenuImage.menu_item_id == item_id, MenuImage.image_url == image_url)
+            select(MenuImage).where(
+                MenuImage.menu_item_id == item_id,
+                MenuImage.image_url.in_([clean_img, image_url])
+            )
         )
         existing = existing_result.scalar_one_or_none()
         if existing:
@@ -492,8 +514,8 @@ class MenuService:
 
         image = MenuImage(
             menu_item_id=item_id,
-            image_url=image_url,
-            thumbnail_url=thumbnail_url,
+            image_url=clean_img,
+            thumbnail_url=clean_thumb,
             is_primary=is_primary,
         )
 

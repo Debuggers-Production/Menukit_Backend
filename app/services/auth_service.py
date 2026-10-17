@@ -98,13 +98,21 @@ class AuthService:
         }
 
     async def refresh_session(self, refresh_token_str: str) -> Optional[dict]:
-        """Refresh an access token using a refresh token."""
+        """Refresh an access token using a refresh token and roll forward the session."""
         payload = verify_refresh_token(refresh_token_str)
         if not payload:
             return None
 
         user_id = payload.get("sub")
-        result = await self.db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+        if not user_id:
+            return None
+
+        try:
+            user_uuid = uuid.UUID(str(user_id))
+        except (ValueError, TypeError):
+            return None
+
+        result = await self.db.execute(select(User).where(User.id == user_uuid))
         user = result.scalar_one_or_none()
 
         if not user or not user.is_active:
@@ -112,10 +120,29 @@ class AuthService:
 
         token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
         new_access_token = create_access_token(token_data)
+        new_refresh_token = create_refresh_token(token_data)
+
+        # Update active session in database if present
+        try:
+            sess_result = await self.db.execute(
+                select(Session).where(
+                    Session.user_id == user.id,
+                    Session.refresh_token == refresh_token_str,
+                    Session.is_active == True,
+                )
+            )
+            session = sess_result.scalar_one_or_none()
+            if session:
+                session.access_token = new_access_token
+                session.refresh_token = new_refresh_token
+                session.expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+                await self.db.flush()
+        except Exception:
+            pass
 
         return {
             "access_token": new_access_token,
-            "refresh_token": refresh_token_str,
+            "refresh_token": new_refresh_token,
             "token_type": "bearer",
         }
 

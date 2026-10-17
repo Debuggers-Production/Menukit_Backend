@@ -811,7 +811,7 @@ async def get_active_discounts_public(
         if d.visibility_type in ['members_only_hidden', 'members_only'] and not is_member:
             continue
 
-        is_used = str(d.id) in claimed_discount_ids
+        is_used = False if getattr(d, 'is_price_drop', False) else (str(d.id) in claimed_discount_ids)
         d_resp = _discount_response(d, is_already_used=is_used)
         if cust_identifier:
             try:
@@ -1786,6 +1786,10 @@ async def verify_public_order_payment(
 
     # Send WhatsApp template notification 'menukit_order_create'
     await order_service._send_order_status_whatsapp_notification(order)
+
+    # Trigger admin order email notification in background
+    import asyncio
+    asyncio.create_task(order_service._send_order_admin_email_notification(order=order))
 
     await db.commit()
     await db.refresh(order)

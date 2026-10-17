@@ -50,6 +50,8 @@ async def init_chalkboard_table():
     from sqlalchemy import text
     
     ddl_script = """
+        SET lock_timeout = '2s';
+
         -- 1. Chalkboards table
         CREATE TABLE IF NOT EXISTS chalkboards (
             id UUID PRIMARY KEY,
@@ -194,6 +196,12 @@ async def init_chalkboard_table():
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS replacement_policy_notes VARCHAR(500);
         ALTER TABLE order_items ALTER COLUMN menu_item_id DROP NOT NULL;
 
+        -- 7b. Subscriptions, Payments & Discounts additions
+        ALTER TABLE discounts ADD COLUMN IF NOT EXISTS is_price_drop BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS auto_renew BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS billing_cycle VARCHAR(20) DEFAULT 'monthly';
+        ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS is_autopay BOOLEAN NOT NULL DEFAULT FALSE;
+
         -- 8. High-performance composite query indexes
         CREATE INDEX IF NOT EXISTS ix_orders_shop_created ON orders(shop_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS ix_orders_customer_phone ON orders(customer_phone);
@@ -211,6 +219,71 @@ async def init_chalkboard_table():
         CREATE INDEX IF NOT EXISTS ix_menu_views_category_id ON menu_views(category_id);
         CREATE INDEX IF NOT EXISTS ix_qr_scans_shop_scanned ON qr_scans(shop_id, scanned_at DESC);
         CREATE INDEX IF NOT EXISTS ix_membership_events_shop_time ON membership_events(shop_id, event_time DESC);
+
+        -- 9. Savings Schemes (Pandu) tables
+        CREATE TABLE IF NOT EXISTS schemes (
+            id UUID PRIMARY KEY,
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            title VARCHAR(255) NOT NULL,
+            description TEXT,
+            price NUMERIC(10, 2) NOT NULL,
+            frequency VARCHAR(20) NOT NULL DEFAULT 'monthly',
+            term_duration INTEGER NOT NULL DEFAULT 12,
+            term_unit VARCHAR(20) NOT NULL DEFAULT 'months',
+            max_members INTEGER,
+            items JSONB NOT NULL DEFAULT '[]'::jsonb,
+            show_on_public_menu BOOLEAN NOT NULL DEFAULT TRUE,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            start_date TIMESTAMPTZ,
+            end_date TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS ix_schemes_shop_id ON schemes(shop_id);
+        CREATE INDEX IF NOT EXISTS ix_schemes_status ON schemes(status);
+
+        CREATE TABLE IF NOT EXISTS scheme_members (
+            id UUID PRIMARY KEY,
+            scheme_id UUID NOT NULL REFERENCES schemes(id) ON DELETE CASCADE,
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+            customer_name VARCHAR(255) NOT NULL,
+            customer_phone VARCHAR(20) NOT NULL,
+            customer_address TEXT,
+            member_number VARCHAR(50),
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            total_installments INTEGER NOT NULL DEFAULT 12,
+            paid_installments INTEGER NOT NULL DEFAULT 0,
+            notes TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS ix_scheme_members_scheme_id ON scheme_members(scheme_id);
+        CREATE INDEX IF NOT EXISTS ix_scheme_members_shop_id ON scheme_members(shop_id);
+        CREATE INDEX IF NOT EXISTS ix_scheme_members_phone ON scheme_members(customer_phone);
+
+        CREATE TABLE IF NOT EXISTS scheme_payments (
+            id UUID PRIMARY KEY,
+            scheme_id UUID NOT NULL REFERENCES schemes(id) ON DELETE CASCADE,
+            member_id UUID NOT NULL REFERENCES scheme_members(id) ON DELETE CASCADE,
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            installment_number INTEGER NOT NULL,
+            installment_label VARCHAR(100) NOT NULL,
+            amount NUMERIC(10, 2) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'paid',
+            payment_method VARCHAR(50) NOT NULL DEFAULT 'cash',
+            paid_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            transaction_id VARCHAR(255),
+            notes TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS ix_scheme_payments_scheme_id ON scheme_payments(scheme_id);
+        CREATE INDEX IF NOT EXISTS ix_scheme_payments_member_id ON scheme_payments(member_id);
+        ALTER TABLE scheme_payments ADD COLUMN IF NOT EXISTS settlement_status VARCHAR(50);
+        ALTER TABLE scheme_payments ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ;
+        ALTER TABLE scheme_payments ADD COLUMN IF NOT EXISTS razorpay_settlement_id VARCHAR(255);
     """
 
     try:

@@ -31,6 +31,10 @@ class Subscription(Base, UUIDMixin, TimestampMixin):
     razorpay_subscription_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     last_expiry_notification_date: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
+    # Autopay / Auto-renewal
+    auto_renew: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    billing_cycle: Mapped[str | None] = mapped_column(String(20), default="monthly", nullable=True)
+
     # Relationships
     shop = relationship("Shop", back_populates="subscription")
 
@@ -58,6 +62,7 @@ class PaymentTransaction(Base, UUIDMixin, TimestampMixin):
     is_all_access: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     purchased_modules: Mapped[list | dict | None] = mapped_column(JSON, nullable=True)
     billing_cycle: Mapped[str | None] = mapped_column(String(20), default="monthly", nullable=True)
+    is_autopay: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     country_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     fx_rate: Mapped[float | None] = mapped_column(Float, nullable=True)

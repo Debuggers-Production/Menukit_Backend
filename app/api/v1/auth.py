@@ -94,6 +94,7 @@ async def refresh_token(
     if not result:
         raise BadRequestException("Invalid or expired refresh token")
 
+    await db.commit()
     return TokenResponse(**result)
 
 
