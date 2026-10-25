@@ -28,10 +28,15 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up SmartMenu QR backend with migration...")
     try:
-        import asyncio
-        # await asyncio.wait_for(init_chalkboard_table(), timeout=5.0)
+        # from create_device_tokens_table import init_device_tokens_table
+        # await init_device_tokens_table()
+        print("Hello")
     except Exception as e:
-        logger.warning(f"Chalkboard table init failed or timed out: {e}")
+        logger.warning(f"Device tokens table init warning: {e}")
+    try:
+        await init_chalkboard_table()
+    except Exception as e:
+        logger.warning(f"Database schema auto-migration notice: {e}")
     try:
         await init_redis()
         logger.info("Redis connected.")
@@ -272,6 +277,13 @@ def create_app() -> FastAPI:
         upload_dir.mkdir(parents=True, exist_ok=True)
         
         app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+
+    from fastapi.responses import PlainTextResponse
+
+    @app.get("/ads.txt", response_class=PlainTextResponse)
+    async def get_ads_txt():
+        """Google AdSense ads.txt verification endpoint."""
+        return "google.com, pub-3222424909905554, DIRECT, f08c47fec0942fa0\n"
 
     @app.get("/health")
     async def health_check():

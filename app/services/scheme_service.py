@@ -1,5 +1,6 @@
 """Service for Savings Scheme (Pandu) operations."""
 
+import asyncio
 import uuid
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
@@ -339,6 +340,43 @@ class SchemeService:
             self.db.add(payment)
 
         await self.db.commit()
+
+        # Trigger FCM push notification and in-app alert for merchant devices
+        try:
+            from app.services.notification_service import NotificationService
+            notif_service = NotificationService(self.db)
+            initial_pay_info = f" (Initial installment: ₹{scheme.price:,.2f} via {data.payment_method or 'cash'})" if data.initial_payment else ""
+            await notif_service.create_notification(
+                shop_id=shop_id,
+                type="NEW_SCHEME_ENROLLMENT",
+                title="🪙 New Scheme Enrollment!",
+                message=f"{data.customer_name.strip()} ({phone_clean}) enrolled in '{scheme.title}' (Pass: {member_num}){initial_pay_info}.",
+                metadata={
+                    "scheme_id": str(scheme.id),
+                    "member_id": str(member.id),
+                    "customer_name": data.customer_name.strip(),
+                    "customer_phone": phone_clean,
+                    "member_number": member_num,
+                    "target_url": "/schemes",
+                }
+            )
+        except Exception as notif_err:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to create scheme enrollment notification: {notif_err}", exc_info=True)
+
+        # Trigger background email notification to store owner and admin
+        try:
+            asyncio.create_task(
+                self._send_scheme_enrollment_email(
+                    shop_id=shop_id,
+                    scheme=scheme,
+                    member=member,
+                    payment_method=data.payment_method or "cash",
+                )
+            )
+        except Exception as email_err:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to schedule scheme enrollment email: {email_err}", exc_info=True)
 
         # Re-fetch with payments loaded
         fetch_stmt = (
@@ -1000,3 +1038,76 @@ class SchemeService:
             payments=payments,
             installment_schedule=schedule,
         )
+
+    async def _send_scheme_enrollment_email(
+        self,
+        shop_id: uuid.UUID,
+        scheme: Scheme,
+        member: SchemeMember,
+        payment_method: str = "cash",
+    ):
+        """Send immediate email notification to shop owner & platform admins when a customer enrolls."""
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            from app.database.session import async_session_factory
+            from app.models.shop import Shop
+            from app.models.user import User
+            from app.services.email_service import email_service
+            import pytz
+
+            settings = get_settings()
+
+            owner_email = None
+            shop_name = "Shop"
+            async with async_session_factory() as session:
+                shop_res = await session.execute(select(Shop).where(Shop.id == shop_id))
+                s_obj = shop_res.scalar_one_or_none()
+                if s_obj:
+                    shop_name = s_obj.name or "Shop"
+                    if s_obj.user_id:
+                        user_res = await session.execute(select(User).where(User.id == s_obj.user_id))
+                        user_obj = user_res.scalar_one_or_none()
+                        if user_obj and user_obj.email:
+                            owner_email = user_obj.email
+
+            recipients = set()
+            if owner_email and "@" in str(owner_email):
+                recipients.add(str(owner_email).strip().lower())
+
+            admin_email = getattr(settings, "ADMIN_NOTIFICATION_EMAIL", None)
+            if admin_email and "@" in str(admin_email):
+                recipients.add(str(admin_email).strip().lower())
+
+            if not recipients:
+                logger.info(f"No recipients found for scheme enrollment email for shop {shop_id}")
+                return
+
+            ist_tz = pytz.timezone("Asia/Kolkata")
+            joined_dt = member.joined_at
+            if joined_dt:
+                if joined_dt.tzinfo is None:
+                    joined_dt = pytz.utc.localize(joined_dt)
+                joined_str = joined_dt.astimezone(ist_tz).strftime("%d %b %Y, %I:%M %p IST")
+            else:
+                joined_str = datetime.now(ist_tz).strftime("%d %b %Y, %I:%M %p IST")
+
+            for recipient in recipients:
+                await email_service.send_scheme_enrollment_email(
+                    email=recipient,
+                    shop_name=shop_name,
+                    scheme_title=scheme.title,
+                    member_number=member.member_number,
+                    customer_name=member.customer_name,
+                    customer_phone=member.customer_phone,
+                    customer_address=member.customer_address,
+                    installment_amount=float(scheme.price or 0.0),
+                    term_duration=scheme.term_duration,
+                    frequency=scheme.frequency,
+                    term_unit=scheme.term_unit,
+                    payment_method=payment_method,
+                    joined_at_str=joined_str,
+                )
+        except Exception as e:
+            logger.error(f"Failed to send scheme enrollment email for member {member.id}: {e}", exc_info=True)
+

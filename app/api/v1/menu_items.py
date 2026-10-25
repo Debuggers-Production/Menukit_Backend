@@ -49,12 +49,13 @@ async def get_menu_items(
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     has_image: Optional[bool] = Query(None),
+    sort_by: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     shop = Depends(require_permission("menu_items", "read")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get all menu items with optional filters."""
+    """Get all menu items with optional filters and sorting."""
     service = MenuService(db)
     items = await service.get_menu_items(
         shop.id,
@@ -63,6 +64,7 @@ async def get_menu_items(
         search=search,
         status=status,
         has_image=has_image,
+        sort_by=sort_by,
         skip=skip,
         limit=limit,
     )

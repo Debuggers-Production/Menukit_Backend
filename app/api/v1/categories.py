@@ -47,13 +47,14 @@ async def get_categories(
     limit: int = Query(500, ge=1, le=1000),
     search: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
+    sort_by: Optional[str] = Query(None),
     shop = Depends(require_permission("menu_categories", "read")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get all categories for the user's shop with pagination, status filtering, and backend search."""
+    """Get all categories for the user's shop with pagination, status filtering, backend search, and sorting."""
     service = MenuService(db)
     categories, total_count, has_more = await service.get_categories(
-        shop.id, skip=skip, limit=limit, search=search, is_active=is_active
+        shop.id, skip=skip, limit=limit, search=search, is_active=is_active, sort_by=sort_by
     )
     response.headers["x-total-count"] = str(total_count)
     response.headers["x-has-more"] = "true" if has_more else "false"

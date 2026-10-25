@@ -81,14 +81,17 @@ class OrderPricingResult(BaseModel):
 
 def calculate_order_pricing(
     subtotal: Union[float, int, str, Decimal],
-    is_online: bool = True
+    is_online: bool = True,
+    items_total: Optional[Union[float, int, str, Decimal]] = None,
 ) -> OrderPricingResult:
     """
     Calculate platform fee (2%), payment gateway fee (3%), and GST (18% on PG fee).
-    Total payable = subtotal + 2% + 3% + 18% of 3%.
+    Platform fee is taken strictly from the item total (excluding delivery charge).
+    Total payable = subtotal + platform_fee + pg_fee + gst_on_pg.
     Uses strict > 5 rounding on 3rd decimal place.
     """
     clean_sub = max(0.0, float(subtotal or 0.0))
+    platform_base = max(0.0, float(items_total)) if items_total is not None else clean_sub
 
     if not is_online:
         rounded_sub = round_strict_two_decimals(clean_sub)
@@ -107,8 +110,8 @@ def calculate_order_pricing(
             amount_subunits=int(round(rounded_sub * 100))
         )
 
-    # 1. 2% Platform Fee
-    platform_fee_unrounded = clean_sub * 0.02
+    # 1. 2% Platform Fee (calculated purely on item total, excluding delivery charges)
+    platform_fee_unrounded = platform_base * 0.02
 
     # 2. 3% Payment Gateway Fee
     gateway_fee_unrounded = clean_sub * 0.03

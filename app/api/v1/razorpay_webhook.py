@@ -44,6 +44,91 @@ async def process_settlement_async(settlement_id: str, payment_id: str | None, s
     except Exception as e:
         print(f"Error processing settlement webhook: {e}")
 
+async def process_order_paid_webhook_async(razorpay_order_id: str, razorpay_payment_id: str):
+    """Fallback handler to ensure merchant receives notification and FCM push when payment completes."""
+    if not razorpay_order_id:
+        return
+    from app.database.session import async_session_factory
+    from app.models.order import Order
+    from app.models.shop_settings import ShopSettings
+    from app.services.notification_service import NotificationService
+    from app.services.order_service import OrderService
+
+    try:
+        async with async_session_factory() as db_session:
+            res = await db_session.execute(
+                select(Order).where(Order.razorpay_order_id == razorpay_order_id)
+            )
+            order = res.scalar_one_or_none()
+            if not order:
+                return
+
+            if str(order.payment_status or "").lower() == "paid":
+                # Already processed by client verify endpoint
+                return
+
+            st_res = await db_session.execute(
+                select(ShopSettings).where(ShopSettings.shop_id == order.shop_id)
+            )
+            shop_st = st_res.scalar_one_or_none()
+            current_status = str(order.order_status or "").upper()
+            was_already_accepted = current_status in ["PAYMENT_PENDING", "ACCEPTED", "PREPARING", "COOKING", "READY"]
+
+            order.payment_status = "paid"
+            order.payment_method = "online"
+            order.payment_session_id = razorpay_payment_id
+            
+            # After payment completed, order advances directly to Awaiting Complete ("ACCEPTED")
+            if current_status in ["PREPARING", "COOKING", "READY", "DELIVERED", "COMPLETED"]:
+                pass  # Keep current active progress status
+            else:
+                order.order_status = "ACCEPTED"
+
+            await db_session.commit()
+            await db_session.refresh(order)
+
+            # Trigger persistent notification and FCM push to merchant
+            try:
+                notif_service = NotificationService(db_session)
+                order_ref = f"#{order.daily_order_number}" if order.daily_order_number else f"#{order.id.hex[:8]}"
+                order_type_label = str(order.order_type or "order").replace("_", " ").title()
+
+                if was_already_accepted:
+                    notif_type = "ORDER_UPDATED"
+                    event_type = "ORDER_UPDATED"
+                    notif_title = f"Payment Completed — {order_ref}"
+                    notif_msg = f"Customer {order.customer_name} completed payment for Order {order_ref} ({order_type_label}). Order is now in Awaiting Complete."
+                else:
+                    notif_type = "NEW_ORDER"
+                    event_type = "NEW_ORDER"
+                    notif_title = f"New Paid Order Received — {order_ref}"
+                    notif_msg = f"New paid order {order_ref} placed by {order.customer_name} ({order_type_label}). Order is now in Awaiting Complete."
+
+                await notif_service.create_notification(
+                    shop_id=order.shop_id,
+                    type=notif_type,
+                    title=notif_title,
+                    message=notif_msg,
+                    metadata={"order_id": str(order.id), "status": order.order_status, "payment_status": "paid"}
+                )
+            except Exception as notif_err:
+                print(f"[Razorpay Webhook] FCM notification error: {notif_err}")
+
+            # Live broadcast
+            try:
+                order_svc = OrderService(db_session)
+                await order_svc._broadcast_order_live(
+                    order=order,
+                    event_type=event_type,
+                    title=notif_title,
+                    message=notif_msg
+                )
+            except Exception as b_err:
+                print(f"[Razorpay Webhook] Live broadcast error: {b_err}")
+    except Exception as err:
+        print(f"[Razorpay Webhook] Error processing paid order {razorpay_order_id}: {err}")
+
+
 @router.post("")
 async def razorpay_webhook(
     request: Request, 
@@ -80,7 +165,16 @@ async def razorpay_webhook(
         
     event = payload.get("event")
     
-    if event in ["settlement.processed", "transfer.settled"]:
+    if event in ["payment.captured", "order.paid"]:
+        pay_ent = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        ord_ent = payload.get("payload", {}).get("order", {}).get("entity", {})
+        r_order_id = ord_ent.get("id") or pay_ent.get("order_id")
+        r_pay_id = pay_ent.get("id") or ""
+        if r_order_id:
+            background_tasks.add_task(process_order_paid_webhook_async, r_order_id, r_pay_id)
+
+    elif event in ["settlement.processed", "transfer.settled"]:
+
         entity = payload.get("payload", {}).get("settlement" if event == "settlement.processed" else "transfer", {}).get("entity", {})
         
         settlement_id = entity.get("id") if event == "settlement.processed" else entity.get("settlement_id")

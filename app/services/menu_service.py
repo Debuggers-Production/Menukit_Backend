@@ -61,9 +61,9 @@ class MenuService:
         return category
 
     async def get_categories(
-        self, shop_id: uuid.UUID, skip: int = 0, limit: int = 100, search: Optional[str] = None, is_active: Optional[bool] = None
+        self, shop_id: uuid.UUID, skip: int = 0, limit: int = 100, search: Optional[str] = None, is_active: Optional[bool] = None, sort_by: Optional[str] = None
     ) -> tuple[List[Category], int, bool]:
-        """Get all categories for a shop's catalog with backend search, status filtering, and pagination."""
+        """Get all categories for a shop's catalog with backend search, status filtering, sorting, and pagination."""
         catalog_id = await self._get_catalog_id(shop_id)
         conditions = [Category.menu_catalog_id == catalog_id]
 
@@ -84,12 +84,20 @@ class MenuService:
             .scalar_subquery()
         )
 
+        query = select(Category, item_count_sub.label("item_count")).where(*conditions)
+        if sort_by == 'a-z':
+            query = query.order_by(func.lower(Category.name).asc(), Category.display_order.asc())
+        elif sort_by == 'z-a':
+            query = query.order_by(func.lower(Category.name).desc(), Category.display_order.asc())
+        elif sort_by in ('new_to_old', 'newest'):
+            query = query.order_by(Category.created_at.desc(), Category.display_order.asc())
+        elif sort_by in ('old_to_new', 'oldest'):
+            query = query.order_by(Category.created_at.asc(), Category.display_order.asc())
+        else:
+            query = query.order_by(Category.display_order)
+
         result = await self.db.execute(
-            select(Category, item_count_sub.label("item_count"))
-            .where(*conditions)
-            .order_by(Category.display_order)
-            .offset(skip)
-            .limit(limit)
+            query.offset(skip).limit(limit)
         )
         rows = result.all()
         categories = []
@@ -291,10 +299,11 @@ class MenuService:
         search: Optional[str] = None,
         status: Optional[str] = None,
         has_image: Optional[bool] = None,
+        sort_by: Optional[str] = None,
         skip: int = 0,
         limit: int = 100,
     ) -> List[MenuItem]:
-        """Get menu items with optional filters and pagination."""
+        """Get menu items with optional filters, sorting, and pagination."""
         catalog_id = await self._get_catalog_id(shop_id)
         query = (
             select(MenuItem)
@@ -323,9 +332,35 @@ class MenuService:
                 (MenuItem.name.ilike(f"{clean_q}%"), 5),
                 else_=6,
             )
-            query = query.order_by(search_ordering, MenuItem.display_order)
+            if sort_by == 'price_asc':
+                query = query.order_by(search_ordering, MenuItem.price.asc(), MenuItem.display_order.asc())
+            elif sort_by == 'price_desc':
+                query = query.order_by(search_ordering, MenuItem.price.desc(), MenuItem.display_order.asc())
+            elif sort_by == 'a-z':
+                query = query.order_by(search_ordering, func.lower(MenuItem.name).asc(), MenuItem.display_order.asc())
+            elif sort_by == 'z-a':
+                query = query.order_by(search_ordering, func.lower(MenuItem.name).desc(), MenuItem.display_order.asc())
+            elif sort_by in ('new_to_old', 'newest'):
+                query = query.order_by(search_ordering, MenuItem.created_at.desc(), MenuItem.display_order.asc())
+            elif sort_by in ('old_to_new', 'oldest'):
+                query = query.order_by(search_ordering, MenuItem.created_at.asc(), MenuItem.display_order.asc())
+            else:
+                query = query.order_by(search_ordering, MenuItem.display_order)
         else:
-            query = query.order_by(MenuItem.display_order)
+            if sort_by == 'price_asc':
+                query = query.order_by(MenuItem.price.asc(), MenuItem.display_order.asc())
+            elif sort_by == 'price_desc':
+                query = query.order_by(MenuItem.price.desc(), MenuItem.display_order.asc())
+            elif sort_by == 'a-z':
+                query = query.order_by(func.lower(MenuItem.name).asc(), MenuItem.display_order.asc())
+            elif sort_by == 'z-a':
+                query = query.order_by(func.lower(MenuItem.name).desc(), MenuItem.display_order.asc())
+            elif sort_by in ('new_to_old', 'newest'):
+                query = query.order_by(MenuItem.created_at.desc(), MenuItem.display_order.asc())
+            elif sort_by in ('old_to_new', 'oldest'):
+                query = query.order_by(MenuItem.created_at.asc(), MenuItem.display_order.asc())
+            else:
+                query = query.order_by(MenuItem.display_order)
 
         if status:
             if status == "available":

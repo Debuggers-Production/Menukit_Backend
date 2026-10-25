@@ -101,6 +101,10 @@ async def init_chalkboard_table():
 
         -- 4. Discounts table updates
         ALTER TABLE discounts ADD COLUMN IF NOT EXISTS code VARCHAR(50);
+        ALTER TABLE discounts ADD COLUMN IF NOT EXISTS min_order_value NUMERIC(10, 2);
+        ALTER TABLE discounts ADD COLUMN IF NOT EXISTS max_order_value NUMERIC(10, 2);
+        ALTER TABLE discounts ADD COLUMN IF NOT EXISTS max_discount_amount NUMERIC(10, 2);
+        ALTER TABLE discounts ADD COLUMN IF NOT EXISTS is_price_drop BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE discounts ADD COLUMN IF NOT EXISTS buy_quantity INTEGER;
         ALTER TABLE discounts ADD COLUMN IF NOT EXISTS get_quantity INTEGER;
         ALTER TABLE discounts ADD COLUMN IF NOT EXISTS reward_target_ids JSONB;
@@ -158,7 +162,8 @@ async def init_chalkboard_table():
         CREATE INDEX IF NOT EXISTS ix_discount_redemptions_shop_id ON discount_redemptions(shop_id);
         CREATE INDEX IF NOT EXISTS ix_discount_redemptions_code ON discount_redemptions(code);
 
-        -- 7. Shop settings updates
+        -- 7. Orders & Shop settings updates
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee FLOAT DEFAULT 0.0;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS max_delivery_distance FLOAT DEFAULT 0.0;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS hide_discovery_badge BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS base_delivery_charge FLOAT NOT NULL DEFAULT 0.0;
@@ -176,6 +181,7 @@ async def init_chalkboard_table():
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS online_payments_takeaway_enabled BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS online_payments_delivery_enabled BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS accept_after_payment BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS payment_timeout_minutes INTEGER NOT NULL DEFAULT 15;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS razorpay_account_id VARCHAR(100);
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS razorpay_product_id VARCHAR(100);
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS razorpay_route_status VARCHAR(50);
@@ -284,6 +290,13 @@ async def init_chalkboard_table():
         ALTER TABLE scheme_payments ADD COLUMN IF NOT EXISTS settlement_status VARCHAR(50);
         ALTER TABLE scheme_payments ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ;
         ALTER TABLE scheme_payments ADD COLUMN IF NOT EXISTS razorpay_settlement_id VARCHAR(255);
+
+        -- High-Performance Composite Indexes for Menu & Order Queries
+        CREATE INDEX IF NOT EXISTS ix_menu_items_shop_avail_sort ON menu_items(shop_id, is_available, sort_order);
+        CREATE INDEX IF NOT EXISTS ix_menu_items_shop_cat_avail ON menu_items(shop_id, category_id, is_available);
+        CREATE INDEX IF NOT EXISTS ix_categories_shop_active_order ON categories(menu_catalog_id, is_active, display_order);
+        CREATE INDEX IF NOT EXISTS ix_orders_shop_status_created ON orders(shop_id, status, created_at DESC);
+        CREATE INDEX IF NOT EXISTS ix_discounts_shop_active ON discounts(shop_id, is_active);
     """
 
     try:

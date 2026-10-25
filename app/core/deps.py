@@ -43,6 +43,26 @@ async def get_current_user(
 
     return user
 
+
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[User]:
+    """Get the current authenticated user if token present and valid, otherwise None."""
+    if not credentials:
+        return None
+    try:
+        payload = verify_access_token(credentials.credentials)
+        if not payload:
+            return None
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        auth_service = AuthService(db)
+        return await auth_service.get_user_by_id(uuid.UUID(user_id))
+    except Exception:
+        return None
+
 async def get_current_shop_context(
     x_shop_id: Optional[str] = Header(None),
     current_user: User = Depends(get_current_user),

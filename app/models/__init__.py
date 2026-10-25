@@ -27,6 +27,7 @@ from app.models.branch_item_override import BranchItemOverride
 from app.models.broadcast import BroadcastCampaign
 from app.models.chalkboard import Chalkboard
 from app.models.scheme import Scheme, SchemeMember, SchemePayment
+from app.models.device_token import DeviceToken
 
 __all__ = [
     "Scheme",
@@ -73,4 +74,5 @@ __all__ = [
     "OAuthRefreshToken",
     "MenuCatalog",
     "BranchItemOverride",
+    "DeviceToken",
 ]

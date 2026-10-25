@@ -14,6 +14,9 @@ from app.models.shop_settings import ShopSettings
 from app.schemas.order import OrderCreate
 from app.core.config import get_settings
 from typing import List, Optional, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def get_customer_user_id(phone: str) -> str:
@@ -757,12 +760,16 @@ class OrderService:
             split_payments=getattr(data, "split_payments", None),
             price_tier=getattr(data, "price_tier", "retail") or "retail",
             total_amount=data.total_amount,
+            delivery_fee=float(getattr(data, "delivery_fee", 0.0) or 0.0),
             items=items_list,
         )
 
         
         if initial_status == "PAYMENT_PENDING" and initial_pay_status != "paid" and data.payment_method not in ["cash", "cash_on_delivery", "counter"]:
-            order.payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+            timeout_mins = 15
+            if shop and hasattr(shop, "settings") and shop.settings:
+                timeout_mins = getattr(shop.settings, "payment_timeout_minutes", 15) or 15
+            order.payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=int(timeout_mins))
             
         self.db.add(order)
 
@@ -780,24 +787,25 @@ class OrderService:
         )
 
         if not is_awaiting_upfront_payment:
-            # Create persistent notification for merchant (for non-online payment methods or dine-in orders)
-            if data.payment_method != "online" or data.order_type == "dine_in":
-                from app.services.notification_service import NotificationService
-                notif_service = NotificationService(self.db)
-                await notif_service.create_notification(
-                    shop_id=shop.id,
-                    type="NEW_ORDER",
-                    title="New Order Received",
-                    message=f"New order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})",
-                    metadata={"order_id": str(order.id)}
-                )
+            # Create persistent notification and FCM push for merchant for all newly placed orders
+            from app.services.notification_service import NotificationService
+            notif_service = NotificationService(self.db)
+            order_ref = f"#{order.daily_order_number}" if order.daily_order_number else f"#{order.id.hex[:8]}"
+            order_type_label = str(order.order_type or "order").replace("_", " ").title()
+            await notif_service.create_notification(
+                shop_id=shop.id,
+                type="NEW_ORDER",
+                title="New Order Received",
+                message=f"New order {order_ref} placed by {order.customer_name} ({order_type_label})",
+                metadata={"order_id": str(order.id)}
+            )
 
             # 0-delay Instant WebSocket broadcast to Merchant & Customer
             await self._broadcast_order_live(
                 order=order,
                 event_type="NEW_ORDER",
                 title="New Order Received",
-                message=f"New order #{order.id.hex[:8]} placed by {order.customer_name} ({order.order_type})"
+                message=f"New order {order_ref} placed by {order.customer_name} ({order_type_label})"
             )
 
             # Trigger real-time new order email notification to admin
@@ -933,9 +941,25 @@ class OrderService:
                     else:
                         cf_status = res_data.get("order_status")
                         if cf_status == "PAID":
+                            was_already_paid = (order.payment_status == "paid")
                             order.payment_status = "paid"
                             if order.order_status.upper() in ["PAYMENT_PENDING", "PENDING_VENDOR", "PENDING"]:
                                 order.order_status = "PAID"
+                            if not was_already_paid:
+                                try:
+                                    from app.services.notification_service import NotificationService
+                                    notif_service = NotificationService(self.db)
+                                    order_ref = f"#{order.daily_order_number}" if order.daily_order_number else f"#{order.id.hex[:8]}"
+                                    order_type_label = str(order.order_type or "order").replace("_", " ").title()
+                                    await notif_service.create_notification(
+                                        shop_id=order.shop_id,
+                                        type="NEW_ORDER",
+                                        title="New Paid Order Received",
+                                        message=f"New paid order {order_ref} placed by {order.customer_name} ({order_type_label})",
+                                        metadata={"order_id": str(order.id)}
+                                    )
+                                except Exception as notif_err:
+                                    print(f"[FCM] Failed to trigger Cashfree paid order notification: {notif_err}")
                         elif cf_status in ["FAILED", "EXPIRED"]:
                             order.payment_status = "failed"
         except Exception as e:
@@ -1514,7 +1538,16 @@ class OrderService:
         
         if status == "PAYMENT_PENDING" and order.payment_method not in ["cash", "cash_on_delivery", "counter"]:
             from datetime import timedelta, datetime, timezone
-            order.payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+            timeout_mins = 15
+            if hasattr(order, "shop") and order.shop and hasattr(order.shop, "settings") and order.shop.settings:
+                timeout_mins = getattr(order.shop.settings, "payment_timeout_minutes", 15) or 15
+            else:
+                from app.models.shop_settings import ShopSettings
+                ss_res = await self.db.execute(select(ShopSettings).where(ShopSettings.shop_id == order.shop_id))
+                ss_obj = ss_res.scalar_one_or_none()
+                if ss_obj:
+                    timeout_mins = getattr(ss_obj, "payment_timeout_minutes", 15) or 15
+            order.payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=int(timeout_mins))
         else:
             # Clear expiry if we move past PAYMENT_PENDING or for cash orders
             order.payment_expires_at = None
@@ -1548,11 +1581,12 @@ class OrderService:
         # Create notification for order status update
         from app.services.notification_service import NotificationService
         notif_service = NotificationService(self.db)
+        order_ref = f"#{order.daily_order_number}" if order.daily_order_number else f"#{order.id.hex[:8]}"
         await notif_service.create_notification(
             shop_id=shop_id,
             type="ORDER_STATUS",
-            title=f"Order #{order.id.hex[:8]} {status.capitalize()}",
-            message=f"Order status has been updated to {status}.",
+            title=f"Order {order_ref} {status.title()}",
+            message=f"Order {order_ref} status has been updated to {status.title()}.",
             metadata={"order_id": str(order.id), "status": status}
         )
 
@@ -1560,9 +1594,31 @@ class OrderService:
         await self._broadcast_order_live(
             order=order,
             event_type="ORDER_STATUS",
-            title=f"Order #{order.id.hex[:8]} {status.capitalize()}",
-            message=f"Order status has been updated to {status}."
+            title=f"Order {order_ref} {status.title()}",
+            message=f"Order {order_ref} status has been updated to {status.title()}."
         )
+
+        # Send customer FCM push notification on order status update
+        if order.customer_phone:
+            try:
+                import asyncio
+                from app.services.fcm_service import FCMService
+                fcm_svc = FCMService()
+                order_ref = f"#{order.daily_order_number}" if order.daily_order_number else f"#{order.id.hex[:8]}"
+                status_title = f"Order {order_ref} {status.title()}"
+                status_body = f"Your order is now {status.title()}."
+                asyncio.create_task(
+                    fcm_svc.send_to_customer(
+                        customer_phone=order.customer_phone,
+                        title=status_title,
+                        body=status_body,
+                        data={"order_id": str(order.id), "status": status, "shop_id": str(shop_id)},
+                        url=f"/orders/{order.id}",
+                        notification_type="ORDER_STATUS",
+                    )
+                )
+            except Exception as fcm_err:
+                print(f"[FCM] Customer status push failed: {fcm_err}")
 
         # Send WhatsApp template notifications
         if status in ["ACCEPTED", "PAYMENT_PENDING"] and str(order.payment_status or "").lower() != "paid":
@@ -1613,9 +1669,26 @@ class OrderService:
                 formatted_amount = amount_override
             else:
                 amt_val = float(order.total_amount or 0.0)
-                from app.core.pricing import calculate_order_pricing
+                from app.core.pricing import calculate_order_pricing, calculate_order_replacement_credit
+
+                order_items = getattr(order, "items", None) or []
+                replaced_credit = calculate_order_replacement_credit(order_items, is_paid=False)
+                base_total = max(0.0, round(amt_val - replaced_credit, 2)) if replaced_credit > 0 else amt_val
+
+                delivery_fee = float(getattr(order, "delivery_fee", 0.0) or 0.0)
+                if delivery_fee <= 0 and str(getattr(order, "order_type", "")).lower() == "delivery":
+                    active_items_total = sum(
+                        float(it.price or 0.0) * float(it.quantity or 1.0)
+                        for it in order_items
+                        if not getattr(it, "is_cancelled", False)
+                    )
+                    if amt_val > active_items_total:
+                        delivery_fee = round(amt_val - active_items_total, 2)
+
+                items_total = max(0.0, round(base_total - delivery_fee, 2)) if delivery_fee > 0 else base_total
+
                 is_online = str(order.payment_method or "").lower() == "online"
-                pricing = calculate_order_pricing(amt_val, is_online=is_online)
+                pricing = calculate_order_pricing(base_total, is_online=is_online, items_total=items_total)
                 grand_total = pricing.total_payable
                 formatted_amount = f"{currency}{grand_total:.2f}"
 
@@ -1686,9 +1759,26 @@ class OrderService:
                 clean_phone = f"91{clean_phone}"
 
             amt_val = float(order.total_amount or 0.0)
-            from app.core.pricing import calculate_order_pricing
+            from app.core.pricing import calculate_order_pricing, calculate_order_replacement_credit
+
+            order_items = getattr(order, "items", None) or []
+            replaced_credit = calculate_order_replacement_credit(order_items, is_paid=False)
+            base_total = max(0.0, round(amt_val - replaced_credit, 2)) if replaced_credit > 0 else amt_val
+
+            delivery_fee = float(getattr(order, "delivery_fee", 0.0) or 0.0)
+            if delivery_fee <= 0 and str(getattr(order, "order_type", "")).lower() == "delivery":
+                active_items_total = sum(
+                    float(it.price or 0.0) * float(it.quantity or 1.0)
+                    for it in order_items
+                    if not getattr(it, "is_cancelled", False)
+                )
+                if amt_val > active_items_total:
+                    delivery_fee = round(amt_val - active_items_total, 2)
+
+            items_total = max(0.0, round(base_total - delivery_fee, 2)) if delivery_fee > 0 else base_total
+
             is_online = str(order.payment_method or "").lower() == "online"
-            pricing = calculate_order_pricing(amt_val, is_online=is_online)
+            pricing = calculate_order_pricing(base_total, is_online=is_online, items_total=items_total)
             grand_total = pricing.total_payable
 
             formatted_amount = f"{currency}{grand_total:.2f}"
@@ -1793,24 +1883,21 @@ class OrderService:
             settings = get_settings()
 
             # Fetch shop and owner user
-            if not shop_obj:
-                shop_res = await self.db.execute(
-                    select(Shop).options(selectinload(Shop.user)).where(Shop.id == order.shop_id)
-                )
-                shop_obj = shop_res.scalar_one_or_none()
+            from app.database.session import async_session_factory
+            from app.models.user import User
 
-            if not shop_obj:
-                return
-
-            shop_name = shop_obj.name or "Restaurant"
             owner_email = None
-            if hasattr(shop_obj, "user") and shop_obj.user and shop_obj.user.email:
-                owner_email = shop_obj.user.email
-            else:
-                user_res = await self.db.execute(select(User).where(User.id == shop_obj.user_id))
-                user_obj = user_res.scalar_one_or_none()
-                if user_obj and user_obj.email:
-                    owner_email = user_obj.email
+            shop_name = "Restaurant"
+            async with async_session_factory() as session:
+                shop_res = await session.execute(select(Shop).where(Shop.id == order.shop_id))
+                s_obj = shop_res.scalar_one_or_none()
+                if s_obj:
+                    shop_name = s_obj.name or "Restaurant"
+                    if s_obj.user_id:
+                        user_res = await session.execute(select(User).where(User.id == s_obj.user_id))
+                        user_obj = user_res.scalar_one_or_none()
+                        if user_obj and user_obj.email:
+                            owner_email = user_obj.email
 
             # Target recipients: Owner email + platform admin notification email
             recipients = set()

@@ -60,3 +60,6 @@ mcp<2
 fastmcp
 
 pytz
+
+# Firebase Cloud Messaging (FCM Push Notifications)
+firebase-admin>=7.7.0

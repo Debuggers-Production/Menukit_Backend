@@ -66,6 +66,7 @@ class OrderBase(BaseModel):
     split_payments: Optional[List[dict]] = None
     price_tier: Optional[str] = "retail"  # 'retail', 'wholesale', 'other'
     total_amount: float
+    delivery_fee: Optional[float] = 0.0
     applied_discount_ids: Optional[List[uuid.UUID]] = None
     applied_discount_codes: Optional[List[str]] = None
 

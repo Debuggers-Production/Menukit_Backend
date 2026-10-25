@@ -525,6 +525,16 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
     if getattr(shop, "chalkboard", None):
         chalkboard_resp = ChalkboardResponse.model_validate(shop.chalkboard)
 
+    import os
+    sim_expired = (
+        os.getenv("SIMULATE_SUBSCRIPTION_EXPIRED", "false").lower() == "true" or 
+        os.getenv("FORCE_SHOW_ADS", "false").lower() == "true"
+    )
+    if sim_expired:
+        is_subbed = False
+    else:
+        is_subbed = bool(perms.get("is_active")) and not bool(perms.get("is_expired"))
+
     return ShopResponse(
         id=str(shop.id),
         user_id=str(shop.user_id) if shop.user_id else None,
@@ -552,6 +562,8 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
         theme=theme_resp,
         chalkboard=chalkboard_resp,
         created_at=str(shop.created_at),
+        is_subscribed=is_subbed,
+        show_ads=not is_subbed,
     )
 
 

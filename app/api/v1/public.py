@@ -6,7 +6,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, Request, Header, BackgroundTasks, WebSocket, WebSocketDisconnect,Query
+from fastapi import APIRouter, Depends, Request, Response, Header, BackgroundTasks, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db, async_session_factory
@@ -293,9 +293,11 @@ class SearchRequest(BaseModel):
 @router.get("", response_model=ShopResponse)
 async def get_public_shop(
     shop_id: uuid.UUID,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """Get shop details for public menu with subscription enforcement (Cached)."""
+    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
     import json
     from app.database.redis import get_redis
     r_client = await get_redis()
@@ -327,15 +329,18 @@ async def get_public_shop(
 @router.get("/categories", response_model=List[PublicCategoryResponse])
 async def get_public_categories(
     shop_id: uuid.UUID,
+    response: Response,
+    sort_by: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
     """Get ONLY active categories for a shop (no items)."""
+    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
     import json
     from app.database.redis import get_redis
     r_client = await get_redis()
-    cache_key = f"public:categories:{str(shop_id)}:{limit}:{offset}"
+    cache_key = f"public:categories:{str(shop_id)}:{str(sort_by or '')}:{limit}:{offset}"
     
     try:
         cached_cats = await r_client.get(cache_key)
@@ -355,12 +360,21 @@ async def get_public_categories(
     if not catalog_id:
         return []
 
+    cat_query = select(Category).where(Category.menu_catalog_id == catalog_id, Category.is_active == True)
+
+    if sort_by == 'a-z':
+        cat_query = cat_query.order_by(func.lower(Category.name).asc(), Category.display_order.asc())
+    elif sort_by == 'z-a':
+        cat_query = cat_query.order_by(func.lower(Category.name).desc(), Category.display_order.asc())
+    elif sort_by in ('new_to_old', 'newest'):
+        cat_query = cat_query.order_by(Category.created_at.desc(), Category.display_order.asc())
+    elif sort_by in ('old_to_new', 'oldest'):
+        cat_query = cat_query.order_by(Category.created_at.asc(), Category.display_order.asc())
+    else:
+        cat_query = cat_query.order_by(Category.display_order)
+
     cat_result = await db.execute(
-        select(Category)
-        .where(Category.menu_catalog_id == catalog_id, Category.is_active == True)
-        .order_by(Category.display_order)
-        .offset(offset)
-        .limit(limit)
+        cat_query.offset(offset).limit(limit)
     )
     categories = cat_result.scalars().all()
     if not categories:
@@ -383,6 +397,7 @@ async def get_public_categories(
 @router.get("/items", response_model=List[MenuItemResponse])
 async def get_public_items(
     shop_id: uuid.UUID,
+    response: Response,
     category_id: Optional[uuid.UUID] = None,
     discount_id: Optional[uuid.UUID] = None,
     search: Optional[str] = None,
@@ -395,6 +410,7 @@ async def get_public_items(
     db: AsyncSession = Depends(get_db),
 ):
     """Get items for a shop with filtering, discount applicability, and sorting options."""
+    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
     import json
     from app.database.redis import get_redis
     r_client = await get_redis()
@@ -473,6 +489,14 @@ async def get_public_items(
         query = query.order_by(MenuItem.price.asc(), MenuItem.display_order.asc())
     elif sort_by == 'price_desc':
         query = query.order_by(MenuItem.price.desc(), MenuItem.display_order.asc())
+    elif sort_by == 'a-z':
+        query = query.order_by(func.lower(MenuItem.name).asc(), MenuItem.display_order.asc())
+    elif sort_by == 'z-a':
+        query = query.order_by(func.lower(MenuItem.name).desc(), MenuItem.display_order.asc())
+    elif sort_by in ('new_to_old', 'newest'):
+        query = query.order_by(MenuItem.created_at.desc(), MenuItem.display_order.asc())
+    elif sort_by in ('old_to_new', 'oldest'):
+        query = query.order_by(MenuItem.created_at.asc(), MenuItem.display_order.asc())
     else:
         query = query.order_by(MenuItem.category_id, MenuItem.display_order)
 
@@ -492,6 +516,8 @@ async def get_public_items(
 @router.get("/menu", response_model=List[PublicCategoryResponse])
 async def get_public_menu(
     shop_id: uuid.UUID,
+    sort_by: Optional[str] = None,
+    category_sort_by: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -503,7 +529,7 @@ async def get_public_menu(
     import json
     from app.database.redis import get_redis
     r_client = await get_redis()
-    cache_key = f"public:menu:{str(shop_id)}:{limit}:{offset}"
+    cache_key = f"public:menu:{str(shop_id)}:{str(sort_by or '')}:{str(category_sort_by or '')}:{limit}:{offset}"
     
     try:
         cached_menu = await r_client.get(cache_key)
@@ -527,12 +553,21 @@ async def get_public_menu(
         return []
 
     # ── 2. Load all active categories ────────────────────────────────────────
+    effective_cat_sort = category_sort_by or sort_by
+    cat_query = select(Category).where(Category.menu_catalog_id == catalog_id, Category.is_active == True)
+    if effective_cat_sort == 'a-z':
+        cat_query = cat_query.order_by(func.lower(Category.name).asc(), Category.display_order.asc())
+    elif effective_cat_sort == 'z-a':
+        cat_query = cat_query.order_by(func.lower(Category.name).desc(), Category.display_order.asc())
+    elif effective_cat_sort in ('new_to_old', 'newest'):
+        cat_query = cat_query.order_by(Category.created_at.desc(), Category.display_order.asc())
+    elif effective_cat_sort in ('old_to_new', 'oldest'):
+        cat_query = cat_query.order_by(Category.created_at.asc(), Category.display_order.asc())
+    else:
+        cat_query = cat_query.order_by(Category.display_order)
+
     cat_result = await db.execute(
-        select(Category)
-        .where(Category.menu_catalog_id == catalog_id, Category.is_active == True)
-        .order_by(Category.display_order)
-        .offset(offset)
-        .limit(limit)
+        cat_query.offset(offset).limit(limit)
     )
     categories = cat_result.scalars().all()
     if not categories:
@@ -541,7 +576,7 @@ async def get_public_menu(
     cat_ids = [c.id for c in categories]
 
     # ── 3. Single bulk query for ALL items across all categories ─────────────
-    items_result = await db.execute(
+    item_query = (
         select(MenuItem)
         .options(selectinload(MenuItem.images))
         .where(
@@ -549,8 +584,23 @@ async def get_public_menu(
             MenuItem.category_id.in_(cat_ids),
             MenuItem.is_available == True,
         )
-        .order_by(MenuItem.category_id, MenuItem.display_order)
     )
+    if sort_by == 'price_asc':
+        item_query = item_query.order_by(MenuItem.price.asc(), MenuItem.display_order.asc())
+    elif sort_by == 'price_desc':
+        item_query = item_query.order_by(MenuItem.price.desc(), MenuItem.display_order.asc())
+    elif sort_by == 'a-z':
+        item_query = item_query.order_by(func.lower(MenuItem.name).asc(), MenuItem.display_order.asc())
+    elif sort_by == 'z-a':
+        item_query = item_query.order_by(func.lower(MenuItem.name).desc(), MenuItem.display_order.asc())
+    elif sort_by in ('new_to_old', 'newest'):
+        item_query = item_query.order_by(MenuItem.created_at.desc(), MenuItem.display_order.asc())
+    elif sort_by in ('old_to_new', 'oldest'):
+        item_query = item_query.order_by(MenuItem.created_at.asc(), MenuItem.display_order.asc())
+    else:
+        item_query = item_query.order_by(MenuItem.category_id, MenuItem.display_order)
+
+    items_result = await db.execute(item_query)
     all_items = items_result.scalars().all()
 
     # Group items by category in Python
@@ -1448,7 +1498,11 @@ async def pay_public_order(
     if replaced_credit > 0:
         base_total = max(0.0, round(base_total - replaced_credit, 2))
 
-    pricing = calculate_order_pricing(base_total, is_online=True)
+    # Calculate item total excluding delivery charge for 2% platform fee
+    delivery_fee = float(getattr(order, "delivery_fee", 0.0) or 0.0)
+    items_total = max(0.0, round(base_total - delivery_fee, 2)) if delivery_fee > 0 else base_total
+
+    pricing = calculate_order_pricing(base_total, is_online=True, items_total=items_total)
     platform_fee = pricing.platform_fee
     pg_fee = pricing.gateway_fee
     gst_on_fee = pricing.gateway_gst
@@ -1719,17 +1773,15 @@ async def verify_public_order_payment(
     is_accept_after_payment = getattr(shop_settings, "accept_after_payment", False) if shop_settings else False
 
     current_status_upper = str(order.order_status or "").upper()
-    is_existing_active = current_status_upper in ["ACCEPTED", "PREPARING", "COOKING", "READY", "DELIVERED", "COMPLETED", "PAID"] or len(new_splits) > 1
+    was_already_accepted = current_status_upper in ["ACCEPTED", "PREPARING", "COOKING", "READY", "DELIVERED", "COMPLETED", "PAID", "PAYMENT_PENDING"] or len(new_splits) > 1
 
-    # Preserve order status if order was already accepted/in-progress; only new unaccepted orders go to PENDING_VENDOR or ACCEPTED
-    if is_existing_active and current_status_upper not in ["PENDING_VENDOR", "PENDING", "PAYMENT_PENDING"]:
+    # After payment completion:
+    # 1. If order is already in progress, keep that progress status
+    if current_status_upper in ["PREPARING", "COOKING", "READY", "DELIVERED", "COMPLETED"]:
         post_payment_status = order.order_status
-    elif getattr(shop_settings, "auto_accept_orders", False):
-        post_payment_status = "ACCEPTED"
-    elif is_accept_after_payment or current_status_upper in ["PENDING_VENDOR", "PENDING", "PAYMENT_PENDING"]:
-        post_payment_status = "PENDING_VENDOR"
     else:
-        post_payment_status = "PAID"
+        # Paid orders advance directly to Awaiting Complete ("ACCEPTED")
+        post_payment_status = "ACCEPTED"
 
     from sqlalchemy import update
     update_stmt = (
@@ -1765,21 +1817,34 @@ async def verify_public_order_payment(
     from app.services.notification_service import NotificationService
     notif_service = NotificationService(db)
     order_ref = f"#{order.daily_order_number}" if order.daily_order_number else f"#{order.id.hex[:8]}"
-    notif_title = f"Items Added & Paid — {order.table_number}" if (is_existing_active and order.table_number) else "New Paid Order Received"
-    notif_msg = f"Additional items paid for {order_ref} by {order.customer_name}" if is_existing_active else f"New paid order {order_ref} placed by {order.customer_name} ({order.order_type})"
+
+    if was_already_accepted:
+        notif_type = "ORDER_UPDATED"
+        event_type = "ORDER_UPDATED"
+        if order.table_number and len(new_splits) > 1:
+            notif_title = f"Items Added & Paid — {order.table_number}"
+            notif_msg = f"Additional items paid for {order_ref} by {order.customer_name}"
+        else:
+            notif_title = f"Payment Completed — {order_ref}"
+            notif_msg = f"Customer {order.customer_name} completed payment of ₹{float(order.total_amount):.2f} for Order {order_ref}. Order is now in Awaiting Complete."
+    else:
+        notif_type = "NEW_ORDER"
+        event_type = "NEW_ORDER"
+        notif_title = f"New Paid Order Received — {order_ref}"
+        notif_msg = f"New paid order {order_ref} placed by {order.customer_name} ({order.order_type}). Order is now in Awaiting Complete."
 
     await notif_service.create_notification(
         shop_id=shop_id,
-        type="ORDER_UPDATED" if is_existing_active else "NEW_ORDER",
+        type=notif_type,
         title=notif_title,
         message=notif_msg,
-        metadata={"order_id": str(order.id)}
+        metadata={"order_id": str(order.id), "status": post_payment_status, "payment_status": "paid"}
     )
 
     # Broadcast live to shop and customer with 0 delay
     await order_service._broadcast_order_live(
         order=order,
-        event_type="ITEMS_ADDED" if is_existing_active else "NEW_ORDER",
+        event_type=event_type,
         title=notif_title,
         message=notif_msg
     )
@@ -1883,6 +1948,8 @@ async def get_my_orders(
             conditions.append(func.lower(Order.order_status).in_(["preparing", "cooking"]))
         elif st == "accepted":
             conditions.append(func.lower(Order.order_status).in_(["accepted", "paid", "pending", "pending_vendor"]))
+        elif st == "active":
+            conditions.append(func.lower(Order.order_status).in_(["pending", "accepted", "preparing", "cooking"]))
         elif st == "completed":
             conditions.append(func.lower(Order.order_status).in_(["completed", "delivered", "ready"]))
         elif st in ["cancelled", "rejected"]:
@@ -1904,6 +1971,8 @@ async def get_my_orders(
         elif pm in ["online", "pay_online", "upi", "card"]:
             conditions.append(func.lower(Order.payment_method).in_(["online", "pay_online", "upi", "card"]))
 
+    limit = min(max(limit, 1), 50)
+
     result = await db.execute(
         select(Order)
         .options(selectinload(Order.items))
@@ -1913,21 +1982,22 @@ async def get_my_orders(
         .offset(offset)
     )
     orders = list(result.scalars().all())
-    for o in orders:
-        if (o.total_amount is None or float(o.total_amount) <= 0.0) and o.items:
+    orders_need_calc = [o for o in orders if (o.total_amount is None or float(o.total_amount) <= 0.0) and o.items]
+    if orders_need_calc:
+        from app.models.shop_settings import ShopSettings
+        st_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+        st = st_res.scalar_one_or_none()
+        for o in orders_need_calc:
             active_items = [it for it in o.items if not it.is_cancelled]
             if active_items:
                 active_subtotal = sum(float(it.price or 0.0) * int(it.quantity or 1) for it in active_items)
-                from app.models.shop_settings import ShopSettings
-                st_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == o.shop_id))
-                st = st_res.scalar_one_or_none()
                 tax_amt = 0.0
                 if st and st.gst_enabled and not st.inclusive_tax:
                     cgst = float(st.cgst_rate or 0.0)
                     sgst = float(st.sgst_rate or 0.0)
                     tax_amt = round(active_subtotal * ((cgst + sgst) / 100.0), 2)
                 o.total_amount = round(active_subtotal + tax_amt, 2)
-                await db.flush()
+        await db.flush()
 
     return [OrderResponse.model_validate(o) for o in orders]
 

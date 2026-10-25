@@ -34,6 +34,38 @@ class NotificationService:
             "data": notif_response.model_dump(mode='json')
         })
 
+        # Trigger FCM push notification to all active devices registered to this shop (Laptop, iOS, Android)
+        try:
+            import asyncio
+            from app.services.fcm_service import FCMService
+            target_url = "/orders"
+            if type == "NEW_CUSTOMER":
+                target_url = "/customers"
+            elif "SCHEME" in type:
+                target_url = "/schemes"
+            fcm_svc = FCMService()
+
+            async def _safe_send_fcm():
+                try:
+                    res = await fcm_svc.send_to_shop(
+                        shop_id=shop_id,
+                        title=title,
+                        body=message,
+                        data=metadata,
+                        url=target_url,
+                        notification_type=type,
+                    )
+                    import logging
+                    logging.getLogger(__name__).info(f"[FCM] send_to_shop dispatched: {res}")
+                except Exception as inner_err:
+                    import logging
+                    logging.getLogger(__name__).error(f"[FCM] Background push failed: {inner_err}", exc_info=True)
+
+            asyncio.create_task(_safe_send_fcm())
+        except Exception as fcm_err:
+            import logging
+            logging.getLogger(__name__).error(f"[FCM] Could not schedule FCM push: {fcm_err}", exc_info=True)
+
         return notification
 
     async def get_unread_notifications(self, shop_id: uuid.UUID) -> List[NotificationResponse]:

@@ -387,6 +387,112 @@ class EmailService:
 
         return await self._dispatch_raw_email(email, subject, html_content)
 
+    async def send_scheme_enrollment_email(
+        self,
+        email: str,
+        shop_name: str,
+        scheme_title: str,
+        member_number: str,
+        customer_name: str,
+        customer_phone: str,
+        customer_address: str | None,
+        installment_amount: float,
+        term_duration: int,
+        frequency: str,
+        term_unit: str,
+        payment_method: str,
+        joined_at_str: str,
+        force_smtp: bool = False,
+    ) -> bool:
+        """Send immediate email notification to merchant when a customer enrolls in a savings scheme."""
+        freq_label = frequency.capitalize() if frequency else "Monthly"
+        duration_label = f"{term_duration} {term_unit.title() if term_unit else 'Months'}"
+        pay_method_label = "Razorpay (Online)" if "razorpay" in str(payment_method).lower() else str(payment_method).title()
+
+        subject = f"🪙 New Scheme Member Enrolled: {customer_name} ({member_number}) — {scheme_title} | {shop_name}"
+
+        address_row = ""
+        if customer_address and customer_address.strip():
+            address_row = f"""
+            <tr style="border-bottom: 1px solid #f1f5f9;">
+                <td style="padding: 10px 12px; font-size: 13px; color: #64748b; font-weight: 600;">Address</td>
+                <td style="padding: 10px 12px; font-size: 13px; color: #1e293b; font-weight: 600; text-align: right;">{customer_address.strip()}</td>
+            </tr>
+            """
+
+        html_content = f"""
+        <html>
+        <body style="font-family: 'Inter', system-ui, -apple-system, sans-serif; padding: 24px 12px; background: #f8fafc; color: #1e293b; margin: 0;">
+            <div style="max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 20px; padding: 32px 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
+                
+                <!-- Header Badge -->
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <div style="display: inline-block; background: #fef3c7; border: 1px solid #fde68a; border-radius: 50px; padding: 6px 16px; margin-bottom: 12px;">
+                        <span style="font-size: 13px; font-weight: 800; color: #b45309; text-transform: uppercase; letter-spacing: 0.5px;">🪙 New Scheme Enrollment</span>
+                    </div>
+                    <h2 style="color: #0f172a; font-size: 22px; font-weight: 800; margin: 0 0 6px 0;">{customer_name} Enrolled!</h2>
+                    <p style="color: #64748b; font-size: 13px; margin: 0;">{shop_name} &bull; {joined_at_str}</p>
+                </div>
+
+                <!-- Scheme Card Banner -->
+                <div style="background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border: 1px solid #fde68a; border-radius: 14px; padding: 18px 20px; margin-bottom: 24px; text-align: center;">
+                    <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #92400e;">Savings Scheme</span>
+                    <h3 style="font-size: 19px; font-weight: 800; color: #78350f; margin: 4px 0 8px 0;">{scheme_title}</h3>
+                    <div style="display: inline-block; background: #ffffff; border-radius: 20px; padding: 4px 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+                        <span style="font-size: 13px; font-weight: 800; color: #b45309;">Pass: {member_number}</span>
+                    </div>
+                </div>
+
+                <!-- Enrollment Details Table -->
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 10px 12px; font-size: 13px; color: #64748b; font-weight: 600;">Customer</td>
+                        <td style="padding: 10px 12px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right;">{customer_name}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 10px 12px; font-size: 13px; color: #64748b; font-weight: 600;">Mobile</td>
+                        <td style="padding: 10px 12px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right;">{customer_phone}</td>
+                    </tr>
+                    {address_row}
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 10px 12px; font-size: 13px; color: #64748b; font-weight: 600;">Installment Amount</td>
+                        <td style="padding: 10px 12px; font-size: 14px; color: #16a34a; font-weight: 800; text-align: right;">₹{installment_amount:,.2f} / {freq_label}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 10px 12px; font-size: 13px; color: #64748b; font-weight: 600;">Term Duration</td>
+                        <td style="padding: 10px 12px; font-size: 13px; color: #1e293b; font-weight: 700; text-align: right;">{duration_label}</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 10px 12px; font-size: 13px; color: #64748b; font-weight: 600;">Initial Payment</td>
+                        <td style="padding: 10px 12px; font-size: 13px; color: #16a34a; font-weight: 700; text-align: right;">Paid ({pay_method_label})</td>
+                    </tr>
+                </table>
+
+                <!-- Call to Action -->
+                <div style="text-align: center; margin-top: 24px;">
+                    <a href="{settings.FRONTEND_URL}/schemes" style="background: linear-gradient(135deg, #d97706 0%, #b45309 100%); color: #ffffff; padding: 13px 30px; text-decoration: none; border-radius: 12px; font-weight: 700; font-size: 14px; display: inline-block; box-shadow: 0 4px 14px rgba(217, 119, 6, 0.3);">
+                        View Schemes & Members
+                    </a>
+                </div>
+
+                <p style="text-align: center; font-size: 11px; color: #94a3b8; margin: 24px 0 0 0;">
+                    Automated notification from Menukit Scheme Management.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+
+        if not force_smtp and (self.mock_mode or settings.EMAIL_BACKEND in ("console", "mock")):
+            logger.info(f"[MOCK EMAIL] Scheme enrollment notification for {customer_name} sent to {email}")
+            print(f"\n\033[93m{'=' * 60}\033[0m")
+            print(f"\033[93m[SCHEME] NEW SCHEME ENROLLMENT EMAIL to: \033[1m{email}\033[0m")
+            print(f"\033[93m{customer_name} ({member_number}) enrolled in {scheme_title} | Installment: INR {installment_amount:.2f}\033[0m")
+            print(f"\033[93m{'=' * 60}\n\033[0m")
+            return True
+
+        return await self._dispatch_raw_email(email, subject, html_content)
+
     async def send_weekend_customer_summary_email(
         self,
         email: str,
@@ -457,35 +563,153 @@ class EmailService:
 
         return await self._dispatch_raw_email(email, subject, html_content)
 
-    async def _dispatch_raw_email(self, email: str, subject: str, html_content: str) -> bool:
-        """Helper to send arbitrary HTML emails via SMTP."""
-        try:
-            import aiosmtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
+    async def send_contact_enquiry_email(
+        self,
+        name: str,
+        email: str,
+        phone: str,
+        country: str,
+        district: str,
+        state: str = "",
+        business_name: str = "",
+        enquiry_type: str = "Demo Request",
+        message: str = "",
+        target_email: str = "debuggerstechs@gmail.com",
+        force_smtp: bool = False,
+    ) -> bool:
+        """Send notification of a customer enquiry / demo request to the business owner."""
+        subject = f"🚀 New MenuKit Enquiry ({enquiry_type}): {name} - {district}, {country}"
 
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"] = settings.SMTP_FROM_EMAIL
-            msg["To"] = email
+        location_str = f"{district}, {state}, {country}" if state else f"{district}, {country}"
+        business_row = f"""
+            <tr>
+                <td style="padding: 10px 14px; font-weight: 600; color: #475569; width: 150px; border-bottom: 1px solid #f1f5f9;">Business / Restaurant:</td>
+                <td style="padding: 10px 14px; color: #0f172a; font-weight: 700; border-bottom: 1px solid #f1f5f9;">{business_name}</td>
+            </tr>
+        """ if business_name else ""
 
-            msg.attach(MIMEText(html_content, "html"))
+        message_box = f"""
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-top: 18px;">
+                <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px;">Customer Message / Notes:</span>
+                <p style="margin: 8px 0 0 0; color: #1e293b; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">{message}</p>
+            </div>
+        """ if message else ""
 
-            use_tls = settings.SMTP_PORT == 465
-            start_tls = settings.SMTP_PORT == 587
+        html_content = f"""
+        <html>
+        <body style="font-family: 'Inter', system-ui, -apple-system, sans-serif; padding: 32px 16px; background: #f8fafc; color: #1e293b; margin: 0;">
+            <div style="max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 36px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
+                
+                <div style="text-align: center; margin-bottom: 28px; border-bottom: 1px solid #f1f5f9; padding-bottom: 20px;">
+                    <div style="display: inline-block; background: #fff7ed; border-radius: 12px; padding: 8px 16px; margin-bottom: 8px; border: 1px solid #fed7aa;">
+                        <span style="font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #ea580c;">✨ New Customer Enquiry</span>
+                    </div>
+                    <h2 style="color: #0f172a; font-size: 24px; font-weight: 900; margin: 6px 0 4px 0;">{enquiry_type}</h2>
+                    <p style="color: #64748b; font-size: 13px; margin: 0;">Submitted via MenuKit Contact Support & Demo Booking Page</p>
+                </div>
 
-            await aiosmtplib.send(
-                msg,
-                hostname=settings.SMTP_HOST,
-                port=settings.SMTP_PORT,
-                username=settings.SMTP_USER,
-                password=settings.SMTP_PASSWORD,
-                use_tls=use_tls,
-                start_tls=start_tls,
-            )
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px;">
+                    <tr>
+                        <td style="padding: 10px 14px; font-weight: 600; color: #475569; width: 150px; border-bottom: 1px solid #f1f5f9;">Contact Name:</td>
+                        <td style="padding: 10px 14px; color: #0f172a; font-weight: 700; border-bottom: 1px solid #f1f5f9;">{name}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px 14px; font-weight: 600; color: #475569; border-bottom: 1px solid #f1f5f9;">Phone / Mobile:</td>
+                        <td style="padding: 10px 14px; color: #ea580c; font-weight: 800; border-bottom: 1px solid #f1f5f9;">
+                            <a href="tel:{phone}" style="color: #ea580c; text-decoration: none;">{phone}</a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px 14px; font-weight: 600; color: #475569; border-bottom: 1px solid #f1f5f9;">Email Address:</td>
+                        <td style="padding: 10px 14px; color: #2563eb; font-weight: 700; border-bottom: 1px solid #f1f5f9;">
+                            <a href="mailto:{email}" style="color: #2563eb; text-decoration: none;">{email}</a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px 14px; font-weight: 600; color: #475569; border-bottom: 1px solid #f1f5f9;">Country:</td>
+                        <td style="padding: 10px 14px; color: #0f172a; font-weight: 600; border-bottom: 1px solid #f1f5f9;">{country}</td>
+                    </tr>
+                    {f'''<tr>
+                        <td style="padding: 10px 14px; font-weight: 600; color: #475569; border-bottom: 1px solid #f1f5f9;">State:</td>
+                        <td style="padding: 10px 14px; color: #0f172a; font-weight: 600; border-bottom: 1px solid #f1f5f9;">{state}</td>
+                    </tr>''' if state else ''}
+                    <tr>
+                        <td style="padding: 10px 14px; font-weight: 600; color: #475569; border-bottom: 1px solid #f1f5f9;">District:</td>
+                        <td style="padding: 10px 14px; color: #0f172a; font-weight: 700; border-bottom: 1px solid #f1f5f9;">{district}</td>
+                    </tr>
+                    {business_row}
+                </table>
+
+                {message_box}
+
+                <div style="margin-top: 30px; text-align: center;">
+                    <a href="mailto:{email}?subject=MenuKit {enquiry_type} - Reply to {name}" style="display: inline-block; background: #ea580c; color: #ffffff; font-weight: 700; font-size: 13px; text-decoration: none; padding: 12px 24px; border-radius: 10px; margin-right: 8px;">
+                        ✉️ Reply to Customer
+                    </a>
+                    <a href="tel:{phone}" style="display: inline-block; background: #0f172a; color: #ffffff; font-weight: 700; font-size: 13px; text-decoration: none; padding: 12px 24px; border-radius: 10px;">
+                        📞 Call Customer
+                    </a>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        if not force_smtp and (self.mock_mode or settings.EMAIL_BACKEND in ("console", "mock")):
+            logger.info(f"[ENQUIRY EMAIL] Sent to {target_email} from {name} ({email}, {phone}) - Location: {location_str}")
+            print(f"\n\033[93m{'=' * 65}\033[0m")
+            print(f"\033[93m🚀 NEW CONTACT ENQUIRY / DEMO REQUEST\033[0m")
+            print(f"\033[96mTo Admin        : \033[1m{target_email}\033[0m")
+            print(f"\033[92mCustomer        : \033[1m{name}\033[0m ({phone} | {email})")
+            print(f"\033[94mLocation        : \033[1m{location_str}\033[0m")
+            if business_name:
+                print(f"\033[95mBusiness        : \033[1m{business_name}\033[0m")
+            if message:
+                print(f"\033[97mMessage         : {message}\033[0m")
+            print(f"\033[93m{'=' * 65}\n\033[0m")
             return True
-        except Exception as e:
-            logger.error(f"Failed to dispatch email to {email}: {e}")
-            return False
+
+        return await self._dispatch_raw_email(target_email, subject, html_content)
+
+    async def _dispatch_raw_email(self, email: str, subject: str, html_content: str) -> bool:
+        """Helper to send arbitrary HTML emails via SMTP with retry mechanism."""
+        import asyncio
+        import aiosmtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = settings.SMTP_FROM_EMAIL
+        msg["To"] = email
+
+        msg.attach(MIMEText(html_content, "html"))
+
+        use_tls = settings.SMTP_PORT == 465
+        start_tls = settings.SMTP_PORT == 587
+
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                await aiosmtplib.send(
+                    msg,
+                    hostname=settings.SMTP_HOST,
+                    port=settings.SMTP_PORT,
+                    username=settings.SMTP_USER,
+                    password=settings.SMTP_PASSWORD,
+                    use_tls=use_tls,
+                    start_tls=start_tls,
+                    timeout=20,
+                )
+                logger.info(f"Successfully dispatched email to {email} (attempt {attempt})")
+                return True
+            except Exception as e:
+                last_error = e
+                logger.warning(f"SMTP dispatch attempt {attempt}/3 failed for {email}: {e}")
+                if attempt < 3:
+                    await asyncio.sleep(2)
+
+        logger.error(f"Failed to dispatch email to {email} after 3 attempts: {last_error}")
+        return False
 
 email_service = EmailService()

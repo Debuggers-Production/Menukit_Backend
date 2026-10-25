@@ -92,6 +92,7 @@ class ShopSettingsUpdate(BaseModel):
     online_payments_takeaway_enabled: Optional[bool] = None
     online_payments_delivery_enabled: Optional[bool] = None
     accept_after_payment: Optional[bool] = None
+    payment_timeout_minutes: Optional[int] = 15
     cashfree_app_id: Optional[str] = None
     cashfree_secret_key: Optional[str] = None
     cashfree_sandbox: Optional[bool] = None
@@ -191,6 +192,7 @@ class ShopSettingsResponse(BaseModel):
     online_payments_takeaway_enabled: bool = True
     online_payments_delivery_enabled: bool = True
     accept_after_payment: bool = False
+    payment_timeout_minutes: int = 15
     # GST & Compliances
     gst_enabled: bool = False
     gstin: Optional[str] = None
@@ -247,6 +249,8 @@ class ShopResponse(BaseModel):
     chalkboard: Optional[ChalkboardResponse] = None
     created_at: Optional[str] = None
     employee_permissions: Optional[dict] = None
+    is_subscribed: Optional[bool] = True
+    show_ads: Optional[bool] = False
 
     @field_validator("logo_url", "banner_url", mode="before")
     @classmethod

@@ -13,6 +13,9 @@ class DiscountCreate(BaseModel):
     description: Optional[str] = None
     discount_type: str = "percentage"  # "percentage" | "flat" | "bogo" | "combo" | "free_item"
     discount_value: Optional[Decimal] = None
+    min_order_value: Optional[Decimal] = None
+    max_order_value: Optional[Decimal] = None
+    max_discount_amount: Optional[Decimal] = None
     buy_quantity: Optional[int] = None
     get_quantity: Optional[int] = None
     reward_target_ids: Optional[List[str]] = None
@@ -34,6 +37,9 @@ class DiscountUpdate(BaseModel):
     description: Optional[str] = None
     discount_type: Optional[str] = None
     discount_value: Optional[Decimal] = None
+    min_order_value: Optional[Decimal] = None
+    max_order_value: Optional[Decimal] = None
+    max_discount_amount: Optional[Decimal] = None
     buy_quantity: Optional[int] = None
     get_quantity: Optional[int] = None
     reward_target_ids: Optional[List[str]] = None
@@ -93,6 +99,9 @@ class DiscountResponse(BaseModel):
     description: Optional[str] = None
     discount_type: str
     discount_value: Optional[str] = None
+    min_order_value: Optional[str] = None
+    max_order_value: Optional[str] = None
+    max_discount_amount: Optional[str] = None
     buy_quantity: Optional[int] = None
     get_quantity: Optional[int] = None
     reward_target_ids: Optional[List[str]] = None

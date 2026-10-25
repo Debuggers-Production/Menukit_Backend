@@ -19,9 +19,14 @@ class Discount(Base, UUIDMixin, TimestampMixin):
     code: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # "percentage", "flat", "bogo", "combo"
+    # "percentage", "flat", "bogo", "combo", "free_item"
     discount_type: Mapped[str] = mapped_column(String(20), default="percentage", nullable=False)
     discount_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+
+    # Minimum spend required, optional maximum spend limit (spend range), and optional max discount cap
+    min_order_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    max_order_value: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    max_discount_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     # Advanced mechanics (BOGO & Combo)
     buy_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)

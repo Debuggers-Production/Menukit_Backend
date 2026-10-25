@@ -104,9 +104,20 @@ class Settings(BaseSettings):
     # Exempted Phone Numbers (can be comma-separated string or list)
     EXEMPTED_PHONE_NUMBERS: str = "8248692839"
 
+    # Firebase Cloud Messaging (FCM Push Notifications)
+    FCM_ENABLED: bool = True
+    FIREBASE_CREDENTIALS_PATH: Optional[str] = None
+    FIREBASE_CREDENTIALS_JSON: Optional[str] = None
+    FIREBASE_PROJECT_ID: Optional[str] = None
+
+    # Ad & Subscription Simulation Flags
+    SIMULATE_SUBSCRIPTION_EXPIRED: bool = False
+    FORCE_SHOW_ADS: bool = False
+
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 
 @lru_cache

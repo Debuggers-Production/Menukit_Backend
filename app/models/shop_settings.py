@@ -51,6 +51,7 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     online_payments_takeaway_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     online_payments_delivery_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     accept_after_payment: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    payment_timeout_minutes: Mapped[int] = mapped_column(default=15, nullable=False)
 
     # GST & Compliances settings
     gst_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

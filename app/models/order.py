@@ -2,7 +2,7 @@
 
 from datetime import datetime
 import uuid
-from sqlalchemy import String, ForeignKey, Numeric, Boolean, Index, DateTime, text
+from sqlalchemy import String, ForeignKey, Numeric, Boolean, Index, DateTime, text, Float
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base, UUIDMixin, TimestampMixin
@@ -30,6 +30,7 @@ class Order(Base, UUIDMixin, TimestampMixin):
     split_payments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     price_tier: Mapped[str | None] = mapped_column(String(50), default="retail", nullable=True)  # 'retail', 'wholesale', 'other'
     total_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    delivery_fee: Mapped[float | None] = mapped_column(Float, default=0.0, nullable=True)
     daily_order_number: Mapped[int | None] = mapped_column(nullable=True)
     cashfree_order_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     payment_session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
