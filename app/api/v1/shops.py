@@ -325,14 +325,7 @@ async def get_my_shop(
     return response
 
 
-async def invalidate_shop_cache(shop_id: uuid.UUID):
-    """Invalidate Redis public shop cache."""
-    try:
-        from app.database.redis import get_redis
-        r_client = await get_redis()
-        await r_client.delete(f"public:shop:{str(shop_id)}")
-    except Exception:
-        pass
+from app.database.redis import invalidate_shop_cache
 
 
 @router.put("/me", response_model=ShopResponse)
