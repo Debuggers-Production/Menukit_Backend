@@ -154,7 +154,7 @@ class ShopService:
         result = await self.db.execute(
             select(Shop)
             .options(selectinload(Shop.settings), selectinload(Shop.theme), selectinload(Shop.chalkboard))
-            .where(Shop.user_id == user_id)
+            .where(Shop.user_id == user_id, Shop.is_deleted.is_(False))
             .order_by(Shop.created_at.asc())
         )
         return result.scalars().first()
@@ -169,7 +169,7 @@ class ShopService:
         owned_result = await self.db.execute(
             select(Shop)
             .options(selectinload(Shop.settings), selectinload(Shop.theme), selectinload(Shop.chalkboard))
-            .where(Shop.user_id == user_id)
+            .where(Shop.user_id == user_id, Shop.is_deleted.is_(False))
         )
         owned_shops = owned_result.scalars().all()
         
@@ -202,6 +202,29 @@ class ShopService:
 
         return {"owned": owned_shops, "employed": employed_shops}
 
+    async def soft_delete_shop(self, shop_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        """Soft-delete a shop (sets is_deleted = True, is_active = False, deleted_at = now). Data is preserved for restoration."""
+        from datetime import datetime, timezone
+        from fastapi import HTTPException
+        shop = await self.db.get(Shop, shop_id)
+        if not shop:
+            return False
+        if shop.user_id != user_id:
+            raise HTTPException(status_code=403, detail="You do not have permission to delete this shop")
+        
+        shop.is_deleted = True
+        shop.is_active = False
+        shop.deleted_at = datetime.now(timezone.utc)
+        await self.db.commit()
+
+        try:
+            from app.database.redis import invalidate_shop_cache
+            await invalidate_shop_cache(shop.id)
+        except Exception as e:
+            logger.warning(f"Failed to invalidate cache for deleted shop {shop_id}: {e}")
+
+        return True
+
     async def get_shop_by_slug(self, slug: str) -> Optional[Shop]:
         """Get shop by its URL slug."""
         result = await self.db.execute(
@@ -211,7 +234,7 @@ class ShopService:
                 selectinload(Shop.theme),
                 selectinload(Shop.chalkboard),
             )
-            .where(Shop.slug == slug, Shop.is_active == True)
+            .where(Shop.slug == slug, Shop.is_active == True, Shop.is_deleted.is_(False))
         )
         return result.scalar_one_or_none()
 

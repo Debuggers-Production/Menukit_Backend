@@ -55,6 +55,10 @@ icecream
 # Payment
 razorpay
 
+# MCP
+mcp<2
+fastmcp
+
 pytz
 
 # Firebase Cloud Messaging (FCM Push Notifications)

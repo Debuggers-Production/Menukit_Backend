@@ -115,14 +115,14 @@ async def _dispatch_template(
     if t_key == "auth_otp":
         otp = "739201"
         res = await email_service.send_otp_email(email=email, otp_code=otp, force_smtp=force_smtp)
-        return {"template": "auth_otp", "success": res, "subject": f"Your SmartMenu QR Login Code: {otp}"}
+        return {"template": "auth_otp", "success": res, "subject": f"Your MenuKit Verification Code is {otp}"}
 
     elif t_key == "deletion_otp":
         otp = "842915"
         res = await email_service.send_deletion_otp_email(
             email=email, otp_code=otp, target="Categories & Menu Items", force_smtp=force_smtp
         )
-        return {"template": "deletion_otp", "success": res, "subject": f"⚠️ Security Alert: OTP to Confirm Deletion ({otp})"}
+        return {"template": "deletion_otp", "success": res, "subject": f"Your MenuKit Verification Code is {otp}"}
 
     elif t_key == "employee_invite":
         token = str(uuid.uuid4())

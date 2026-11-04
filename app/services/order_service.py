@@ -203,6 +203,7 @@ class OrderService:
                         "name": it.name,
                         "quantity": it.quantity,
                         "price": float(it.price or 0.0),
+                        "is_taxable": bool(getattr(it, "is_taxable", True)),
                         "variant_info": it.variant_info,
                         "addons_info": it.addons_info,
                         "is_completed": bool(getattr(it, "is_completed", False)),
@@ -501,6 +502,9 @@ class OrderService:
 
                     # Append new items to existing active dine-in order
                     for it in data.items:
+                        item_is_taxable = getattr(it, "is_taxable", None)
+                        if item_is_taxable is None and it.menu_item_id and it.menu_item_id in item_map:
+                            item_is_taxable = getattr(item_map[it.menu_item_id], "is_taxable", True)
                         new_item = OrderItem(
                             id=uuid.uuid4(),
                             order_id=existing_dinein_order.id,
@@ -508,6 +512,7 @@ class OrderService:
                             name=it.name,
                             quantity=it.quantity,
                             price=it.price,
+                            is_taxable=True if item_is_taxable is None else bool(item_is_taxable),
                             variant_info=it.variant_info,
                             addons_info=it.addons_info,
                             is_completed=False,
@@ -519,18 +524,23 @@ class OrderService:
                     await self.db.flush()
                     await self.db.refresh(existing_dinein_order, attribute_names=["items"])
 
-                    # Recompute total_amount with GST
+                    # Recompute total_amount with GST (only on taxable items)
+                    active_items = [item for item in (existing_dinein_order.items or []) if not item.is_cancelled]
                     active_subtotal = sum(
                         float(item.price or 0.0) * int(item.quantity or 1)
-                        for item in (existing_dinein_order.items or [])
-                        if not item.is_cancelled
+                        for item in active_items
+                    )
+                    taxable_subtotal = sum(
+                        float(item.price or 0.0) * int(item.quantity or 1)
+                        for item in active_items
+                        if getattr(item, "is_taxable", True)
                     )
                     tax_amount = 0.0
                     if settings.gst_enabled and not settings.inclusive_tax:
                         cgst_rate = float(settings.cgst_rate or 0.0)
                         sgst_rate = float(settings.sgst_rate or 0.0)
                         total_tax_rate = cgst_rate + sgst_rate
-                        tax_amount = round(active_subtotal * (total_tax_rate / 100.0), 2)
+                        tax_amount = round(taxable_subtotal * (total_tax_rate / 100.0), 2)
 
                     # If the existing order was already paid, record prior paid base into split_payments and mark payment as pending for the newly added items
                     if str(existing_dinein_order.payment_status or "").lower() == "paid":
@@ -661,9 +671,12 @@ class OrderService:
                         id=uuid.uuid4(),
                         customer_id=customer.id,
                         shop_id=shop.id,
-                        is_retailer_added=True
+                        is_retailer_added=True,
+                        customer_name=cust_name
                     )
                     self.db.add(membership)
+                elif cust_name and not membership.customer_name:
+                    membership.customer_name = cust_name
 
         # 3. Create OrderItem instances
         order_id = uuid.uuid4()
@@ -711,6 +724,7 @@ class OrderService:
                 name=it.name,
                 quantity=it.quantity,
                 price=unit_price if unit_price is not None else it.price,
+                is_taxable=getattr(it, "is_taxable", None) if getattr(it, "is_taxable", None) is not None else (getattr(menu_item, "is_taxable", True) if menu_item else True),
                 variant_info=it.variant_info,
                 addons_info=it.addons_info,
             )
@@ -2016,10 +2030,15 @@ class OrderService:
 
         tax_amount = 0.0
         if shop_st and shop_st.gst_enabled and not shop_st.inclusive_tax:
+            taxable_subtotal = sum(
+                float(it.price or 0.0) * int(it.quantity or 1)
+                for it in (order.items or [])
+                if not it.is_cancelled and getattr(it, "is_taxable", True)
+            )
             cgst_rate = float(shop_st.cgst_rate or 0.0)
             sgst_rate = float(shop_st.sgst_rate or 0.0)
-            cgst = round(active_items_subtotal * (cgst_rate / 100.0), 2)
-            sgst = round(active_items_subtotal * (sgst_rate / 100.0), 2)
+            cgst = round(taxable_subtotal * (cgst_rate / 100.0), 2)
+            sgst = round(taxable_subtotal * (sgst_rate / 100.0), 2)
             tax_amount = round(cgst + sgst, 2)
 
         order.total_amount = round(active_items_subtotal + tax_amount, 2)
@@ -2352,10 +2371,15 @@ class OrderService:
             
             tax_amount = 0.0
             if shop_st and shop_st.gst_enabled and not shop_st.inclusive_tax:
+                taxable_subtotal = sum(
+                    float(it.price or 0.0) * int(it.quantity or 1)
+                    for it in (order.items or [])
+                    if not it.is_cancelled and getattr(it, "is_taxable", True)
+                )
                 cgst_rate = float(shop_st.cgst_rate or 0.0)
                 sgst_rate = float(shop_st.sgst_rate or 0.0)
                 total_tax_rate = cgst_rate + sgst_rate
-                tax_amount = round(active_items_subtotal * (total_tax_rate / 100.0), 2)
+                tax_amount = round(taxable_subtotal * (total_tax_rate / 100.0), 2)
 
             order.total_amount = round(active_items_subtotal + tax_amount, 2)
 
@@ -2502,10 +2526,15 @@ class OrderService:
         
         tax_amount = 0.0
         if shop_st and shop_st.gst_enabled and not shop_st.inclusive_tax:
+            taxable_subtotal = sum(
+                float(it.price or 0.0) * int(it.quantity or 1)
+                for it in (order.items or [])
+                if not it.is_cancelled and getattr(it, "is_taxable", True)
+            )
             cgst_rate = float(shop_st.cgst_rate or 0.0)
             sgst_rate = float(shop_st.sgst_rate or 0.0)
             total_tax_rate = cgst_rate + sgst_rate
-            tax_amount = round(active_items_subtotal * (total_tax_rate / 100.0), 2)
+            tax_amount = round(taxable_subtotal * (total_tax_rate / 100.0), 2)
 
         order.total_amount = round(active_items_subtotal + tax_amount, 2)
 
@@ -2627,10 +2656,15 @@ class OrderService:
 
         tax_amount = 0.0
         if shop_st and shop_st.gst_enabled and not shop_st.inclusive_tax:
+            taxable_subtotal = sum(
+                float(it.price or 0.0) * int(it.quantity or 1)
+                for it in (order.items or [])
+                if not it.is_cancelled and getattr(it, "is_taxable", True)
+            )
             cgst_rate = float(shop_st.cgst_rate or 0.0)
             sgst_rate = float(shop_st.sgst_rate or 0.0)
             total_tax_rate = cgst_rate + sgst_rate
-            tax_amount = round(active_items_subtotal * (total_tax_rate / 100.0), 2)
+            tax_amount = round(taxable_subtotal * (total_tax_rate / 100.0), 2)
 
         new_subtotal = round(active_items_subtotal + tax_amount, 2)
 
@@ -2681,6 +2715,10 @@ class OrderService:
         now = datetime.now(timezone.utc)
 
         for disc in discounts:
+            # Direct price drop discounts allow unlimited repeat uses and don't redeem one-time codes
+            if getattr(disc, "is_price_drop", False):
+                continue
+
             # Check if customer has already used this discount
             if phone_variants:
                 last4 = cust_phone[-4:].upper() if len(cust_phone) >= 4 else ""
@@ -3047,14 +3085,21 @@ class OrderService:
 
         discounted_food = max(0.0, items_subtotal - discount_amount)
 
-        # 4. GST calculation
+        # 4. GST calculation (only on taxable items)
         tax_amount = 0.0
         if shop_st and shop_st.gst_enabled and not shop_st.inclusive_tax:
             cgst_rate = float(shop_st.cgst_rate or 0.0)
             sgst_rate = float(shop_st.sgst_rate or 0.0)
             total_tax_rate = cgst_rate + sgst_rate
             if total_tax_rate > 0:
-                tax_amount = round(discounted_food * (total_tax_rate / 100.0), 2)
+                taxable_items_subtotal = sum(
+                    float(it.price or 0.0) * int(it.quantity or 1)
+                    for it in active_items
+                    if getattr(it, "is_taxable", True)
+                )
+                taxable_ratio = (taxable_items_subtotal / items_subtotal) if items_subtotal > 0 else 0.0
+                taxable_discounted = max(0.0, taxable_items_subtotal - (discount_amount * taxable_ratio))
+                tax_amount = round(taxable_discounted * (total_tax_rate / 100.0), 2)
 
         # 5. Delivery fee preservation
         delivery_fee = 0.0

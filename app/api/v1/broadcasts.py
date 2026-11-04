@@ -459,12 +459,18 @@ async def cancel_scheduled_campaign(
     shop = Depends(require_permission("marketing", "write")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Cancel / delete a scheduled or draft campaign."""
+    """Cancel / delete a scheduled or draft campaign and refund reserved credits."""
     service = BroadcastService(db)
-    success = await service.cancel_campaign(shop.id, campaign_id)
-    if not success:
+    try:
+        result = await service.cancel_campaign(shop.id, campaign_id)
+        return result
+    except ValueError as e:
         raise HTTPException(
             status_code=400,
-            detail="Cannot cancel campaign. It may already be sent or does not exist.",
+            detail=str(e),
         )
-    return {"success": True, "message": "Campaign removed successfully"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to cancel campaign",
+        )

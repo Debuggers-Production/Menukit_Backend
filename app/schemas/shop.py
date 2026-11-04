@@ -113,6 +113,7 @@ class ShopSettingsUpdate(BaseModel):
     serial_number_prefix: Optional[str] = None
     serial_number_digits: Optional[int] = None
     auto_serial_number_enabled: Optional[bool] = None
+    wholesale_pricing_enabled: Optional[bool] = None
     # Return, Refund & Replacement Policies
     return_allowed: Optional[bool] = None
     return_window_days: Optional[int] = None
@@ -206,6 +207,7 @@ class ShopSettingsResponse(BaseModel):
     serial_number_prefix: Optional[str] = ""
     serial_number_digits: int = 3
     auto_serial_number_enabled: bool = False
+    wholesale_pricing_enabled: bool = False
     # Return, Refund & Replacement Policies
     return_allowed: bool = False
     return_window_days: int = 0

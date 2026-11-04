@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Query, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import get_db
 from app.database.redis import get_redis
@@ -125,6 +125,46 @@ async def get_me(user: User = Depends(get_current_user)):
         last_login=str(user.last_login) if user.last_login else None,
         created_at=str(user.created_at),
     )
+
+
+@router.post("/delete-account/request-otp", response_model=MessageResponse)
+async def request_account_deletion_otp(
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    redis=Depends(get_redis),
+):
+    """Request an OTP sent to user's registered email to authorize account deactivation & deletion."""
+    otp_service = OTPService(redis)
+    code = await otp_service.create_otp(user.email, rate_limit_type="deletion")
+    if code is None:
+        raise RateLimitException("Too many deletion OTP requests. Please try again later.")
+    
+    email_service = EmailService()
+    background_tasks.add_task(email_service.send_deletion_otp_email, user.email, code, target="Master Account & all associated shops")
+    return MessageResponse(message=f"Account deletion OTP sent successfully to {user.email}")
+
+
+@router.delete("/me", response_model=MessageResponse)
+async def delete_me(
+    code: str = Query(..., description="OTP verification code received via email"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    """Soft-delete user account and all shops after OTP verification (is_deleted=True, restorable upon client claim)."""
+    otp_service = OTPService(redis)
+    is_valid = await otp_service.verify_otp(user.email, code)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Invalid or expired deletion OTP code")
+
+    auth_service = AuthService(db)
+    success = await auth_service.delete_user_account(user.id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    return MessageResponse(message="Account successfully deactivated and marked for soft-deletion. Retrievable upon support claim.")
 
 
 @router.post("/phone/send-otp", response_model=MessageResponse)

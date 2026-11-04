@@ -1,7 +1,7 @@
 """Shop management API endpoints."""
 
 import uuid
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -17,6 +17,7 @@ from app.schemas.shop import (
 from app.schemas.chalkboard import ChalkboardUpdate, ChalkboardResponse
 from app.services.shop_service import ShopService
 from app.models.user import User
+from app.models.shop import Shop
 
 import hmac
 import hashlib
@@ -28,6 +29,12 @@ from app.core.config import get_settings, is_phone_exempt
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+from app.schemas.common import MessageResponse
+from app.database.redis import get_redis
+from app.services.otp_service import OTPService
+from app.services.email_service import EmailService
+from app.core.exceptions import RateLimitException, BadRequestException
 
 router = APIRouter(prefix="/shops", tags=["shops"])
 
@@ -526,9 +533,27 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
         chalkboard_resp = ChalkboardResponse.model_validate(shop.chalkboard)
 
     import os
-    sim_expired = (
+    from app.core.config import get_settings
+    settings = get_settings()
+
+    stop_ads_env = os.getenv("STOP_ADS", "").lower()
+    disable_ads_env = os.getenv("DISABLE_ADS", "").lower()
+    enable_ads_env = os.getenv("ENABLE_ADS", "").lower()
+
+    ads_stopped = (
+        stop_ads_env in ("true", "1", "yes") or
+        disable_ads_env in ("true", "1", "yes") or
+        enable_ads_env in ("false", "0", "no") or
+        getattr(settings, "STOP_ADS", False) or
+        getattr(settings, "DISABLE_ADS", False) or
+        not getattr(settings, "ENABLE_ADS", True)
+    )
+
+    sim_expired = not ads_stopped and (
         os.getenv("SIMULATE_SUBSCRIPTION_EXPIRED", "false").lower() == "true" or 
-        os.getenv("FORCE_SHOW_ADS", "false").lower() == "true"
+        os.getenv("FORCE_SHOW_ADS", "false").lower() == "true" or
+        getattr(settings, "FORCE_SHOW_ADS", False) or
+        getattr(settings, "SIMULATE_SUBSCRIPTION_EXPIRED", False)
     )
     if sim_expired:
         is_subbed = False
@@ -563,7 +588,7 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
         chalkboard=chalkboard_resp,
         created_at=str(shop.created_at),
         is_subscribed=is_subbed,
-        show_ads=not is_subbed,
+        show_ads=False if ads_stopped else (not is_subbed),
     )
 
 
@@ -622,3 +647,49 @@ def _shop_to_response(shop) -> ShopResponse:
         created_at=str(shop.created_at),
     )
 
+
+
+@router.post("/{shop_id}/delete/request-otp", response_model=MessageResponse)
+async def request_shop_deletion_otp(
+    shop_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    """Request an OTP sent to owner's registered email to authorize individual shop deactivation & deletion."""
+    shop = await db.get(Shop, shop_id)
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    if shop.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the shop owner can delete this shop")
+
+    otp_service = OTPService(redis)
+    code = await otp_service.create_otp(user.email, rate_limit_type="deletion")
+    if code is None:
+        raise RateLimitException("Too many deletion OTP requests. Please try again later.")
+
+    email_service = EmailService()
+    await email_service.send_deletion_otp_email(user.email, code, target=f"Shop: {shop.name}")
+    return MessageResponse(message=f"Shop deletion OTP sent successfully to {user.email}")
+
+
+@router.delete("/{shop_id}", response_model=MessageResponse)
+async def delete_shop(
+    shop_id: uuid.UUID,
+    code: str = Query(..., description="OTP verification code received via email"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+):
+    """Soft-delete individual shop after OTP verification (is_deleted=True, restorable upon client claim)."""
+    otp_service = OTPService(redis)
+    is_valid = await otp_service.verify_otp(user.email, code)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Invalid or expired deletion OTP code")
+
+    service = ShopService(db)
+    success = await service.soft_delete_shop(shop_id, user.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Shop not found")
+
+    return MessageResponse(message="Shop successfully deactivated and marked for soft-deletion. Retrievable upon support claim.")

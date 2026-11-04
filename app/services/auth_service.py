@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_access_token, create_refresh_token, verify_refresh_token
 from app.core.config import get_settings
 from app.models.user import User
+from app.models.shop import Shop
 from app.models.session import Session
 from app.models.activity_log import ActivityLog
 
@@ -169,3 +170,21 @@ class AuthService:
         """Get user by ID."""
         result = await self.db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
+
+    async def delete_user_account(self, user_id: uuid.UUID) -> bool:
+        """Permanently delete user account and cascade delete all personal store data."""
+        user = await self.get_user_by_id(user_id)
+        if not user:
+            return False
+        now = datetime.now(timezone.utc)
+        user.is_active = False
+        user.is_deleted = True
+        user.deleted_at = now
+        result = await self.db.execute(select(Shop).where(Shop.user_id == user_id))
+        user_shops = result.scalars().all()
+        for shop in user_shops:
+            shop.is_active = False
+            shop.is_deleted = True
+            shop.deleted_at = now
+        await self.db.commit()
+        return True

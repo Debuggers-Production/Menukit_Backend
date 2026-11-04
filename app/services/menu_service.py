@@ -298,6 +298,7 @@ class MenuService:
         food_type: Optional[str] = None,
         search: Optional[str] = None,
         status: Optional[str] = None,
+        is_taxable: Optional[bool] = None,
         has_image: Optional[bool] = None,
         sort_by: Optional[str] = None,
         skip: int = 0,
@@ -375,6 +376,13 @@ class MenuService:
                 query = query.where(MenuItem.images.any((MenuImage.image_url.is_not(None)) & (MenuImage.image_url != "")))
             elif status in ("non_contain_image", "no_image", "without_image"):
                 query = query.where(~MenuItem.images.any((MenuImage.image_url.is_not(None)) & (MenuImage.image_url != "")))
+            elif status == "taxable":
+                query = query.where(MenuItem.is_taxable == True)
+            elif status in ("non_taxable", "nontaxable", "exempt"):
+                query = query.where(MenuItem.is_taxable == False)
+
+        if is_taxable is not None:
+            query = query.where(MenuItem.is_taxable == is_taxable)
 
         if has_image is not None:
             if has_image:

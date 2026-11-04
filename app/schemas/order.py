@@ -11,6 +11,7 @@ class OrderItemBase(BaseModel):
     name: str
     quantity: int
     price: float
+    is_taxable: bool = True
     variant_info: Optional[dict] = None
     addons_info: Optional[List[dict]] = None
     applied_discount_id: Optional[uuid.UUID] = None

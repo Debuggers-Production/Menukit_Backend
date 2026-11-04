@@ -76,6 +76,7 @@ class OrderItem(Base, UUIDMixin, TimestampMixin):
     applied_discount_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'), nullable=False)
     is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'), nullable=False)
+    is_taxable: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text('true'), nullable=False)
     cancellation_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Relationships

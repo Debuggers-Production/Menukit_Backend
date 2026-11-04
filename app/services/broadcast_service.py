@@ -323,6 +323,7 @@ class BroadcastService:
                 print(f"Refunded {failed_count} broadcast credits to shop {shop_obj.name} (failed deliveries)")
 
             await session.commit()
+            print(f"[BroadcastScheduler] Campaign {campaign_id} delivery finished: {sent_count} sent, {failed_count} failed. Final Status: {campaign.status}")
 
 
 
@@ -390,18 +391,58 @@ class BroadcastService:
         return items, total
 
 
-    async def cancel_campaign(self, shop_id: uuid.UUID, campaign_id: uuid.UUID) -> bool:
+    async def cancel_campaign(self, shop_id: uuid.UUID, campaign_id: uuid.UUID) -> dict:
         stmt = (
             select(BroadcastCampaign)
             .where(BroadcastCampaign.id == campaign_id, BroadcastCampaign.shop_id == shop_id)
         )
         res = await self.db.execute(stmt)
         campaign = res.scalar_one_or_none()
-        if not campaign or campaign.status == "SENT":
-            return False
+        if not campaign:
+            raise ValueError("Campaign not found")
+        if campaign.status in ("SENT", "PROCESSING"):
+            raise ValueError(f"Cannot cancel campaign with status '{campaign.status}'.")
+
+        refunded_credits = 0
+        if campaign.status == "SCHEDULED" and campaign.total_recipients > 0:
+            refunded_credits = campaign.total_recipients
+            shop_stmt = select(Shop).where(Shop.id == shop_id)
+            shop_res = await self.db.execute(shop_stmt)
+            shop_obj = shop_res.scalar_one_or_none()
+            if shop_obj:
+                shop_obj.broadcast_credits = (shop_obj.broadcast_credits or 0) + refunded_credits
+
         await self.db.delete(campaign)
         await self.db.commit()
-        return True
+        return {
+            "success": True,
+            "refunded_credits": refunded_credits,
+            "message": f"Campaign cancelled successfully. {refunded_credits} credits refunded to your balance." if refunded_credits > 0 else "Campaign removed successfully.",
+        }
+
+    async def dispatch_due_scheduled_campaigns(self):
+        """Find any scheduled campaigns whose scheduled_at timestamp has passed and dispatch them."""
+        now = datetime.now(timezone.utc)
+        stmt = (
+            select(BroadcastCampaign)
+            .where(
+                BroadcastCampaign.status == "SCHEDULED",
+                BroadcastCampaign.scheduled_at.is_not(None),
+                BroadcastCampaign.scheduled_at <= now,
+            )
+        )
+        res = await self.db.execute(stmt)
+        due_campaigns = list(res.scalars().all())
+
+        if due_campaigns:
+            print(f"[BroadcastScheduler] Found {len(due_campaigns)} due campaign(s) ready to trigger.")
+
+        for camp in due_campaigns:
+            print(f"[BroadcastScheduler] Triggering campaign {camp.id} (Scheduled for: {camp.scheduled_at})")
+            camp.status = "PROCESSING"
+            await self.db.commit()
+            import asyncio
+            asyncio.create_task(self._send_broadcast_now(camp.id))
 
     async def get_media_library(self, shop_id: uuid.UUID) -> List[str]:
         """Fetch distinct previous campaign image URLs for this shop (max 4)."""

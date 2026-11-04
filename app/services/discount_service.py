@@ -60,9 +60,6 @@ class DiscountService:
         else:
             data["code"] = None
 
-        if (data.get("min_order_value") and float(data.get("min_order_value") or 0) > 0) or (data.get("max_order_value") and float(data.get("max_order_value") or 0) > 0):
-            data["is_price_drop"] = False
-
         discount = Discount(menu_catalog_id=catalog_id, **data)
         self.db.add(discount)
         await self.db.flush()
@@ -124,11 +121,6 @@ class DiscountService:
 
         if "code" in data and data["code"]:
             data["code"] = str(data["code"]).strip().upper()
-
-        effective_min = data.get("min_order_value") if "min_order_value" in data else discount.min_order_value
-        effective_max = data.get("max_order_value") if "max_order_value" in data else discount.max_order_value
-        if (effective_min and float(effective_min or 0) > 0) or (effective_max and float(effective_max or 0) > 0):
-            data["is_price_drop"] = False
 
         for key, value in data.items():
             if value is not None and hasattr(discount, key):

@@ -26,7 +26,7 @@ class MenuImageResponse(BaseModel):
 class MenuItemVariant(BaseModel):
     """Menu item variant."""
     name: str
-    price: str
+    price: Optional[str] = None  # None when show_prices=False
     offer_price: Optional[str] = None
     wholesale_price: Optional[str] = None
     other_price: Optional[str] = None
@@ -64,6 +64,7 @@ class MenuItemCreate(BaseModel):
     is_bestseller: bool = False
     is_highlighted: bool = False
     is_available: bool = True
+    is_taxable: bool = True
     display_order: Optional[int] = 0
     variants: Optional[List[MenuItemVariant]] = []
     addons: Optional[List[MenuItemAddon]] = None
@@ -122,6 +123,7 @@ class MenuItemUpdate(BaseModel):
     is_bestseller: Optional[bool] = None
     is_highlighted: Optional[bool] = None
     is_available: Optional[bool] = None
+    is_taxable: Optional[bool] = None
     display_order: Optional[int] = None
     variants: Optional[List[MenuItemVariant]] = None
     addons: Optional[List[MenuItemAddon]] = None
@@ -175,7 +177,7 @@ class MenuItemResponse(BaseModel):
     wholesale_multiplier: Optional[int] = 1
     other_multiplier: Optional[int] = 1
     description: Optional[str] = None
-    price: str
+    price: Optional[str] = None  # None when show_prices=False for public menu
     offer_price: Optional[str] = None
     wholesale_price: Optional[str] = None
     other_price: Optional[str] = None
@@ -186,6 +188,7 @@ class MenuItemResponse(BaseModel):
     is_bestseller: bool
     is_highlighted: bool
     is_available: bool
+    is_taxable: bool = True
     display_order: int
     image_url: Optional[str] = None
     thumbnail_url: Optional[str] = None

@@ -27,15 +27,18 @@ class CustomerService:
         result = await self.db.execute(stmt)
         return result.scalars().first()
 
-
     async def register_customer(self, name: str, mobile_number: str) -> Customer:
         # Check if already exists
         existing = await self.get_customer_by_mobile(mobile_number)
         if existing:
-            # Update name if provided? Just return existing for now
+            # If existing customer doesn't have a name set yet, fill it; never overwrite another shop's customer name globally
+            if not existing.name and name and name.strip():
+                existing.name = name.strip()
+                await self.db.commit()
+                await self.db.refresh(existing)
             return existing
             
-        customer = Customer(name=name, mobile_number=mobile_number)
+        customer = Customer(name=name.strip() if name else None, mobile_number=mobile_number.strip())
         self.db.add(customer)
         await self.db.commit()
         await self.db.refresh(customer)
@@ -53,17 +56,32 @@ class CustomerService:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def add_membership(self, customer_id: uuid.UUID, shop_id: uuid.UUID, is_retailer_added: bool = False) -> CustomerRetailerMembership:
-        # Check if already a member
+    async def add_membership(
+        self,
+        customer_id: uuid.UUID,
+        shop_id: uuid.UUID,
+        is_retailer_added: bool = False,
+        customer_name: Optional[str] = None
+    ) -> CustomerRetailerMembership:
+        # Check if already a member of this shop
         stmt = select(CustomerRetailerMembership).where(
             CustomerRetailerMembership.customer_id == customer_id,
             CustomerRetailerMembership.shop_id == shop_id
         )
         result = await self.db.execute(stmt)
         existing = result.scalar_one_or_none()
+        
+        trimmed_name = customer_name.strip() if customer_name and customer_name.strip() else None
+
         if existing:
+            changed = False
             if is_retailer_added and not existing.is_retailer_added:
                 existing.is_retailer_added = True
+                changed = True
+            if trimmed_name and existing.customer_name != trimmed_name:
+                existing.customer_name = trimmed_name
+                changed = True
+            if changed:
                 await self.db.commit()
                 await self.db.refresh(existing)
             return existing
@@ -71,7 +89,8 @@ class CustomerService:
         membership = CustomerRetailerMembership(
             customer_id=customer_id,
             shop_id=shop_id,
-            is_retailer_added=is_retailer_added
+            is_retailer_added=is_retailer_added,
+            customer_name=trimmed_name
         )
         self.db.add(membership)
         await self.db.commit()

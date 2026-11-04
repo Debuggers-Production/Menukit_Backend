@@ -12,7 +12,8 @@ DEFAULT_THEME_DICT = {
     "discount_card_style": "modern",
     "menu_item_style": "default",
     "font_family": "Inter",
-    "theme_scope": "public"
+    "theme_scope": "public",
+    "border_radius": "smooth"
 }
 
 

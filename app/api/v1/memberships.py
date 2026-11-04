@@ -80,9 +80,11 @@ async def add_member(
     await check_memberships_subscription(shop_id, db, require_details=True)
 
     membership_service = MembershipService(db)
-    membership = await membership_service.add_member(shop_id, data.name, data.mobile_number)
-    
-    return {"message": "Member added successfully", "customer_id": membership.customer_id}
+    try:
+        membership = await membership_service.add_member(shop_id, data.name, data.mobile_number)
+        return {"message": "Member added successfully", "customer_id": membership.customer_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/retailer/{shop_id}/analytics", response_model=MembershipAnalyticsResponse)
@@ -138,7 +140,7 @@ async def get_retailer_members(
     return [
         MemberResponse(
             id=m.customer.id,
-            name=m.customer.name,
+            name=m.customer_name or (m.customer.name if m.customer else None),
             mobile_number=m.customer.mobile_number,
             joined_at=m.created_at
         )
@@ -171,7 +173,7 @@ async def get_auto_registered_members(
     return [
         MemberResponse(
             id=m.customer.id,
-            name=m.customer.name,
+            name=m.customer_name or (m.customer.name if m.customer else None),
             mobile_number=m.customer.mobile_number,
             joined_at=m.created_at
         )
@@ -244,7 +246,7 @@ async def get_paginated_members(
             )
             SELECT 
                 c.id,
-                c.name,
+                COALESCE(m.customer_name, c.name) as name,
                 c.mobile_number,
                 MIN(m.created_at) as joined_at,
                 m.is_retailer_added,
@@ -258,11 +260,11 @@ async def get_paginated_members(
         """
         params = {"sid": shop_id, "min_visits": min_visits}
         if search and search.strip():
-            repeated_query_str += " WHERE (c.name ILIKE :search OR c.mobile_number ILIKE :search)"
+            repeated_query_str += " WHERE (COALESCE(m.customer_name, c.name) ILIKE :search OR c.mobile_number ILIKE :search)"
             params["search"] = f"%{search.strip()}%"
 
         repeated_query_str += """
-            GROUP BY c.id, c.name, c.mobile_number, m.is_retailer_added
+            GROUP BY c.id, c.name, c.mobile_number, m.is_retailer_added, m.customer_name
             HAVING COUNT(DISTINCT av.visit_date) >= :min_visits OR COUNT(DISTINCT o.id) >= :min_visits
             ORDER BY GREATEST(COUNT(DISTINCT av.visit_date), COUNT(DISTINCT o.id)) DESC, MIN(m.created_at) DESC
         """
@@ -309,7 +311,7 @@ async def get_paginated_members(
             )
             SELECT 
                 c.id,
-                c.name,
+                COALESCE(m.customer_name, c.name) as name,
                 c.mobile_number,
                 MIN(m.created_at) as joined_at,
                 m.is_retailer_added,
@@ -324,11 +326,11 @@ async def get_paginated_members(
         """
         params = {"sid": shop_id, "is_ret": is_retailer_added}
         if search and search.strip():
-            members_query_str += " AND (c.name ILIKE :search OR c.mobile_number ILIKE :search)"
+            members_query_str += " AND (COALESCE(m.customer_name, c.name) ILIKE :search OR c.mobile_number ILIKE :search)"
             params["search"] = f"%{search.strip()}%"
 
         members_query_str += """
-            GROUP BY c.id, c.name, c.mobile_number, m.is_retailer_added
+            GROUP BY c.id, c.name, c.mobile_number, m.is_retailer_added, m.customer_name
             ORDER BY MIN(m.created_at) DESC
         """
 
@@ -427,24 +429,9 @@ async def convert_to_member(
 
 
 @router.put("/retailer/{shop_id}/members/{customer_id}")
-async def update_member(
-    shop_id: uuid.UUID,
-    customer_id: uuid.UUID,
-    data: AddMemberRequest,
-    shop = Depends(require_permission("analytics", "write")),
-    db: AsyncSession = Depends(get_db)
-):
-    """Update a member's details."""
-    if shop.id != shop_id:
-        raise HTTPException(status_code=403, detail="Not authorized to access this shop")
-
-    membership_service = MembershipService(db)
-    try:
-        await membership_service.update_member(shop_id, customer_id, data.name or "", data.mobile_number)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    
-    return {"message": "Member updated successfully"}
+async def update_member():
+    """Member editing is disabled on both backend and frontend."""
+    raise HTTPException(status_code=403, detail="Member editing is disabled")
 
 
 @router.delete("/retailer/{shop_id}/all")

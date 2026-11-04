@@ -5,13 +5,20 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+connect_args = {}
+if "postgresql+asyncpg" in str(settings.DATABASE_URL):
+    connect_args = {
+        "statement_cache_size": 1000,
+        "command_timeout": 60,
+    }
+
 engine = create_async_engine(
     settings.DATABASE_URL,
-
-    pool_size=20,
-    max_overflow=30,
+    pool_size=25,
+    max_overflow=35,
     pool_recycle=1800,
-    pool_pre_ping=True
+    pool_pre_ping=True,
+    connect_args=connect_args,
 )
 
 async_session_factory = async_sessionmaker(
@@ -67,11 +74,28 @@ async def init_chalkboard_table():
         -- 2. Users table updates
         ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
         ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;
         CREATE INDEX IF NOT EXISTS ix_users_phone ON users(phone);
+        CREATE INDEX IF NOT EXISTS ix_users_is_deleted ON users(is_deleted);
 
         -- 2b. Shops table updates (allow multiple shops per user)
         ALTER TABLE shops DROP CONSTRAINT IF EXISTS shops_user_id_key;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS broadcast_credits INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS google_review_link TEXT;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS review_widget_code TEXT;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS welcome_message TEXT;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS latitude FLOAT;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS longitude FLOAT;
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS cuisine VARCHAR(255);
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS city VARCHAR(100);
+        ALTER TABLE shops ADD COLUMN IF NOT EXISTS area VARCHAR(100);
         CREATE INDEX IF NOT EXISTS ix_shops_user_id ON shops(user_id);
+        CREATE INDEX IF NOT EXISTS ix_shops_is_deleted ON shops(is_deleted);
 
         -- 3. Orders table updates
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS daily_order_number INTEGER;
@@ -192,6 +216,10 @@ async def init_chalkboard_table():
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS cgst_rate FLOAT NOT NULL DEFAULT 2.5;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS sgst_rate FLOAT NOT NULL DEFAULT 2.5;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS tax_invoice_notes VARCHAR(500);
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS serial_number_prefix VARCHAR(20) DEFAULT '';
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS serial_number_digits INTEGER NOT NULL DEFAULT 3;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS auto_serial_number_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS wholesale_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS return_allowed BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS return_window_days INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS return_policy_notes VARCHAR(500);
@@ -225,6 +253,7 @@ async def init_chalkboard_table():
         CREATE INDEX IF NOT EXISTS ix_menu_views_category_id ON menu_views(category_id);
         CREATE INDEX IF NOT EXISTS ix_qr_scans_shop_scanned ON qr_scans(shop_id, scanned_at DESC);
         CREATE INDEX IF NOT EXISTS ix_membership_events_shop_time ON membership_events(shop_id, event_time DESC);
+        ALTER TABLE customer_retailer_memberships ADD COLUMN IF NOT EXISTS customer_name VARCHAR(255);
 
         -- 9. Savings Schemes (Pandu) tables
         CREATE TABLE IF NOT EXISTS schemes (

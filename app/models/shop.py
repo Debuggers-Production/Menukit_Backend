@@ -1,7 +1,8 @@
 """Shop model."""
 
 import uuid
-from sqlalchemy import String, Text, Boolean, ForeignKey, Float, Integer
+from datetime import datetime
+from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, Float, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base, UUIDMixin, TimestampMixin
@@ -34,6 +35,8 @@ class Shop(Base, UUIDMixin, TimestampMixin):
     opening_time: Mapped[str | None] = mapped_column(String(20), nullable=True)
     closing_time: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     google_review_link: Mapped[str | None] = mapped_column(Text, nullable=True)

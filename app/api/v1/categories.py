@@ -3,7 +3,7 @@
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException, Response
+from fastapi import APIRouter, Depends, Query, HTTPException, Response, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -80,6 +80,7 @@ async def update_category(
 
 @router.post("/request-deletion-otp", response_model=MessageResponse)
 async def request_deletion_otp(
+    background_tasks: BackgroundTasks,
     target: str = Query("categories", description="Target resource being deleted"),
     user: User = Depends(get_current_user),
     redis=Depends(get_redis),
@@ -91,7 +92,7 @@ async def request_deletion_otp(
         raise RateLimitException("Too many OTP requests. Please try again later.")
 
     email_service = EmailService()
-    await email_service.send_deletion_otp_email(user.email, code, target=target)
+    background_tasks.add_task(email_service.send_deletion_otp_email, user.email, code, target=target)
     return MessageResponse(message=f"Deletion OTP code has been sent to {user.email}")
 
 

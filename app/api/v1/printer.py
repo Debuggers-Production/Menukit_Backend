@@ -67,16 +67,24 @@ async def test_lan_printer(
         raise HTTPException(status_code=400, detail="Printer IP address is required")
 
     try:
-        # Attempt TCP socket connection with 4s timeout
+        # Attempt TCP socket connection with 8s timeout
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(ip, port),
-            timeout=4.0
+            timeout=8.0
         )
         test_data = build_test_escpos_buffer(payload.station_name or "Kitchen Printer")
         writer.write(test_data)
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
+        try:
+            await asyncio.wait_for(writer.drain(), timeout=5.0)
+        except Exception:
+            pass
+
+        try:
+            writer.close()
+            await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
+        except Exception:
+            pass
+
         return {
             "status": "success",
             "message": f"Successfully connected to printer at {ip}:{port} and dispatched test slip."
@@ -84,7 +92,7 @@ async def test_lan_printer(
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=504,
-            detail=f"Connection timed out. Printer at {ip}:{port} did not respond. Check printer power, Ethernet/Wi-Fi cable, and IP configuration."
+            detail=f"Connection timed out. Printer at {ip}:{port} did not respond within 8s."
         )
     except Exception as e:
         raise HTTPException(
@@ -130,12 +138,25 @@ async def print_escpos(
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(ip, port),
-            timeout=4.0
+            timeout=8.0
         )
-        writer.write(data_bytes)
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
+        
+        # Stream data in safe 4KB chunks
+        chunk_size = 4096
+        for i in range(0, len(data_bytes), chunk_size):
+            chunk = data_bytes[i:i + chunk_size]
+            writer.write(chunk)
+            try:
+                await asyncio.wait_for(writer.drain(), timeout=5.0)
+            except Exception:
+                break
+
+        try:
+            writer.close()
+            await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
+        except Exception:
+            pass
+
         return {
             "status": "success",
             "bytes_sent": len(data_bytes),

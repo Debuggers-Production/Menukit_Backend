@@ -33,6 +33,27 @@ from app.api.v1.categories import _category_response
 from app.api.v1.menu_items import _item_response
 from app.core.pricing import calculate_order_pricing
 
+# Price fields stripped from public API responses when show_prices=False
+_PRICE_FIELDS = (
+    "price", "offer_price", "wholesale_price", "other_price",
+    "online_price", "online_offer_price",
+)
+
+
+def _strip_prices(item_dict: dict) -> dict:
+    """Null out all price fields for shops with show_prices=False."""
+    for field in _PRICE_FIELDS:
+        if field in item_dict:
+            item_dict[field] = None
+    # Also strip variant prices
+    if item_dict.get("variants"):
+        for v in item_dict["variants"]:
+            if isinstance(v, dict):
+                for field in _PRICE_FIELDS:
+                    if field in v:
+                        v[field] = None
+    return item_dict
+
 
 class PublicCategoryResponse(CategoryResponse):
     """Public category response with menu items."""
@@ -404,7 +425,7 @@ async def get_public_items(
     food_type: Optional[str] = None,
     status: Optional[str] = None,
     sort_by: Optional[str] = None,
-    include_unavailable: bool = False,
+    include_unavailable: bool = True,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -424,12 +445,18 @@ async def get_public_items(
         pass
 
     from app.models.menu_item import MenuItem
+    from app.models.shop_settings import ShopSettings
     from sqlalchemy.orm import selectinload
     
     shop_service = ShopService(db)
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
+
+    # Load shop settings to check show_prices flag
+    settings_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+    shop_settings = settings_res.scalar_one_or_none()
+    show_prices = (getattr(shop_settings, "show_prices", True) is not False) if shop_settings else True
 
     catalog_id = shop.menu_catalog_id
     if not catalog_id:
@@ -438,7 +465,10 @@ async def get_public_items(
     query = (
         select(MenuItem)
         .options(selectinload(MenuItem.images))
-        .where(MenuItem.menu_catalog_id == catalog_id)
+        .where(
+            MenuItem.menu_catalog_id == catalog_id,
+            MenuItem.is_public_visible != False,
+        )
     )
 
     if not include_unavailable:
@@ -508,9 +538,13 @@ async def get_public_items(
     result = [_item_response(i) for i in all_items]
     try:
         data_list = [r.model_dump() if hasattr(r, "model_dump") else r for r in result]
+        if not show_prices:
+            data_list = [_strip_prices(d) for d in data_list]
         await r_client.setex(cache_key, 180, json.dumps(data_list, default=str))
     except Exception:
         pass
+    if not show_prices:
+        result = [_strip_prices(r.model_dump()) for r in result]
     return result
 
 @router.get("/menu", response_model=List[PublicCategoryResponse])
@@ -540,6 +574,7 @@ async def get_public_menu(
 
     from app.models.category import Category
     from app.models.menu_item import MenuItem
+    from app.models.shop_settings import ShopSettings
     from sqlalchemy.orm import selectinload
 
     # ── 1. Verify shop exists ─────────────────────────────────────────────────
@@ -547,6 +582,11 @@ async def get_public_menu(
     shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
+
+    # Load shop settings to check show_prices flag
+    settings_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+    shop_settings = settings_res.scalar_one_or_none()
+    show_prices = (getattr(shop_settings, "show_prices", True) is not False) if shop_settings else True
 
     catalog_id = shop.menu_catalog_id
     if not catalog_id:
@@ -582,7 +622,7 @@ async def get_public_menu(
         .where(
             MenuItem.menu_catalog_id == catalog_id,
             MenuItem.category_id.in_(cat_ids),
-            MenuItem.is_available == True,
+            MenuItem.is_public_visible != False,
         )
     )
     if sort_by == 'price_asc':
@@ -613,7 +653,10 @@ async def get_public_menu(
     for cat in categories:
         cat_resp = _category_response(cat)
         cat_dict = cat_resp.model_dump()
-        cat_dict["items"] = [_item_response(i).model_dump() for i in items_by_cat.get(cat.id, [])]
+        cat_items = [_item_response(i).model_dump() for i in items_by_cat.get(cat.id, [])]
+        if not show_prices:
+            cat_items = [_strip_prices(d) for d in cat_items]
+        cat_dict["items"] = cat_items
         result.append(cat_dict)
 
     try:
@@ -863,7 +906,9 @@ async def get_active_discounts_public(
 
         is_used = False if getattr(d, 'is_price_drop', False) else (str(d.id) in claimed_discount_ids)
         d_resp = _discount_response(d, is_already_used=is_used)
-        if cust_identifier:
+        if getattr(d, 'is_price_drop', False):
+            d_resp.code = None
+        elif cust_identifier:
             try:
                 assigned = await service.get_or_assign_code(
                     shop.id, d, cust_identifier, customer_obj.id if customer_obj else None
@@ -921,6 +966,8 @@ async def assign_customer_discount_codes(
 
     assigned_codes = []
     for d in active_discounts:
+        if getattr(d, 'is_price_drop', False):
+            continue
         assignment = await service.get_or_assign_code(
             shop.id, d, target_phone, customer_obj.id if customer_obj else None
         )
@@ -1224,6 +1271,7 @@ async def get_public_item(
     if not item or item.menu_catalog_id != shop.menu_catalog_id:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
+    from app.models.shop_settings import ShopSettings
     result = await db.execute(
         select(
             func.avg(MenuItemReview.rating),
@@ -1233,7 +1281,15 @@ async def get_public_item(
     avg_rating, review_count = result.one()
     avg_rating = round(float(avg_rating), 1) if avg_rating else None
 
-    return _item_response(item, avg_rating=avg_rating, review_count=review_count)
+    # Check show_prices setting — strip prices at backend if disabled
+    settings_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+    shop_settings = settings_res.scalar_one_or_none()
+    show_prices = (getattr(shop_settings, "show_prices", True) is not False) if shop_settings else True
+
+    item_resp = _item_response(item, avg_rating=avg_rating, review_count=review_count)
+    if not show_prices:
+        return _strip_prices(item_resp.model_dump())
+    return item_resp
 
 @shops_router.get("/by-slug/{slug}", response_model=ShopResponse)
 async def get_shop_by_slug(

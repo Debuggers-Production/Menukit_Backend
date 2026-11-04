@@ -1,7 +1,7 @@
 """Customer Retailer Membership mapping model."""
 
 import uuid
-from sqlalchemy import ForeignKey, UniqueConstraint
+from sqlalchemy import ForeignKey, UniqueConstraint, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base, UUIDMixin, TimestampMixin
@@ -20,6 +20,9 @@ class CustomerRetailerMembership(Base, UUIDMixin, TimestampMixin):
     )
     is_retailer_added: Mapped[bool] = mapped_column(
         default=False, server_default="false", nullable=False
+    )
+    customer_name: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
     )
 
     __table_args__ = (

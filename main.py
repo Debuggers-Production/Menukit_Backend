@@ -93,15 +93,47 @@ async def lifespan(app: FastAPI):
                 # Run periodically every 1 hour (3600 seconds)
                 await asyncio.sleep(3600)
         
+    async def run_scheduled_campaigns_job():
+        await asyncio.sleep(15)
+        while True:
+            try:
+                async with async_session_factory() as db:
+                    from app.services.broadcast_service import BroadcastService
+                    bs = BroadcastService(db)
+                    await bs.dispatch_due_scheduled_campaigns()
+            except Exception as e:
+                logger.error(f"Error checking due scheduled campaigns: {e}")
+            finally:
+                await asyncio.sleep(60)
+
     timeout_task = asyncio.create_task(run_timeout_job())
-    job_task = asyncio.create_task(run_reconciliation_job())
-    sched_notif_task = asyncio.create_task(run_scheduled_notifications_job())
+    
+    job_task = None
+    if getattr(settings, "ENABLE_IN_APP_RECONCILIATION", False):
+        job_task = asyncio.create_task(run_reconciliation_job())
+    else:
+        logger.info("In-app reconciliation is disabled (ENABLE_IN_APP_RECONCILIATION=False). Use 'python run_reconciliation_worker.py' to run it as a separate background process.")
+
+    sched_notif_task = None
+    if getattr(settings, "ENABLE_IN_APP_SCHEDULED_NOTIFICATIONS", False):
+        sched_notif_task = asyncio.create_task(run_scheduled_notifications_job())
+    else:
+        logger.info("In-app scheduled notifications disabled. Handled by standalone background worker (run_worker.py).")
+    sched_campaigns_task = None
+    if getattr(settings, "ENABLE_IN_APP_CAMPAIGNS", False):
+        sched_campaigns_task = asyncio.create_task(run_scheduled_campaigns_job())
+    else:
+        logger.info("In-app scheduled campaigns disabled. Handled by standalone background worker (run_worker.py).")
     
     yield
     
     timeout_task.cancel()
-    job_task.cancel()
-    sched_notif_task.cancel()
+    if job_task:
+        job_task.cancel()
+    if sched_notif_task:
+        sched_notif_task.cancel()
+    if sched_campaigns_task:
+        sched_campaigns_task.cancel()
     
     # Shutdown
     logger.info("Shutting down...")
@@ -218,52 +250,33 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
+        path = request.url.path
+        # Skip high-frequency probes and static files to eliminate I/O overhead
+        if path in ("/health", "/favicon.ico", "/ads.txt") or path.startswith("/uploads/"):
+            return await call_next(request)
+
         start_time = time.time()
+        response = await call_next(request)
+        process_time = (time.time() - start_time) * 1000
+        formatted_process_time = f"{process_time:.2f}ms"
         
         # ANSI Escape Codes
         RESET = "\033[0m"
-        BLUE = "\033[94m"
         GREEN = "\033[92m"
         YELLOW = "\033[93m"
         RED = "\033[91m"
         CYAN = "\033[96m"
         MAGENTA = "\033[95m"
 
-        # Method Color Logic
-        if request.method == "GET":
-            method_color = CYAN
-        elif request.method == "POST":
-            method_color = GREEN
-        elif request.method == "PUT":
-            method_color = YELLOW
-        elif request.method == "DELETE":
-            method_color = RED
-        else:
-            method_color = MAGENTA
-        
-        # Log request start
-        logger.info(f"{BLUE}▶ Incoming:{RESET} {method_color}{request.method}{RESET} {request.url.path}")
-        
-        # Process request
-        response = await call_next(request)
-        
-        process_time = (time.time() - start_time) * 1000
-        formatted_process_time = f"{process_time:.2f}ms"
-        
-        # Color based on status code
-        if response.status_code < 300:
-            status_color = GREEN
-        elif response.status_code < 400:
-            status_color = YELLOW
-        else:
-            status_color = RED
-            
+        method_color = CYAN if request.method == "GET" else (GREEN if request.method == "POST" else (YELLOW if request.method == "PUT" else (RED if request.method == "DELETE" else MAGENTA)))
+        status_color = GREEN if response.status_code < 300 else (YELLOW if response.status_code < 400 else RED)
+
         error_msg = ""
         if response.status_code >= 400 and hasattr(request.state, "error_detail"):
             error_msg = f" - {RED}Error: {request.state.error_detail}{RESET}"
             
-        # Log request end with status code and time
-        logger.info(f"{MAGENTA}✔ Completed:{RESET} {method_color}{request.method}{RESET} {request.url.path} - {status_color}Status: {response.status_code}{RESET} - {YELLOW}Time: {formatted_process_time}{RESET}{error_msg}")
+        # Single high-throughput log line per completed request
+        logger.info(f"{method_color}{request.method:<6}{RESET} {path} -> {status_color}{response.status_code}{RESET} ({YELLOW}{formatted_process_time}{RESET}){error_msg}")
         
         return response
 

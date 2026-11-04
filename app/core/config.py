@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
     RAZORPAY_WEBHOOK_SECRET: Optional[str] = None
+    # Background Workers Configuration
+    # Set to False so heavy periodic jobs run in the standalone worker (run_worker.py)
+    ENABLE_IN_APP_RECONCILIATION: bool = False
+    ENABLE_IN_APP_SCHEDULED_NOTIFICATIONS: bool = False
+    ENABLE_IN_APP_CAMPAIGNS: bool = False
     
     # Subscription Trial & Grace Period Configs
     FREE_TRIAL_DAYS: int = 30
@@ -110,9 +115,12 @@ class Settings(BaseSettings):
     FIREBASE_CREDENTIALS_JSON: Optional[str] = None
     FIREBASE_PROJECT_ID: Optional[str] = None
 
-    # Ad & Subscription Simulation Flags
+    # Ad & Subscription Simulation / Control Flags
     SIMULATE_SUBSCRIPTION_EXPIRED: bool = False
     FORCE_SHOW_ADS: bool = False
+    STOP_ADS: bool = True     # When True, all ads are completely stopped platform-wide
+    DISABLE_ADS: bool = False # Alias for STOP_ADS
+    ENABLE_ADS: bool = False  # Platform-wide master switch for ads (set to True when ready to show ads)
 
     class Config:
         env_file = ".env"
