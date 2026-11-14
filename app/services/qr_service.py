@@ -21,12 +21,23 @@ class QRService:
         self.db = db
 
     async def generate_qr(self, shop_id: uuid.UUID, user_id: uuid.UUID) -> QRCode:
-        """Generate or regenerate QR code for the shop."""
+        """Generate or regenerate QR code for the shop based on its slug."""
         # Check if QR already exists for the user
         result = await self.db.execute(select(QRCode).where(QRCode.user_id == user_id))
         existing_qr = result.scalar_one_or_none()
 
-        qr_url = f"{settings.FRONTEND_URL}/shop/{shop_id}?type=qr"
+        # Resolve shop to get guaranteed unique slug
+        shop_result = await self.db.execute(select(Shop).where(Shop.id == shop_id))
+        shop = shop_result.scalar_one_or_none()
+        if shop and not shop.slug:
+            from app.services.shop_service import ShopService
+            shop_service = ShopService(self.db)
+            shop.slug = await shop_service._generate_unique_slug(shop.name, exclude_shop_id=shop.id)
+            self.db.add(shop)
+            await self.db.flush()
+
+        identifier = shop.slug if (shop and shop.slug) else str(shop_id)
+        qr_url = f"{settings.FRONTEND_URL}/shop/{identifier}?type=qr"
 
         if existing_qr:
             existing_qr.qr_url = qr_url
@@ -55,16 +66,38 @@ class QRService:
         return qr_code
 
     async def get_qr(self, user_id: uuid.UUID, shop_id: uuid.UUID = None) -> QRCode:
-        """Get QR code for the shop."""
+        """Get QR code for the shop, ensuring it points to the unique shop slug."""
         result = await self.db.execute(select(QRCode).where(QRCode.user_id == user_id))
         qr = result.scalar_one_or_none()
         if not qr:
+            if shop_id:
+                return await self.generate_qr(shop_id, user_id)
             raise NotFoundException("QR code not found. Generate one first.")
-        if shop_id and (not qr.qr_url or "/brand/" in qr.qr_url):
-            qr.qr_url = f"{settings.FRONTEND_URL}/shop/{shop_id}?type=qr"
-            self.db.add(qr)
-            await self.db.commit()
-            await self.db.refresh(qr)
+
+        if shop_id:
+            shop_result = await self.db.execute(select(Shop).where(Shop.id == shop_id))
+            shop = shop_result.scalar_one_or_none()
+            if shop:
+                if not shop.slug:
+                    from app.services.shop_service import ShopService
+                    shop_service = ShopService(self.db)
+                    shop.slug = await shop_service._generate_unique_slug(shop.name, exclude_shop_id=shop.id)
+                    self.db.add(shop)
+                    await self.db.flush()
+
+                identifier = shop.slug if shop.slug else str(shop.id)
+                desired_url = f"{settings.FRONTEND_URL}/shop/{identifier}?type=qr"
+                needs_update = (
+                    not qr.qr_url 
+                    or "/brand/" in qr.qr_url 
+                    or (shop.slug and f"/shop/{shop.id}" in qr.qr_url)
+                    or qr.qr_url != desired_url
+                )
+                if needs_update:
+                    qr.qr_url = desired_url
+                    self.db.add(qr)
+                    await self.db.commit()
+                    await self.db.refresh(qr)
         return qr
 
     async def update_qr_style(self, user_id: uuid.UUID, style_data) -> QRCode:

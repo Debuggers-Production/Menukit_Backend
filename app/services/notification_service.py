@@ -43,6 +43,8 @@ class NotificationService:
                 target_url = "/customers"
             elif "SCHEME" in type:
                 target_url = "/schemes"
+            elif type in ["ORDER_ATTEMPT_UNSUBSCRIBED", "SUBSCRIPTION_REQUIRED"] or "SUBSCRIPTION" in type:
+                target_url = "/subscription/marketplace"
             fcm_svc = FCMService()
 
             async def _safe_send_fcm():
@@ -92,6 +94,13 @@ class NotificationService:
         if notification_ids:
             query = query.where(Notification.id.in_(notification_ids))
             
+        result = await self.db.execute(query)
+        await self.db.commit()
+        return result.rowcount
+
+    async def clear_all(self, shop_id: uuid.UUID) -> int:
+        from sqlalchemy import delete
+        query = delete(Notification).where(Notification.shop_id == shop_id)
         result = await self.db.execute(query)
         await self.db.commit()
         return result.rowcount

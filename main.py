@@ -1,7 +1,11 @@
 """FastAPI application entry point."""
 
 import logging
+import re
+import urllib.parse
+import uuid
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -139,6 +143,77 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
     await close_db()
     await close_redis()
+
+
+# In-memory slug-to-UUID cache to avoid repeated DB queries
+_SLUG_TO_UUID_CACHE: dict[str, str] = {}
+_SLUG_PATH_PATTERN = re.compile(r'/shop/([^/?#]+)')
+
+
+async def _resolve_slug_to_uuid(slug: str) -> Optional[str]:
+    """Resolve a shop slug to its shop UUID string using in-memory cache and DB fallback."""
+    if not slug:
+        return None
+    slug_clean = slug.strip()
+    slug_lower = slug_clean.lower()
+    if slug_lower in _SLUG_TO_UUID_CACHE:
+        return _SLUG_TO_UUID_CACHE[slug_lower]
+    if slug_clean in _SLUG_TO_UUID_CACHE:
+        return _SLUG_TO_UUID_CACHE[slug_clean]
+
+    try:
+        from app.database.session import async_session_factory
+        from app.models.shop import Shop
+        from sqlalchemy import select, or_
+
+        async with async_session_factory() as db:
+            stmt = select(Shop.id).where(
+                or_(Shop.slug == slug_clean, Shop.slug == slug_lower),
+                Shop.is_deleted == False
+            )
+            result = await db.execute(stmt)
+            shop_id = result.scalar_one_or_none()
+            if shop_id:
+                uuid_str = str(shop_id)
+                _SLUG_TO_UUID_CACHE[slug_lower] = uuid_str
+                _SLUG_TO_UUID_CACHE[slug_clean] = uuid_str
+                logger.info(f"Resolved shop slug '{slug_clean}' -> UUID {uuid_str}")
+                return uuid_str
+    except Exception as e:
+        logger.warning(f"Failed to resolve shop slug '{slug}' in DB: {e}")
+
+    return None
+
+
+class SlugRewriteMiddleware:
+    """ASGI middleware to intercept requests containing shop slug and rewrite path to shop UUID."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            path = scope.get("path", "")
+            if "/shop/" in path:
+                match = _SLUG_PATH_PATTERN.search(path)
+                if match:
+                    segment = urllib.parse.unquote(match.group(1))
+                    is_uuid = False
+                    try:
+                        uuid.UUID(segment)
+                        is_uuid = True
+                    except (ValueError, TypeError, AttributeError):
+                        is_uuid = False
+
+                    if not is_uuid:
+                        resolved_uuid = await _resolve_slug_to_uuid(segment)
+                        if resolved_uuid:
+                            new_path = path[:match.start(1)] + resolved_uuid + path[match.end(1):]
+                            scope["path"] = new_path
+                            if "raw_path" in scope:
+                                scope["raw_path"] = new_path.encode("ascii")
+
+        await self.app(scope, receive, send)
 
 
 def create_app() -> FastAPI:
@@ -302,6 +377,25 @@ def create_app() -> FastAPI:
     async def health_check():
         """Health check endpoint."""
         return {"status": "ok", "app": settings.APP_NAME}
+
+    from fastapi import Response, Depends
+    from app.database.session import get_db
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    @app.get("/sitemap.xml", response_class=Response)
+    async def root_sitemap(db: AsyncSession = Depends(get_db)):
+        """Serve Google XML sitemap at root."""
+        from app.api.v1.seo import get_sitemap
+        return await get_sitemap(db)
+
+    @app.get("/robots.txt", response_class=PlainTextResponse)
+    async def get_robots_txt():
+        """Serve robots.txt with dynamic sitemap location."""
+        base_url = settings.effective_sitemap_base_url
+        return f"User-agent: *\nAllow: /\nSitemap: {base_url}/sitemap.xml\n"
+
+    # ASGI Middleware to rewrite shop slug to UUID at the top of the middleware stack
+    app.add_middleware(SlugRewriteMiddleware)
 
     return app
 

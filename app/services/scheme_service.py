@@ -17,6 +17,7 @@ import re
 from app.models.scheme import Scheme, SchemeMember, SchemePayment
 from app.models.customer import Customer
 from app.models.shop import Shop
+from app.models.shop_settings import ShopSettings
 from app.core.config import get_settings
 from app.core.pricing import calculate_order_pricing
 from app.schemas.scheme import (
@@ -71,6 +72,9 @@ class SchemeService:
                     term_unit=s.term_unit,
                     max_members=s.max_members,
                     items=s.items or [],
+                    reward_type=getattr(s, "reward_type", "specific_items") or "specific_items",
+                    reward_categories=getattr(s, "reward_categories", []) or [],
+                    highlight_text=getattr(s, "highlight_text", None),
                     show_on_public_menu=s.show_on_public_menu,
                     status=s.status,
                     start_date=s.start_date,
@@ -109,6 +113,9 @@ class SchemeService:
             term_unit=scheme.term_unit,
             max_members=scheme.max_members,
             items=scheme.items or [],
+            reward_type=getattr(scheme, "reward_type", "specific_items") or "specific_items",
+            reward_categories=getattr(scheme, "reward_categories", []) or [],
+            highlight_text=getattr(scheme, "highlight_text", None),
             show_on_public_menu=scheme.show_on_public_menu,
             status=scheme.status,
             start_date=scheme.start_date,
@@ -131,6 +138,9 @@ class SchemeService:
             term_unit=data.term_unit,
             max_members=data.max_members,
             items=[i.model_dump() for i in data.items],
+            reward_type=data.reward_type or "specific_items",
+            reward_categories=data.reward_categories or [],
+            highlight_text=data.highlight_text.strip() if data.highlight_text else None,
             show_on_public_menu=data.show_on_public_menu,
             status=data.status,
             start_date=data.start_date or datetime.now(timezone.utc),
@@ -161,7 +171,7 @@ class SchemeService:
 
         if has_active_customers:
             # When active customers exist, strictly allow only title and description updates
-            restricted_fields = ["price", "frequency", "term_duration", "term_unit", "max_members", "items"]
+            restricted_fields = ["price", "frequency", "term_duration", "term_unit", "max_members", "items", "reward_type", "reward_categories"]
             for field in restricted_fields:
                 if field in dump:
                     curr_val = getattr(scheme, field)
@@ -458,6 +468,12 @@ class SchemeService:
 
     async def get_public_schemes(self, shop_id: uuid.UUID) -> List[PublicSchemeResponse]:
         """Get active public schemes for customers on the public menu."""
+        # Check if savings schemes are enabled in shop settings
+        st_res = await self.db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+        shop_settings = st_res.scalar_one_or_none()
+        if shop_settings and not shop_settings.savings_schemes_enabled:
+            return []
+
         stmt = (
             select(Scheme)
             .options(selectinload(Scheme.members))
@@ -486,6 +502,9 @@ class SchemeService:
                     remaining_spots=remaining_spots,
                     items=s.items or [],
                     status=s.status,
+                    reward_type=getattr(s, "reward_type", "specific_items") or "specific_items",
+                    reward_categories=getattr(s, "reward_categories", []) or [],
+                    highlight_text=getattr(s, "highlight_text", None),
                 )
             )
         return results
@@ -494,12 +513,22 @@ class SchemeService:
         self, scheme_id: uuid.UUID, shop_id: uuid.UUID, data: SchemeMemberCreate, customer_id: Optional[uuid.UUID] = None
     ) -> SchemeMemberResponse:
         """Public endpoint allowing a customer to join a scheme."""
+        st_res = await self.db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+        shop_settings = st_res.scalar_one_or_none()
+        if shop_settings and not shop_settings.savings_schemes_enabled:
+            raise BadRequestException("Savings schemes are currently disabled for this shop.")
+
         return await self.add_member(scheme_id, shop_id, data, customer_id)
 
     async def initiate_join_payment(
         self, scheme_id: uuid.UUID, shop_id: uuid.UUID, data: SchemePaymentInitiateRequest
     ) -> SchemePaymentInitiateResponse:
         """Initiate Razorpay order for enrolling in a scheme with 2% platform commission and 3% (+18% GST) PG fee."""
+        st_res = await self.db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+        shop_settings = st_res.scalar_one_or_none()
+        if shop_settings and not shop_settings.savings_schemes_enabled:
+            raise BadRequestException("Savings schemes are currently disabled for this shop.")
+
         settings = get_settings()
 
         # 1. Fetch scheme
@@ -695,6 +724,9 @@ class SchemeService:
                     paid_installments=m.paid_installments,
                     remaining_installments=remaining,
                     items=scheme.items or [],
+                    reward_type=getattr(scheme, "reward_type", "specific_items") or "specific_items",
+                    reward_categories=getattr(scheme, "reward_categories", []) or [],
+                    highlight_text=getattr(scheme, "highlight_text", None),
                     payments=[
                         SchemePaymentResponse(
                             id=str(p.id),

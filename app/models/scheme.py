@@ -37,6 +37,16 @@ class Scheme(Base, UUIDMixin, TimestampMixin):
     # List of: { "item_id": str, "name": str, "variant_name": str | None, "quantity": int, "price": float, "image_url": str | None }
     items: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
 
+    # Reward selection mode: "all_items" | "category" | "specific_items"
+    reward_type: Mapped[str] = mapped_column(String(50), default="specific_items", nullable=False)
+
+    # Eligible reward categories when reward_type == "category"
+    # List of: { "id": str, "name": str }
+    reward_categories: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
+
+    # Highlight ribbon/badge text displayed on customer storefronts (e.g. "DIWALI SPECIAL BUMPER")
+    highlight_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Public visibility toggle
     show_on_public_menu: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

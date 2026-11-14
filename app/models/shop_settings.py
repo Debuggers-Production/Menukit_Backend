@@ -68,6 +68,7 @@ class ShopSettings(Base, UUIDMixin, TimestampMixin):
     serial_number_digits: Mapped[int] = mapped_column(default=3, nullable=False)
     auto_serial_number_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     wholesale_pricing_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    savings_schemes_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Return, Refund & Replacement Policies
     return_allowed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

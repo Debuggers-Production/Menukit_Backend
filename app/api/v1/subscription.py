@@ -700,7 +700,11 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
     if is_expired:
         is_actual_all_access = False
     elif is_trial:
-        is_actual_all_access = is_active
+        all_mods_active = all(
+            formatted_module_expirations.get(m, {}).get("days_left", 0) > 0
+            for m in ALL_MARKETPLACE_MODULES
+        )
+        is_actual_all_access = is_active and all_mods_active
     else:
         is_actual_all_access = False
         if getattr(subscription, "is_all_access", False) and is_active:
@@ -712,14 +716,32 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
             latest_tx = aa_res.scalars().first()
             is_actual_all_access = latest_tx.is_all_access if latest_tx else False
 
-    # Calculate earliest remaining days among active modules
+    # Check for expired modules (0 days left)
+    expired_mods = [
+        mod for mod, info in formatted_module_expirations.items()
+        if info.get("days_left", 0) == 0
+    ]
+    has_expired_modules = len(expired_mods) > 0
+
+    # Active days list (only modules that actually have > 0 days left)
     active_days_list = [
         info["days_left"] for mod, info in formatted_module_expirations.items()
-        if mod in dynamic_active_modules and info.get("days_left") is not None
+        if info.get("days_left", 0) > 0
     ]
-    core_days_left = min(active_days_list) if active_days_list else days_left
 
-    effective_days_left = core_days_left if (not is_grace_period and not is_expired and (core_days_left <= 5 or is_trial)) else days_left
+    # If any module is expired, the least days left is 0!
+    if has_expired_modules:
+        core_days_left = 0
+        effective_days_left = 0
+        is_actual_all_access = False
+        if not is_expired:
+            status_msg = f"{len(expired_mods)} add-on feature(s) expired (0 days left). Features locked. Please renew to continue."
+    elif active_days_list:
+        core_days_left = min(active_days_list)
+        effective_days_left = core_days_left
+    else:
+        core_days_left = days_left
+        effective_days_left = days_left
 
     # Sync back to subscription model if needed
     if (subscription.is_active != is_active or 
@@ -736,7 +758,7 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         "is_active": is_active,
         "is_all_access": is_actual_all_access,
         "active_modules": dynamic_active_modules if is_active else [],
-        "module_expirations": formatted_module_expirations if is_active else {},
+        "module_expirations": formatted_module_expirations,
         "current_period_end": period_end.isoformat() if period_end else None,
         "is_trial": is_trial,
         "is_expired": is_expired,
@@ -745,7 +767,10 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         "days_left": effective_days_left,
         "core_days_left": core_days_left,
         "max_days_left": days_left,
-        "has_expiring_modules": (core_days_left <= 5 and not is_expired and not is_grace_period),
+        "has_expired_modules": has_expired_modules,
+        "expired_modules_count": len(expired_mods),
+        "expired_modules": expired_mods,
+        "has_expiring_modules": (core_days_left <= 5 and not is_expired and not is_grace_period and not has_expired_modules),
         "free_trial_days": settings.FREE_TRIAL_DAYS,
         "grace_period_days": settings.GRACE_PERIOD_DAYS,
         "status_message": status_msg,

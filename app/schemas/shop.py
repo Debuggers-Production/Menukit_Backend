@@ -1,7 +1,7 @@
 """Shop schemas."""
 
 import uuid
-from typing import Optional
+from typing import Optional, Union, List, Dict, Any
 from pydantic import BaseModel, Field, field_validator
 from app.schemas.chalkboard import ChalkboardResponse
 from app.utils.media import resolve_image_url, strip_image_base_url
@@ -27,6 +27,7 @@ class ShopCreate(BaseModel):
     longitude: Optional[float] = None
     google_review_link: Optional[str] = None
     clone_from_shop_id: Optional[str] = None
+    savings_schemes_enabled: Optional[bool] = None
     razorpay_order_id: Optional[str] = None
     razorpay_payment_id: Optional[str] = None
     razorpay_signature: Optional[str] = None
@@ -114,6 +115,7 @@ class ShopSettingsUpdate(BaseModel):
     serial_number_digits: Optional[int] = None
     auto_serial_number_enabled: Optional[bool] = None
     wholesale_pricing_enabled: Optional[bool] = None
+    savings_schemes_enabled: Optional[bool] = None
     # Return, Refund & Replacement Policies
     return_allowed: Optional[bool] = None
     return_window_days: Optional[int] = None
@@ -157,8 +159,8 @@ class ThemeSettingsResponse(BaseModel):
         from_attributes = True
 
 
-class ShopSettingsResponse(BaseModel):
-    """Shop settings response."""
+class PublicShopSettingsResponse(BaseModel):
+    """Sanitized shop settings for public menu/storefront responses without merchant banking or gateway secrets."""
     id: uuid.UUID
     currency: str
     language: str
@@ -178,16 +180,6 @@ class ShopSettingsResponse(BaseModel):
     dinein_tables_enabled: bool = True
     dinein_tables_count: int = 10
     auto_accept_orders: bool
-    cashfree_app_id: str
-    cashfree_secret_key: str
-    cashfree_sandbox: bool
-    upi_id: Optional[str] = None
-    beneficiary_name: Optional[str] = None
-    bank_account_last4: Optional[str] = None
-    ifsc_code: Optional[str] = None
-    razorpay_account_id: Optional[str] = None
-    razorpay_product_id: Optional[str] = None
-    razorpay_route_status: Optional[str] = None
     online_payments_enabled: bool = True
     online_payments_dinein_enabled: bool = True
     online_payments_takeaway_enabled: bool = True
@@ -208,6 +200,7 @@ class ShopSettingsResponse(BaseModel):
     serial_number_digits: int = 3
     auto_serial_number_enabled: bool = False
     wholesale_pricing_enabled: bool = False
+    savings_schemes_enabled: bool = True
     # Return, Refund & Replacement Policies
     return_allowed: bool = False
     return_window_days: int = 0
@@ -220,6 +213,20 @@ class ShopSettingsResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ShopSettingsResponse(PublicShopSettingsResponse):
+    """Full shop settings response with banking & payment gateway details for merchant owner."""
+    cashfree_app_id: Optional[str] = ""
+    cashfree_secret_key: Optional[str] = ""
+    cashfree_sandbox: bool = False
+    upi_id: Optional[str] = None
+    beneficiary_name: Optional[str] = None
+    bank_account_last4: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    razorpay_account_id: Optional[str] = None
+    razorpay_product_id: Optional[str] = None
+    razorpay_route_status: Optional[str] = None
 
 
 class ShopResponse(BaseModel):
@@ -246,7 +253,7 @@ class ShopResponse(BaseModel):
     longitude: Optional[float] = None
     google_review_link: Optional[str] = None
     review_widget_code: Optional[str] = None
-    settings: Optional[ShopSettingsResponse] = None
+    settings: Optional[Union[ShopSettingsResponse, PublicShopSettingsResponse]] = None
     theme: Optional[ThemeSettingsResponse] = None
     chalkboard: Optional[ChalkboardResponse] = None
     created_at: Optional[str] = None
@@ -261,6 +268,11 @@ class ShopResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PublicShopResponse(ShopResponse):
+    """Public storefront shop response model with sanitized settings without sensitive banking info."""
+    settings: Optional[PublicShopSettingsResponse] = None
 
 
 class RazorpayBankAccountUpdateRequest(BaseModel):

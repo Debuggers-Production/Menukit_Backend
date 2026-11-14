@@ -30,7 +30,7 @@ class SendTestEmailRequest(BaseModel):
     email: EmailStr = Field(..., description="Target email address to send the test email to", example="sivarajan@example.com")
     template: str = Field(
         default="new_order",
-        description="Template to test: auth_otp, deletion_otp, employee_invite, new_order, subscription_expiring, subscription_expired, weekend_digest, or all",
+        description="Template to test: auth_otp, deletion_otp, employee_invite, new_order, subscription_expiring, subscription_expired, weekend_digest, unsubscribed_order_attempt, or all",
         example="new_order"
     )
     shop_name: Optional[str] = Field(default="Siva Hotel", description="Custom shop name for the template", example="Siva Hotel")
@@ -80,6 +80,20 @@ AVAILABLE_TEMPLATES = [
         "name": "Weekend Total Customers Summary Digest",
         "description": "Weekly weekend performance digest reporting total registered customer count, new customers, orders, and revenue.",
         "sample_fields": {"email": "owner@example.com", "shop_name": "Siva Hotel", "total_customers": 1420, "revenue_this_week": 48250.00}
+    },
+    {
+        "key": "unsubscribed_order_attempt",
+        "name": "Unsubscribed Order Attempt Alert",
+        "description": "Urgent alert sent when a customer attempts to place an order on an unsubscribed or expired shop, showing lost revenue details and renewal link.",
+        "sample_fields": {
+            "email": "owner@example.com",
+            "shop_name": "Siva Hotel",
+            "customer_name": "Siva",
+            "amount": 500.0,
+            "currency": "₹",
+            "order_type": "takeaway",
+            "customer_phone": "9876543210"
+        }
     },
     {
         "key": "all",
@@ -187,10 +201,32 @@ async def _dispatch_template(
         )
         return {"template": "weekend_digest", "success": res, "subject": f"Weekend Digest: 1,420 Total Customers for {shop_name}"}
 
+    elif t_key in ["unsubscribed_order_attempt", "unsubscribed_order", "order_attempt_unsubscribed", "send_unsubscribed_order_attempt_email"]:
+        items = [
+            {"name": "Mutton Biryani Special", "quantity": 1, "price": 320.0},
+            {"name": "Chicken 65 (Boneless)", "quantity": 1, "price": 180.0},
+        ]
+        res = await email_service.send_unsubscribed_order_attempt_email(
+            email=email,
+            shop_name=shop_name,
+            customer_name=customer_name or "Siva",
+            amount=500.0,
+            currency="₹",
+            order_type="takeaway",
+            customer_phone="9876543210",
+            items=items,
+            force_smtp=force_smtp
+        )
+        return {
+            "template": "unsubscribed_order_attempt",
+            "success": res,
+            "subject": f"Action Required: {customer_name or 'Siva'} tried to order items worth ₹500 on {shop_name}"
+        }
+
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown template '{template_key}'. Available: auth_otp, deletion_otp, employee_invite, new_order, subscription_expiring, subscription_expired, weekend_digest, all"
+            detail=f"Unknown template '{template_key}'. Available: auth_otp, deletion_otp, employee_invite, new_order, subscription_expiring, subscription_expired, weekend_digest, unsubscribed_order_attempt, all"
         )
 
 
@@ -201,7 +237,7 @@ async def send_test_email(payload: SendTestEmailRequest):
 
     if t_key == "all":
         results = []
-        keys = ["auth_otp", "deletion_otp", "employee_invite", "new_order", "subscription_expiring", "subscription_expired", "weekend_digest"]
+        keys = ["auth_otp", "deletion_otp", "employee_invite", "new_order", "subscription_expiring", "subscription_expired", "weekend_digest", "unsubscribed_order_attempt"]
         for k in keys:
             r = await _dispatch_template(
                 template_key=k,
@@ -299,14 +335,25 @@ async def test_weekend_digest(
     return {"status": "success", "template": "weekend_digest", "recipient": email, "result": res}
 
 
+@router.post("/unsubscribed-order-attempt")
+async def test_unsubscribed_order_attempt(
+    email: EmailStr = Query(..., description="Recipient email address"),
+    shop_name: str = Query(default="Siva Hotel", description="Restaurant / Shop Name"),
+    customer_name: str = Query(default="Siva", description="Customer Name")
+):
+    """Trigger the Unsubscribed Order Attempt alert email with sample items worth ₹500."""
+    res = await _dispatch_template("unsubscribed_order_attempt", str(email), shop_name=shop_name, customer_name=customer_name, force_smtp=True)
+    return {"status": "success", "template": "unsubscribed_order_attempt", "recipient": email, "result": res}
+
+
 @router.post("/send-all")
 async def test_send_all(
     email: EmailStr = Query(..., description="Recipient email address"),
     shop_name: str = Query(default="Siva Hotel", description="Restaurant / Shop Name")
 ):
-    """Trigger ALL 7 email templates sequentially to the target email address."""
+    """Trigger ALL email templates sequentially to the target email address."""
     results = []
-    keys = ["auth_otp", "deletion_otp", "employee_invite", "new_order", "subscription_expiring", "subscription_expired", "weekend_digest"]
+    keys = ["auth_otp", "deletion_otp", "employee_invite", "new_order", "subscription_expiring", "subscription_expired", "weekend_digest", "unsubscribed_order_attempt"]
     for k in keys:
         r = await _dispatch_template(template_key=k, email=str(email), shop_name=shop_name, force_smtp=True)
         results.append(r)
@@ -323,7 +370,7 @@ async def test_send_all(
 @router.get("/quick-send")
 async def quick_send_email_get(
     email: EmailStr = Query(..., description="Target email address"),
-    template: str = Query(default="new_order", description="Template key (auth_otp, deletion_otp, employee_invite, new_order, subscription_expiring, subscription_expired, weekend_digest, all)"),
+    template: str = Query(default="new_order", description="Template key (auth_otp, deletion_otp, employee_invite, new_order, subscription_expiring, subscription_expired, weekend_digest, unsubscribed_order_attempt, all)"),
     shop_name: str = Query(default="Siva Hotel", description="Shop name")
 ):
     """Quick GET endpoint for testing email delivery directly via browser URL bar."""

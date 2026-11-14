@@ -55,10 +55,17 @@ async def get_shop_subscription_permissions(shop_id: uuid.UUID, db: AsyncSession
         }
 
     active_mods = sub_status.get("active_modules") or []
+    expirations = sub_status.get("module_expirations") or {}
     is_all = sub_status.get("is_all_access", False)
 
     def has_mod(mod_name: str) -> bool:
-        return is_all or (mod_name in active_mods)
+        exp = expirations.get(mod_name)
+        if exp and isinstance(exp, dict) and exp.get("days_left") is not None:
+            if exp["days_left"] <= 0:
+                return False
+        if is_all:
+            return True
+        return mod_name in active_mods
 
     return {
         "is_active": True,

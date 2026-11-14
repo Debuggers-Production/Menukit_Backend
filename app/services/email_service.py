@@ -556,6 +556,157 @@ Support: debuggerstechs@gmail.com
         )
 
     # =========================================================================
+    # 6B. UNSUBSCRIBED ORDER ATTEMPT ALERT
+    # =========================================================================
+    async def send_unsubscribed_order_attempt_email(
+        self,
+        email: str,
+        shop_name: str,
+        customer_name: str,
+        amount: float,
+        currency: str = "₹",
+        order_type: str = "takeaway",
+        customer_phone: Optional[str] = None,
+        items: Optional[list] = None,
+        force_smtp: bool = False,
+    ) -> bool:
+        """Send urgent notification email when a customer attempts to order from an unsubscribed or expired shop."""
+        amount_str = f"{int(amount):,}" if (isinstance(amount, (int, float)) and amount == int(amount)) else f"{amount:,.2f}"
+        renew_url = f"{settings.FRONTEND_URL}/subscription/marketplace"
+        order_channel = order_type.replace("_", " ").title() if order_type else "Online"
+
+        subject = f"Action Required: {customer_name} tried to order items worth {currency}{amount_str} on {shop_name}"
+
+        items_rows_html = ""
+        items_txt = []
+        if items:
+            for it in items:
+                name = getattr(it, "name", None) or (it.get("name") if isinstance(it, dict) else "Item")
+                qty = getattr(it, "quantity", None) or (it.get("quantity") if isinstance(it, dict) else 1)
+                price = float(getattr(it, "price", 0.0) or (it.get("price", 0.0) if isinstance(it, dict) else 0.0))
+                subtotal = qty * price
+                sub_str = f"{int(subtotal):,}" if subtotal == int(subtotal) else f"{subtotal:,.2f}"
+                items_txt.append(f"- {name} x{qty} ({currency}{sub_str})")
+                items_rows_html += f"""
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 8px 6px; font-size: 13px; color: #1e293b; font-weight: 600;">{name}</td>
+                    <td style="padding: 8px 6px; font-size: 13px; color: #64748b; text-align: center; font-weight: 700;">x{qty}</td>
+                    <td style="padding: 8px 6px; font-size: 13px; color: #0f172a; text-align: right; font-weight: 800;">{currency}{sub_str}</td>
+                </tr>
+                """
+
+        items_section_html = ""
+        if items_rows_html:
+            items_section_html = f"""
+            <div style="margin-top: 16px; margin-bottom: 20px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px;">
+                <div style="font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+                    Attempted Order Items
+                </div>
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                    {items_rows_html}
+                </table>
+            </div>
+            """
+
+        items_txt_block = "\n".join(items_txt) if items_txt else "Items details unavailable"
+
+        text_content = f"""Action Required: Incoming Customer Order Blocked
+
+Hi {shop_name},
+{customer_name} tried to order items worth {currency}{amount_str} from your store ({order_channel} order).
+Please renew your subscription to receive incoming orders and avoid losing sales.
+
+Order Details:
+- Customer: {customer_name} {f'({customer_phone})' if customer_phone else ''}
+- Attempted Amount: {currency}{amount_str}
+- Channel: {order_channel}
+Items:
+{items_txt_block}
+
+Renew Subscription:
+{renew_url}
+
+Debuggers Technologies - Perungudi, Madurai, Tamil Nadu - 625022, India
+Support: debuggerstechs@gmail.com
+"""
+
+        body_html = f"""
+        <div>
+            <p style="margin: 0 0 14px 0; font-size: 15px; color: #1e293b;">
+                Hi <strong>{shop_name}</strong>,
+            </p>
+            <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+                <strong>{customer_name}</strong> just tried to place an order worth <strong style="color: #ea580c; font-size: 16px;">{currency}{amount_str}</strong> on your store, but the order could not be accepted because your subscription is currently inactive or expired.
+            </p>
+
+            <!-- Revenue Loss Alert Box -->
+            <div style="background-color: #fff7ed; border-left: 4px solid #ea580c; padding: 16px; margin-bottom: 20px; border-radius: 8px; font-size: 13px; color: #9a3412; line-height: 1.5;">
+                <div style="font-size: 14px; font-weight: 800; margin-bottom: 4px;">
+                    ⚠️ Incoming Order Blocked: {currency}{amount_str}
+                </div>
+                <div>
+                    Please renew your subscription to receive incoming customer orders. Reactivating your plan takes less than 60 seconds and restores instant order notifications and live POS processing.
+                </div>
+            </div>
+
+            <!-- Order Summary Card -->
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                    <tr>
+                        <td style="padding: 6px 0; font-size: 13px; color: #64748b;">Customer:</td>
+                        <td style="padding: 6px 0; font-size: 13px; font-weight: 700; color: #0f172a; text-align: right;">{customer_name} {f'({customer_phone})' if customer_phone else ''}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 0; font-size: 13px; color: #64748b;">Order Type:</td>
+                        <td style="padding: 6px 0; font-size: 13px; font-weight: 700; color: #0f172a; text-align: right;">{order_channel}</td>
+                    </tr>
+                    <tr style="border-top: 1px dashed #cbd5e1;">
+                        <td style="padding: 8px 0 2px 0; font-size: 14px; font-weight: 800; color: #1e293b;">Total Attempted:</td>
+                        <td style="padding: 8px 0 2px 0; font-size: 16px; font-weight: 900; color: #ea580c; text-align: right;">{currency}{amount_str}</td>
+                    </tr>
+                </table>
+            </div>
+
+            {items_section_html}
+
+            <!-- CTA Button -->
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 24px auto 16px auto;">
+                <tr>
+                    <td align="center">
+                        <a href="{renew_url}" class="mobile-full-width" style="display: inline-block; background-color: #ea580c; color: #ffffff; font-weight: 800; font-size: 15px; text-decoration: none; padding: 14px 36px; border-radius: 10px; box-shadow: 0 4px 14px rgba(234, 88, 12, 0.35);">
+                            Renew Subscription to Receive Orders &rarr;
+                        </a>
+                    </td>
+                </tr>
+            </table>
+
+            <p style="margin: 16px 0 0 0; font-size: 12px; color: #64748b; text-align: center; line-height: 1.4;">
+                Have questions or need help? Contact us anytime at debuggerstechs@gmail.com
+            </p>
+        </div>
+        """
+
+        html_content = self._wrap_email_template(
+            title="Incoming Order Blocked - Subscription Inactive",
+            subtitle=f"{shop_name} • Missed Order Alert",
+            badge_text="⚠️ Order Blocked",
+            content_html=body_html,
+            accent_color="#ea580c",
+            footer_note="You received this email because a customer attempted to order while your subscription was inactive."
+        )
+
+        if not force_smtp and (self.mock_mode or settings.EMAIL_BACKEND in ("console", "mock")):
+            return True
+
+        return await self._dispatch_raw_email(
+            email=email,
+            subject=subject,
+            html_content=html_content,
+            text_content=text_content,
+            sender_name="MenuKit Alerts"
+        )
+
+    # =========================================================================
     # 7. NEW ORDER NOTIFICATION (POS & ADMIN)
     # =========================================================================
     async def send_new_order_admin_email(

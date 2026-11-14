@@ -2,12 +2,15 @@
 
 import uuid
 import logging
+from typing import Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as redis
 
 from app.database.session import get_db
 from app.database.redis import get_redis
+from app.models.shop import Shop
 from app.schemas.customer import (
     MobileVerifyRequest, MobileVerifyResponse, OTPVerifyRequest, OTPVerifyResponse,
     CustomerRegisterRequest, CustomerResponse
@@ -21,6 +24,39 @@ from app.services.notification_service import NotificationService
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
 logger = logging.getLogger(__name__)
+
+_CUSTOMER_SLUG_CACHE: dict[str, uuid.UUID] = {}
+
+
+async def _resolve_shop_uuid(shop_id: Optional[Union[uuid.UUID, str]], db: AsyncSession) -> Optional[uuid.UUID]:
+    """Resolve shop_id string (either UUID string, shop slug, or UUID object) into a valid UUID."""
+    if not shop_id:
+        return None
+    if isinstance(shop_id, uuid.UUID):
+        return shop_id
+    raw_str = str(shop_id).strip()
+    try:
+        return uuid.UUID(raw_str)
+    except (ValueError, TypeError, AttributeError):
+        pass
+
+    slug_lower = raw_str.lower()
+    if slug_lower in _CUSTOMER_SLUG_CACHE:
+        return _CUSTOMER_SLUG_CACHE[slug_lower]
+    if raw_str in _CUSTOMER_SLUG_CACHE:
+        return _CUSTOMER_SLUG_CACHE[raw_str]
+
+    res = await db.execute(
+        select(Shop.id).where(
+            or_(Shop.slug == raw_str, Shop.slug == slug_lower),
+            Shop.is_deleted == False
+        )
+    )
+    resolved = res.scalar_one_or_none()
+    if resolved:
+        _CUSTOMER_SLUG_CACHE[raw_str] = resolved
+        _CUSTOMER_SLUG_CACHE[slug_lower] = resolved
+    return resolved
 
 
 def _get_m_v_id_keys(mobile_number: str) -> list[str]:
@@ -57,6 +93,8 @@ async def verify_mobile(
     """Generate and send OTP for mobile verification, or bypass if valid token provided."""
     from app.core.security import verify_customer_token
     
+    target_shop_id = await _resolve_shop_uuid(data.shop_id, db)
+    
     # 1. Check if valid token matches the mobile number
     if data.token:
         token_mobile = verify_customer_token(data.token)
@@ -75,25 +113,25 @@ async def verify_mobile(
                 access_token=data.token
             )
             
-            if data.shop_id:
-                await membership_service.log_event(data.shop_id, "token_verified")
+            if target_shop_id:
+                await membership_service.log_event(target_shop_id, "token_verified")
                 
             if customer:
                 response.is_global_customer = True
                 response.customer_name = customer.name
                 response.delivery_address = customer.delivery_address
                 
-                if data.shop_id:
-                    membership = await customer_service.get_membership(customer.id, data.shop_id)
+                if target_shop_id:
+                    membership = await customer_service.get_membership(customer.id, target_shop_id)
                     if membership:
                         response.is_member = True
                         response.is_strict_member = membership.is_retailer_added
-                        await membership_service.log_event(data.shop_id, "discount_unlocked", customer.id)
+                        await membership_service.log_event(target_shop_id, "discount_unlocked", customer.id)
                     else:
                         response.is_member = False
                         response.is_strict_member = False
-                        await customer_service.add_membership(customer.id, data.shop_id, is_retailer_added=False)
-                        await membership_service.log_event(data.shop_id, "member_matched", customer.id)
+                        await customer_service.add_membership(customer.id, target_shop_id, is_retailer_added=False)
+                        await membership_service.log_event(target_shop_id, "member_matched", customer.id)
             
             await db.commit()
             return response
@@ -104,8 +142,8 @@ async def verify_mobile(
     is_global = customer is not None
     is_mem = False
     is_strict = False
-    if customer and data.shop_id:
-        membership = await customer_service.get_membership(customer.id, data.shop_id)
+    if customer and target_shop_id:
+        membership = await customer_service.get_membership(customer.id, target_shop_id)
         if membership:
             is_mem = True
             is_strict = membership.is_retailer_added
@@ -175,6 +213,7 @@ async def verify_otp(
 
     customer_service = CustomerService(db)
     membership_service = MembershipService(db)
+    target_shop_id = await _resolve_shop_uuid(data.shop_id, db)
 
     customer = await customer_service.get_customer_by_mobile(data.mobile_number)
     
@@ -183,8 +222,8 @@ async def verify_otp(
         is_member=False
     )
     
-    if data.shop_id:
-        await membership_service.log_event(data.shop_id, "otp_verified")
+    if target_shop_id:
+        await membership_service.log_event(target_shop_id, "otp_verified")
 
     if customer:
         response.is_global_customer = True
@@ -194,20 +233,20 @@ async def verify_otp(
         from app.core.security import create_customer_token
         response.access_token = create_customer_token(customer.mobile_number)
         
-        if data.shop_id:
-            membership = await customer_service.get_membership(customer.id, data.shop_id)
+        if target_shop_id:
+            membership = await customer_service.get_membership(customer.id, target_shop_id)
             if membership:
                 response.is_member = True
                 response.is_strict_member = membership.is_retailer_added
-                await membership_service.log_event(data.shop_id, "discount_unlocked", customer.id)
+                await membership_service.log_event(target_shop_id, "discount_unlocked", customer.id)
             else:
                 response.is_member = False
                 response.is_strict_member = False
-                await customer_service.add_membership(customer.id, data.shop_id, is_retailer_added=False)
-                await membership_service.log_event(data.shop_id, "member_matched", customer.id)
+                await customer_service.add_membership(customer.id, target_shop_id, is_retailer_added=False)
+                await membership_service.log_event(target_shop_id, "member_matched", customer.id)
                 # Send Notification
                 await NotificationService(db).create_notification(
-                    shop_id=data.shop_id,
+                    shop_id=target_shop_id,
                     type="NEW_CUSTOMER",
                     title="New Customer Joined!",
                     message=f"Customer {customer.name} verified their number.",
@@ -225,15 +264,16 @@ async def register_customer(
     """Register a new global customer. Assuming OTP was verified just before."""
     customer_service = CustomerService(db)
     membership_service = MembershipService(db)
+    target_shop_id = await _resolve_shop_uuid(data.shop_id, db)
     
     customer = await customer_service.register_customer(data.name, data.mobile_number)
     
-    if data.shop_id:
-        await customer_service.add_membership(customer.id, data.shop_id, is_retailer_added=False)
-        await membership_service.log_event(data.shop_id, "member_matched", customer.id)
+    if target_shop_id:
+        await customer_service.add_membership(customer.id, target_shop_id, is_retailer_added=False)
+        await membership_service.log_event(target_shop_id, "member_matched", customer.id)
         # Send Notification
         await NotificationService(db).create_notification(
-            shop_id=data.shop_id,
+            shop_id=target_shop_id,
             type="NEW_CUSTOMER",
             title="New Customer Registered!",
             message=f"Customer {customer.name} has joined your shop.",

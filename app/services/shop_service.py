@@ -67,14 +67,19 @@ class ShopService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def _generate_unique_slug(self, name: str) -> str:
-        """Generate a unique slug from the shop name."""
-        base_slug = slugify(name)
+    async def _generate_unique_slug(self, name: str, exclude_shop_id: Optional[uuid.UUID] = None) -> str:
+        """Generate an always-unique slug from the shop name for every shop."""
+        base_slug = slugify(name) if name else ""
+        if not base_slug or len(base_slug.strip()) == 0:
+            base_slug = f"shop-{uuid.uuid4().hex[:6]}"
         slug = base_slug
         counter = 1
 
         while True:
-            result = await self.db.execute(select(Shop).where(Shop.slug == slug))
+            stmt = select(Shop.id).where(Shop.slug == slug)
+            if exclude_shop_id:
+                stmt = stmt.where(Shop.id != exclude_shop_id)
+            result = await self.db.execute(stmt)
             if not result.scalar_one_or_none():
                 return slug
             slug = f"{base_slug}-{counter}"
@@ -84,7 +89,11 @@ class ShopService:
         from app.models.menu_catalog import MenuCatalog
 
         clone_from_shop_id = data.pop("clone_from_shop_id", None)
-        slug = await self._generate_unique_slug(data["name"])
+        savings_schemes_enabled = data.pop("savings_schemes_enabled", None)
+        # Ensure slug is always generated and uniquely assigned
+        provided_slug = data.pop("slug", None)
+        slug_seed = str(provided_slug).strip() if (provided_slug and str(provided_slug).strip()) else data.get("name", "Shop")
+        slug = await self._generate_unique_slug(slug_seed)
 
         if "logo_url" in data and data["logo_url"]:
             data["logo_url"] = strip_image_base_url(data["logo_url"])
@@ -99,8 +108,18 @@ class ShopService:
         self.db.add(shop)
         await self.db.flush()
 
+        # Determine savings_schemes_enabled: defaults to True for Fireworks and Bakery, False otherwise
+        if savings_schemes_enabled is None:
+            category_str = str(shop.category or "").lower().strip()
+            savings_schemes_enabled = any(kw in category_str for kw in ["firework", "cracker", "bakery", "sweet", "cake"])
+        else:
+            savings_schemes_enabled = bool(savings_schemes_enabled)
+
         # Create default settings
-        settings = ShopSettings(shop_id=shop.id)
+        settings = ShopSettings(
+            shop_id=shop.id,
+            savings_schemes_enabled=savings_schemes_enabled,
+        )
         self.db.add(settings)
         shop.settings = settings
 
@@ -251,6 +270,33 @@ class ShopService:
         )
         return result.scalar_one_or_none()
 
+    async def get_shop_by_identifier(self, identifier: str | uuid.UUID) -> Optional[Shop]:
+        """Get shop by either its UUID or its URL slug in a single direct query."""
+        if not identifier:
+            return None
+        from sqlalchemy import or_
+        raw_str = str(identifier).strip()
+        parsed_uuid = None
+        try:
+            parsed_uuid = uuid.UUID(raw_str)
+        except (ValueError, AttributeError):
+            pass
+
+        conditions = [Shop.slug == raw_str, Shop.slug == raw_str.lower()]
+        if parsed_uuid:
+            conditions.append(Shop.id == parsed_uuid)
+
+        result = await self.db.execute(
+            select(Shop)
+            .options(
+                selectinload(Shop.settings),
+                selectinload(Shop.theme),
+                selectinload(Shop.chalkboard),
+            )
+            .where(or_(*conditions), Shop.is_active == True, Shop.is_deleted.is_(False))
+        )
+        return result.scalars().first()
+
     async def update_shop(self, shop_id: uuid.UUID, user_id: uuid.UUID, data: dict) -> Shop:
         """Update shop details."""
         shop = await self.get_shop_by_id(shop_id)
@@ -381,7 +427,9 @@ class ShopService:
             raise NotFoundException("Shop not found")
 
         if not shop.settings:
-            shop.settings = ShopSettings(shop_id=shop.id)
+            category_str = str(shop.category or "").lower().strip()
+            is_scheme_default = any(kw in category_str for kw in ["firework", "cracker", "bakery", "sweet", "cake"])
+            shop.settings = ShopSettings(shop_id=shop.id, savings_schemes_enabled=is_scheme_default)
             self.db.add(shop.settings)
             await self.db.flush()
 
@@ -422,6 +470,18 @@ class ShopService:
                 raise HTTPException(
                     status_code=400,
                     detail="Cannot enable ordering features until your settlement bank account is added and verified."
+                )
+
+        # 1d. Validate savings_schemes_enabled: cannot turn off if shop has existing schemes
+        if data.get("savings_schemes_enabled") is False and shop.settings.savings_schemes_enabled is not False:
+            from app.models.scheme import Scheme
+            schemes_stmt = select(func.count(Scheme.id)).where(Scheme.shop_id == shop.id)
+            res = await self.db.execute(schemes_stmt)
+            scheme_count = res.scalar() or 0
+            if scheme_count > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot disable Savings Schemes while you have {scheme_count} existing scheme(s). You can only turn this feature off after deleting all existing schemes."
                 )
 
         # 2. Update and Encrypt fields
@@ -619,7 +679,9 @@ class ShopService:
             
         # 3. Store in DB
         if not shop.settings:
-            shop.settings = ShopSettings(shop_id=shop.id)
+            category_str = str(shop.category or "").lower().strip()
+            is_scheme_default = any(kw in category_str for kw in ["firework", "cracker", "bakery", "sweet", "cake"])
+            shop.settings = ShopSettings(shop_id=shop.id, savings_schemes_enabled=is_scheme_default)
             self.db.add(shop.settings)
             
         shop.settings.razorpay_account_id = account_id

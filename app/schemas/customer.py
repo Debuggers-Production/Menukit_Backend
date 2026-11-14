@@ -1,6 +1,7 @@
 """Customer schemas."""
 
 import uuid
+from typing import Optional, Union
 from datetime import datetime
 from pydantic import BaseModel, Field, constr
 
@@ -9,7 +10,7 @@ class MobileVerifyRequest(BaseModel):
     country_code: str = "91"
     mobile_number: constr(min_length=10, max_length=15, pattern=r'^\+?[0-9]+$') # type: ignore
     token: str | None = None
-    shop_id: uuid.UUID | None = None
+    shop_id: Optional[Union[uuid.UUID, str]] = None
 
 class MobileVerifyResponse(BaseModel):
     otp_required: bool
@@ -27,7 +28,7 @@ class OTPVerifyRequest(BaseModel):
     country_code: str = "91"
     mobile_number: constr(min_length=10, max_length=15, pattern=r'^\+?[0-9]+$') # type: ignore
     code: str
-    shop_id: uuid.UUID | None = None
+    shop_id: Optional[Union[uuid.UUID, str]] = None
 
 
 class OTPVerifyResponse(BaseModel):
@@ -42,7 +43,7 @@ class OTPVerifyResponse(BaseModel):
 class CustomerRegisterRequest(BaseModel):
     mobile_number: constr(min_length=10, max_length=15, pattern=r'^\+?[0-9]+$') # type: ignore
     name: str = Field(..., min_length=2, max_length=100)
-    shop_id: uuid.UUID | None = None
+    shop_id: Optional[Union[uuid.UUID, str]] = None
     otp_code: str | None = None # Required if registering directly without session
 
 

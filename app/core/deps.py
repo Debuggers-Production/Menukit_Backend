@@ -118,8 +118,48 @@ async def get_current_shop_context(
 def require_permission(resource: str, action: str):
     async def permission_checker(
         shop = Depends(get_current_shop_context),
-        current_user: User = Depends(get_current_user)
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
     ):
+        if not shop:
+            raise ForbiddenException("No shop found")
+
+        # 1. Modular subscription check (enforced for both owners and employees)
+        RESOURCE_MODULE_MAP = {
+            "orders": ["online-orders"],
+            "customers": ["member-details", "new-member", "member-count"],
+            "members": ["member-details", "new-member", "member-count"],
+            "analytics": ["analytics-advanced"],
+            "theme": ["custom-theme"],
+            "customize": ["custom-theme"],
+        }
+
+        target_addons = RESOURCE_MODULE_MAP.get(resource)
+        if target_addons:
+            from app.api.v1.subscription import get_shop_subscription_status
+            sub_status = await get_shop_subscription_status(shop, db)
+
+            if sub_status.get("is_expired"):
+                raise ForbiddenException("Subscription for this module has expired (0 days remaining). Please renew to access.")
+
+            active_modules = sub_status.get("active_modules") or []
+            expirations = sub_status.get("module_expirations") or {}
+            is_all_access = sub_status.get("is_all_access", False)
+
+            def check_addon_active(addon_id: str) -> bool:
+                exp = expirations.get(addon_id)
+                if exp and isinstance(exp, dict) and exp.get("days_left") is not None:
+                    if exp["days_left"] <= 0:
+                        return False
+                if is_all_access:
+                    return True
+                return addon_id in active_modules
+
+            has_active_addon = any(check_addon_active(a) for a in target_addons)
+            if not has_active_addon:
+                raise ForbiddenException("Subscription for this module has expired (0 days remaining). Please renew to access.")
+
+        # 2. Employee permissions check
         if shop.user_id == current_user.id:
             return shop
             
@@ -129,6 +169,10 @@ def require_permission(resource: str, action: str):
             resource_actions = permissions.get("settings", [])
         if not resource_actions and resource in ("marketing", "campaigns"):
             resource_actions = permissions.get("campaigns", []) or permissions.get("marketing", [])
+        if not resource_actions and resource in ("theme", "customize"):
+            resource_actions = permissions.get("theme", []) or permissions.get("settings", [])
+        if not resource_actions and resource in ("customers", "members"):
+            resource_actions = permissions.get("customers", []) or permissions.get("members", []) or permissions.get("analytics", [])
             
         if action not in resource_actions:
             raise ForbiddenException(f"Missing {action} permission for {resource}")

@@ -8,8 +8,8 @@ from typing import Optional
 from app.database.session import get_db
 from app.core.deps import get_current_user, require_permission
 from app.schemas.shop import (
-    ShopCreate, ShopUpdate, ShopResponse,
-    ShopSettingsUpdate, ShopSettingsResponse,
+    ShopCreate, ShopUpdate, ShopResponse, PublicShopResponse,
+    ShopSettingsUpdate, ShopSettingsResponse, PublicShopSettingsResponse,
     ThemeSettingsUpdate, ThemeSettingsResponse,
     RazorpayBankAccountUpdateRequest,
     RazorpayLinkedAccountCreateRequest,
@@ -467,7 +467,7 @@ async def get_razorpay_account_status(
     return result
 
 
-async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) -> ShopResponse:
+async def format_shop_response_with_subscription_checks(shop, db: AsyncSession, is_public: bool = False) -> ShopResponse:
     """Convert Shop model to response schema enforcing subscription level feature permissions."""
     from app.services.subscription_helper import get_shop_subscription_permissions
     perms = await get_shop_subscription_permissions(shop.id, db)
@@ -519,7 +519,16 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
             settings_dict["allow_delivery"] = False
             settings_dict["takeaway_enabled"] = False
             settings_dict["delivery_enabled"] = False
-        settings_resp = ShopSettingsResponse(**settings_dict)
+        if is_public:
+            for field in [
+                "bank_account_last4", "beneficiary_name", "ifsc_code", "upi_id",
+                "cashfree_app_id", "cashfree_secret_key", "cashfree_sandbox",
+                "razorpay_account_id", "razorpay_product_id", "razorpay_route_status"
+            ]:
+                settings_dict.pop(field, None)
+            settings_resp = PublicShopSettingsResponse(**settings_dict)
+        else:
+            settings_resp = ShopSettingsResponse(**settings_dict)
 
     chalkboard_resp = None
     if getattr(shop, "chalkboard", None):
@@ -553,7 +562,8 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
     else:
         is_subbed = bool(perms.get("is_active")) and not bool(perms.get("is_expired"))
 
-    return ShopResponse(
+    response_cls = PublicShopResponse if is_public else ShopResponse
+    return response_cls(
         id=str(shop.id),
         user_id=str(shop.user_id) if shop.user_id else None,
         name=shop.name,
@@ -585,7 +595,7 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession) 
     )
 
 
-def _shop_to_response(shop) -> ShopResponse:
+def _shop_to_response(shop, is_public: bool = False) -> ShopResponse:
     """Convert Shop model to response schema."""
     theme_resp = None
     if shop.theme:
@@ -605,13 +615,24 @@ def _shop_to_response(shop) -> ShopResponse:
 
     settings_resp = None
     if shop.settings:
-        settings_resp = ShopSettingsResponse.model_validate(shop.settings)
+        if is_public:
+            settings_dict = ShopSettingsResponse.model_validate(shop.settings).model_dump()
+            for field in [
+                "bank_account_last4", "beneficiary_name", "ifsc_code", "upi_id",
+                "cashfree_app_id", "cashfree_secret_key", "cashfree_sandbox",
+                "razorpay_account_id", "razorpay_product_id", "razorpay_route_status"
+            ]:
+                settings_dict.pop(field, None)
+            settings_resp = PublicShopSettingsResponse(**settings_dict)
+        else:
+            settings_resp = ShopSettingsResponse.model_validate(shop.settings)
 
     chalkboard_resp = None
     if getattr(shop, "chalkboard", None):
         chalkboard_resp = ChalkboardResponse.model_validate(shop.chalkboard)
 
-    return ShopResponse(
+    response_cls = PublicShopResponse if is_public else ShopResponse
+    return response_cls(
         id=str(shop.id),
         user_id=str(shop.user_id) if shop.user_id else None,
         name=shop.name,

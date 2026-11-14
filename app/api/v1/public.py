@@ -17,7 +17,7 @@ from app.models.review import MenuItemReview
 from app.schemas.discount import DiscountResponse, VerifyDiscountCodeRequest
 from app.schemas.review import ReviewCreate, ReviewResponse, ReviewSummary
 from datetime import datetime, timezone
-from app.schemas.shop import ShopResponse
+from app.schemas.shop import ShopResponse, PublicShopResponse
 from app.schemas.category import CategoryResponse
 from app.schemas.menu_item import MenuItemResponse
 from app.schemas.common import MessageResponse
@@ -311,37 +311,116 @@ class SearchRequest(BaseModel):
 
 # ── Shop & Menu endpoints ──────────────────────────────────────────────────────
 
-@router.get("", response_model=ShopResponse)
+_SLUG_UUID_CACHE: dict[str, uuid.UUID] = {}
+
+async def _resolve_shop_uuid(shop_id: str | uuid.UUID, db: AsyncSession) -> uuid.UUID:
+    """Resolve shop_id string (either UUID or shop slug) into a valid UUID with multi-tier caching (Memory -> Redis -> DB)."""
+    if isinstance(shop_id, uuid.UUID):
+        return shop_id
+    raw_str = str(shop_id).strip()
+    try:
+        return uuid.UUID(raw_str)
+    except (ValueError, AttributeError):
+        pass
+
+    slug_lower = raw_str.lower()
+    # 1. Fast in-memory cache lookup (0.001ms)
+    if slug_lower in _SLUG_UUID_CACHE:
+        return _SLUG_UUID_CACHE[slug_lower]
+
+    # 2. Redis distributed cache lookup (1ms)
+    try:
+        from app.database.redis import get_redis
+        r_client = await get_redis()
+        cached_uuid_str = await r_client.get(f"public:slug_map:{slug_lower}")
+        if cached_uuid_str:
+            resolved_uuid = uuid.UUID(cached_uuid_str)
+            _SLUG_UUID_CACHE[slug_lower] = resolved_uuid
+            return resolved_uuid
+    except Exception:
+        pass
+
+    # 3. Database query fallback on cold miss
+    from app.models.shop import Shop
+    from sqlalchemy import or_
+    res = await db.execute(
+        select(Shop.id).where(
+            or_(Shop.slug == raw_str, Shop.slug == slug_lower),
+            Shop.is_deleted == False
+        )
+    )
+    shop_uuid = res.scalar_one_or_none()
+    if not shop_uuid:
+        raise NotFoundException("Restaurant not found")
+
+    # Seed in-memory and Redis caches
+    _SLUG_UUID_CACHE[slug_lower] = shop_uuid
+    try:
+        await r_client.setex(f"public:slug_map:{slug_lower}", 86400, str(shop_uuid))
+    except Exception:
+        pass
+
+    return shop_uuid
+
+
+@router.get("", response_model=PublicShopResponse)
 async def get_public_shop(
-    shop_id: uuid.UUID,
+    shop_id: str,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """Get shop details for public menu with subscription enforcement (Cached)."""
-    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
     import json
     from app.database.redis import get_redis
     r_client = await get_redis()
-    cache_key = f"public:shop:{str(shop_id)}"
-    
+    raw_key = str(shop_id).strip().lower()
+
+    # Fast direct cache check by input identifier (slug or uuid)
     try:
-        cached_data = await r_client.get(cache_key)
+        cached_data = await r_client.get(f"public:shop:{raw_key}")
         if cached_data:
-            return json.loads(cached_data)
+            data = json.loads(cached_data)
+            if isinstance(data, dict) and "settings" in data and isinstance(data["settings"], dict):
+                for f in ["bank_account_last4", "beneficiary_name", "ifsc_code", "upi_id", "cashfree_app_id", "cashfree_secret_key", "cashfree_sandbox", "razorpay_account_id", "razorpay_product_id", "razorpay_route_status"]:
+                    data["settings"].pop(f, None)
+            return data
     except Exception:
         pass
 
     service = ShopService(db)
-    shop = await service.get_shop_by_id(shop_id)
+    # Direct single-query lookup matching either UUID or unique Slug
+    shop = await service.get_shop_by_identifier(shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
+
+    target_shop_id = shop.id
+    if shop.slug:
+        _SLUG_UUID_CACHE[shop.slug.strip().lower()] = shop.id
+
+    cache_key_uuid = f"public:shop:{str(target_shop_id)}"
+    try:
+        cached_data = await r_client.get(cache_key_uuid)
+        if cached_data:
+            data = json.loads(cached_data)
+            if isinstance(data, dict) and "settings" in data and isinstance(data["settings"], dict):
+                for f in ["bank_account_last4", "beneficiary_name", "ifsc_code", "upi_id", "cashfree_app_id", "cashfree_secret_key", "cashfree_sandbox", "razorpay_account_id", "razorpay_product_id", "razorpay_route_status"]:
+                    data["settings"].pop(f, None)
+            return data
+    except Exception:
+        pass
+
     from app.api.v1.shops import format_shop_response_with_subscription_checks
-    resp = await format_shop_response_with_subscription_checks(shop, db)
+    resp = await format_shop_response_with_subscription_checks(shop, db, is_public=True)
     
     try:
-        # Convert pydantic response model to dict/json for redis cache
         data_dict = resp.model_dump() if hasattr(resp, "model_dump") else resp
-        await r_client.setex(cache_key, 300, json.dumps(data_dict, default=str))
+        payload_str = json.dumps(data_dict, default=str)
+        # Dual-key caching: accessible instantly by either UUID or Slug
+        await r_client.setex(cache_key_uuid, 300, payload_str)
+        if getattr(shop, "slug", None):
+            await r_client.setex(f"public:shop:{shop.slug.strip().lower()}", 300, payload_str)
+            await r_client.setex(f"public:slug_map:{shop.slug.strip().lower()}", 86400, str(target_shop_id))
     except Exception:
         pass
         
@@ -349,31 +428,49 @@ async def get_public_shop(
 
 @router.get("/categories", response_model=List[PublicCategoryResponse])
 async def get_public_categories(
-    shop_id: uuid.UUID,
+    shop_id: str,
     response: Response,
     sort_by: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get ONLY active categories for a shop (no items)."""
-    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
+    """Get ONLY active categories for a shop (no items) matching either UUID or unique Slug."""
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
     import json
     from app.database.redis import get_redis
     r_client = await get_redis()
-    cache_key = f"public:categories:{str(shop_id)}:{str(sort_by or '')}:{limit}:{offset}"
+    raw_key = str(shop_id).strip().lower()
     
+    # 1. Direct dual-key cache lookup (supports slug or uuid)
+    cache_key_raw = f"public:categories:{raw_key}:{str(sort_by or '')}:{limit}:{offset}"
     try:
-        cached_cats = await r_client.get(cache_key)
+        cached_cats = await r_client.get(cache_key_raw)
         if cached_cats:
             return json.loads(cached_cats)
     except Exception:
         pass
 
-    from app.models.category import Category
-    
+    # 2. Single direct database query matching UUID OR unique Slug
     shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_id(shop_id)
+    shop = await shop_service.get_shop_by_identifier(shop_id)
+    if not shop:
+        raise NotFoundException("Restaurant not found")
+
+    target_shop_id = shop.id
+    if shop.slug:
+        _SLUG_UUID_CACHE[shop.slug.strip().lower()] = shop.id
+
+    cache_key_uuid = f"public:categories:{str(target_shop_id)}:{str(sort_by or '')}:{limit}:{offset}"
+    if cache_key_uuid != cache_key_raw:
+        try:
+            cached_cats = await r_client.get(cache_key_uuid)
+            if cached_cats:
+                return json.loads(cached_cats)
+        except Exception:
+            pass
+
+    from app.models.category import Category
     if not shop:
         raise NotFoundException("Restaurant not found")
 
@@ -409,7 +506,10 @@ async def get_public_categories(
         result.append(cat_dict)
 
     try:
-        await r_client.setex(cache_key, 300, json.dumps(result, default=str))
+        cats_str = json.dumps(result, default=str)
+        await r_client.setex(cache_key_uuid, 300, cats_str)
+        if getattr(shop, "slug", None):
+            await r_client.setex(f"public:categories:{shop.slug.strip().lower()}:{str(sort_by or '')}:{limit}:{offset}", 300, cats_str)
     except Exception:
         pass
 
@@ -417,7 +517,7 @@ async def get_public_categories(
 
 @router.get("/items", response_model=List[MenuItemResponse])
 async def get_public_items(
-    shop_id: uuid.UUID,
+    shop_id: str,
     response: Response,
     category_id: Optional[uuid.UUID] = None,
     discount_id: Optional[uuid.UUID] = None,
@@ -430,31 +530,50 @@ async def get_public_items(
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get items for a shop with filtering, discount applicability, and sorting options."""
-    response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=120"
+    """Get items for a shop with filtering, discount applicability, and sorting options matching either UUID or unique Slug."""
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
     import json
     from app.database.redis import get_redis
     r_client = await get_redis()
-    cache_key = f"public:items:{str(shop_id)}:{str(category_id or '')}:{str(discount_id or '')}:{str(search or '')}:{str(food_type or '')}:{str(status or '')}:{str(sort_by or '')}:{include_unavailable}:{limit}:{offset}"
+    raw_key = str(shop_id).strip().lower()
     
+    # 1. Direct dual-key cache lookup (supports slug or uuid)
+    filter_tail = f"{str(category_id or '')}:{str(discount_id or '')}:{str(search or '')}:{str(food_type or '')}:{str(status or '')}:{str(sort_by or '')}:{include_unavailable}:{limit}:{offset}"
+    cache_key_raw = f"public:items:{raw_key}:{filter_tail}"
     try:
-        cached_items = await r_client.get(cache_key)
+        cached_items = await r_client.get(cache_key_raw)
         if cached_items:
             return json.loads(cached_items)
     except Exception:
         pass
 
+    # 2. Single direct database query matching UUID OR unique Slug
+    shop_service = ShopService(db)
+    shop = await shop_service.get_shop_by_identifier(shop_id)
+    if not shop:
+        raise NotFoundException("Restaurant not found")
+
+    target_shop_id = shop.id
+    if shop.slug:
+        _SLUG_UUID_CACHE[shop.slug.strip().lower()] = shop.id
+
+    cache_key_uuid = f"public:items:{str(target_shop_id)}:{filter_tail}"
+    if cache_key_uuid != cache_key_raw:
+        try:
+            cached_items = await r_client.get(cache_key_uuid)
+            if cached_items:
+                return json.loads(cached_items)
+        except Exception:
+            pass
+
     from app.models.menu_item import MenuItem
     from app.models.shop_settings import ShopSettings
     from sqlalchemy.orm import selectinload
-    
-    shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_id(shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
 
     # Load shop settings to check show_prices flag
-    settings_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+    settings_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == target_shop_id))
     shop_settings = settings_res.scalar_one_or_none()
     show_prices = (getattr(shop_settings, "show_prices", True) is not False) if shop_settings else True
 
@@ -540,7 +659,10 @@ async def get_public_items(
         data_list = [r.model_dump() if hasattr(r, "model_dump") else r for r in result]
         if not show_prices:
             data_list = [_strip_prices(d) for d in data_list]
-        await r_client.setex(cache_key, 180, json.dumps(data_list, default=str))
+        payload_str = json.dumps(data_list, default=str)
+        await r_client.setex(cache_key_uuid, 180, payload_str)
+        if getattr(shop, "slug", None):
+            await r_client.setex(f"public:items:{shop.slug.strip().lower()}:{filter_tail}", 180, payload_str)
     except Exception:
         pass
     if not show_prices:
@@ -549,7 +671,7 @@ async def get_public_items(
 
 @router.get("/menu", response_model=List[PublicCategoryResponse])
 async def get_public_menu(
-    shop_id: uuid.UUID,
+    shop_id: str,
     sort_by: Optional[str] = None,
     category_sort_by: Optional[str] = None,
     limit: int = 50,
@@ -560,10 +682,11 @@ async def get_public_menu(
 
     Optimized: Served directly from Redis cache if present.
     """
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
     import json
     from app.database.redis import get_redis
     r_client = await get_redis()
-    cache_key = f"public:menu:{str(shop_id)}:{str(sort_by or '')}:{str(category_sort_by or '')}:{limit}:{offset}"
+    cache_key = f"public:menu:{str(target_shop_id)}:{str(sort_by or '')}:{str(category_sort_by or '')}:{limit}:{offset}"
     
     try:
         cached_menu = await r_client.get(cache_key)
@@ -579,12 +702,12 @@ async def get_public_menu(
 
     # ── 1. Verify shop exists ─────────────────────────────────────────────────
     shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_id(shop_id)
+    shop = await shop_service.get_shop_by_id(target_shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
 
     # Load shop settings to check show_prices flag
-    settings_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == shop_id))
+    settings_res = await db.execute(select(ShopSettings).where(ShopSettings.shop_id == target_shop_id))
     shop_settings = settings_res.scalar_one_or_none()
     show_prices = (getattr(shop_settings, "show_prices", True) is not False) if shop_settings else True
 
@@ -660,7 +783,10 @@ async def get_public_menu(
         result.append(cat_dict)
 
     try:
-        await r_client.setex(cache_key, 300, json.dumps(result, default=str))
+        cats_str = json.dumps(result, default=str)
+        await r_client.setex(cache_key_uuid, 300, cats_str)
+        if getattr(shop, "slug", None):
+            await r_client.setex(f"public:categories:{shop.slug.strip().lower()}:{str(sort_by or '')}:{limit}:{offset}", 300, cats_str)
     except Exception:
         pass
 
@@ -758,7 +884,7 @@ async def record_search(
 
 @router.get("/discounts", response_model=List[DiscountResponse])
 async def get_active_discounts_public(
-    shop_id: uuid.UUID,
+    shop_id: str,
     limit: int = 50,
     offset: int = 0,
     customer_id: Optional[str] = Query(None),
@@ -766,8 +892,9 @@ async def get_active_discounts_public(
     Authorization: Optional[str] = Header(None)
 ):
     """Get active discounts for public display, assigning unique codes and filtering out redeemed ones."""
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
     shop_service = ShopService(db)
-    shop = await shop_service.get_shop_by_id(shop_id)
+    shop = await shop_service.get_shop_by_id(target_shop_id)
     if not shop:
         raise NotFoundException("Restaurant not found")
 
@@ -1291,7 +1418,7 @@ async def get_public_item(
         return _strip_prices(item_resp.model_dump())
     return item_resp
 
-@shops_router.get("/by-slug/{slug}", response_model=ShopResponse)
+@shops_router.get("/by-slug/{slug}", response_model=PublicShopResponse)
 async def get_shop_by_slug(
     slug: str,
     db: AsyncSession = Depends(get_db),
@@ -1313,19 +1440,21 @@ async def get_shop_by_slug(
     if not shop:
         raise NotFoundException("Restaurant not found")
         
-    return _shop_to_response(shop)
+    from app.api.v1.shops import format_shop_response_with_subscription_checks
+    return await format_shop_response_with_subscription_checks(shop, db, is_public=True)
 
 
 @router.get("/qr", response_model=QRCodeResponse)
 async def get_public_shop_qr(
-    shop_id: uuid.UUID,
+    shop_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get public QR code style details for a shop. Automatically generates a default one if not found (Cached)."""
+    """Get public QR code style details for a shop based on its unique slug (Cached)."""
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
     import json
     from app.database.redis import get_redis
     r_client = await get_redis()
-    cache_key = f"public:qr:{str(shop_id)}"
+    cache_key = f"public:qr:{str(target_shop_id)}"
     
     try:
         cached_qr = await r_client.get(cache_key)
@@ -1338,7 +1467,7 @@ async def get_public_shop_qr(
     from app.models.shop import Shop
     
     # Verify the shop exists
-    shop_res = await db.execute(select(Shop).where(Shop.id == shop_id))
+    shop_res = await db.execute(select(Shop).where(Shop.id == target_shop_id))
     shop = shop_res.scalar_one_or_none()
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
@@ -1348,18 +1477,24 @@ async def get_public_shop_qr(
     )
     qr = result.scalar_one_or_none()
     
+    from app.core.config import get_settings
+    settings = get_settings()
+    
+    identifier = shop.slug if shop.slug else str(shop.id)
+    desired_qr_url = f"{settings.FRONTEND_URL}/shop/{identifier}?type=qr"
+    
     if not qr:
-        from app.core.config import get_settings
-        settings = get_settings()
-        
-        qr_url = f"{settings.FRONTEND_URL}/shop/{shop.id}?type=qr"
-        
         qr = QRCode(
             user_id=shop.user_id,
-            qr_url=qr_url,
+            qr_url=desired_qr_url,
             qr_image_url=None,
             qr_svg_data=None,
         )
+        db.add(qr)
+        await db.commit()
+        await db.refresh(qr)
+    elif qr.qr_url != desired_qr_url and (shop.slug or "/brand/" in qr.qr_url):
+        qr.qr_url = desired_qr_url
         db.add(qr)
         await db.commit()
         await db.refresh(qr)
@@ -1367,7 +1502,10 @@ async def get_public_shop_qr(
     resp = QRCodeResponse.model_validate(qr)
     try:
         data_dict = resp.model_dump() if hasattr(resp, "model_dump") else resp
-        await r_client.setex(cache_key, 300, json.dumps(data_dict, default=str))
+        payload_str = json.dumps(data_dict, default=str)
+        await r_client.setex(cache_key, 300, payload_str)
+        if getattr(shop, "slug", None):
+            await r_client.setex(f"public:shop:{shop.slug.strip().lower()}", 300, payload_str)
     except Exception:
         pass
     return resp
@@ -1383,10 +1521,110 @@ async def create_public_order(
     from app.services.subscription_helper import get_shop_subscription_permissions
     perms = await get_shop_subscription_permissions(shop_id, db)
     
-    if (order_data.order_type in ["takeaway", "delivery"] or order_data.payment_method != "cash") and not perms["online_orders"]:
+    is_blocked = False
+    if perms.get("is_expired") or not perms.get("is_active"):
+        is_blocked = True
+    elif (order_data.order_type in ["takeaway", "delivery"] or order_data.payment_method != "cash") and not perms.get("online_orders"):
+        is_blocked = True
+
+    if is_blocked:
+        import asyncio
+        import logging
+        from sqlalchemy.orm import selectinload
+        from app.models.shop import Shop
+
+        logger = logging.getLogger(__name__)
+
+        # 1. Fetch shop and owner details to determine currency & email
+        shop_stmt = (
+            select(Shop)
+            .options(selectinload(Shop.user), selectinload(Shop.settings))
+            .where(Shop.id == shop_id)
+        )
+        shop_res = await db.execute(shop_stmt)
+        shop = shop_res.scalar_one_or_none()
+
+        currency = "₹"
+        if shop and shop.settings and getattr(shop.settings, "currency", None):
+            currency = shop.settings.currency
+
+        # 2. Extract customer name and attempted order amount
+        customer_name = (order_data.customer_name or "").strip()
+        if not customer_name or customer_name.lower() in ["walk-in", "customer"]:
+            if order_data.customer_phone:
+                customer_name = f"Customer ({order_data.customer_phone})"
+            else:
+                customer_name = "A customer"
+
+        amount = float(order_data.total_amount or 0.0)
+        if amount <= 0 and order_data.items:
+            amount = sum(float(item.price or 0.0) * int(item.quantity or 1) for item in order_data.items)
+
+        amount_str = f"{int(amount):,}" if amount == int(amount) else f"{amount:,.2f}"
+
+        # 3. Notification message matching user specification:
+        # "{customer_name} tried to order items worth {currency}{amount}. Please renew your subscription to receive incoming orders."
+        notif_msg = f"{customer_name} tried to order items worth {currency}{amount_str}. Please renew your subscription to receive incoming orders."
+        notif_title = "⚠️ Incoming Order Blocked - Subscription Expired"
+
+        # 4. Trigger Push Notification (Database + WebSocket + FCM Push to merchant devices)
+        try:
+            from app.services.notification_service import NotificationService
+            notif_service = NotificationService(db)
+            await notif_service.create_notification(
+                shop_id=shop_id,
+                type="ORDER_ATTEMPT_UNSUBSCRIBED",
+                title=notif_title,
+                message=notif_msg,
+                metadata={
+                    "customer_name": customer_name,
+                    "customer_phone": order_data.customer_phone or "",
+                    "total_amount": amount,
+                    "currency": currency,
+                    "order_type": order_data.order_type,
+                    "url": "/subscription/marketplace"
+                }
+            )
+        except Exception as notif_err:
+            logger.error(f"Failed to create push notification for unsubscribed order: {notif_err}", exc_info=True)
+
+        # 5. Trigger Email Notification to Shop Owner
+        if shop and shop.user and getattr(shop.user, "email", None):
+            try:
+                from app.services.email_service import email_service
+
+                items_payload = []
+                for it in order_data.items:
+                    if hasattr(it, "model_dump"):
+                        items_payload.append(it.model_dump())
+                    elif isinstance(it, dict):
+                        items_payload.append(it)
+                    else:
+                        items_payload.append({
+                            "name": getattr(it, "name", "Item"),
+                            "quantity": getattr(it, "quantity", 1),
+                            "price": getattr(it, "price", 0.0)
+                        })
+
+                asyncio.create_task(
+                    email_service.send_unsubscribed_order_attempt_email(
+                        email=shop.user.email,
+                        shop_name=shop.name,
+                        customer_name=customer_name,
+                        amount=amount,
+                        currency=currency,
+                        order_type=order_data.order_type,
+                        customer_phone=order_data.customer_phone,
+                        items=items_payload,
+                        force_smtp=True
+                    )
+                )
+            except Exception as email_err:
+                logger.error(f"Failed to dispatch email for unsubscribed order: {email_err}", exc_info=True)
+
         raise HTTPException(
             status_code=403,
-            detail="Online ordering (Takeaway & Delivery) is disabled for this shop due to an inactive or expired subscription."
+            detail=f"Online ordering is currently unavailable for this shop due to an inactive or expired subscription. Please renew your subscription to receive incoming orders."
         )
 
     from app.services.order_service import OrderService
@@ -2396,6 +2634,7 @@ async def get_customer_visited_shops(
                 visited_shops_map[s_id] = {
                     "id": s_id,
                     "name": o.shop.name if o.shop else "Menukit Store",
+                    "slug": getattr(o.shop, "slug", None) if o.shop else None,
                     "logo_url": getattr(o.shop, "logo_url", None) if o.shop else None,
                     "total_orders": 0,
                     "total_spent": 0.0,
@@ -2415,6 +2654,7 @@ async def get_customer_visited_shops(
                 visited_shops_list.append({
                     "id": str(shop_obj.id),
                     "name": shop_obj.name,
+                    "slug": getattr(shop_obj, "slug", None),
                     "logo_url": getattr(shop_obj, "logo_url", None),
                     "total_orders": 0,
                     "total_spent": 0.0,

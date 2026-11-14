@@ -4,6 +4,7 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
@@ -126,14 +127,27 @@ async def record_member_payment(
 
 # -------------------- Public Menu Endpoints --------------------
 
+async def _resolve_shop_uuid(shop_id: str, db: AsyncSession) -> uuid.UUID:
+    """Resolve shop_id string (either UUID or shop slug) into a valid UUID."""
+    try:
+        return uuid.UUID(shop_id)
+    except ValueError:
+        res = await db.execute(select(Shop.id).where(Shop.slug == shop_id, Shop.is_deleted == False))
+        shop_uuid = res.scalar_one_or_none()
+        if not shop_uuid:
+            raise HTTPException(status_code=404, detail="Shop not found")
+        return shop_uuid
+
+
 @public_router.get("", response_model=List[PublicSchemeResponse])
 async def get_public_schemes(
     shop_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     """Get active schemes that are configured to show on the public menu."""
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
     service = SchemeService(db)
-    return await service.get_public_schemes(uuid.UUID(shop_id))
+    return await service.get_public_schemes(target_shop_id)
 
 
 @public_router.post("/{scheme_id}/join", response_model=SchemeMemberResponse, status_code=status.HTTP_201_CREATED)
@@ -144,8 +158,9 @@ async def public_join_scheme(
     db: AsyncSession = Depends(get_db),
 ):
     """Customer joins a scheme from the public menu."""
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
     service = SchemeService(db)
-    return await service.public_join_scheme(uuid.UUID(scheme_id), uuid.UUID(shop_id), data)
+    return await service.public_join_scheme(uuid.UUID(scheme_id), target_shop_id, data)
 
 
 @public_router.get("/my-status", response_model=List[CustomerSchemePassResponse])
@@ -155,8 +170,9 @@ async def get_my_scheme_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Retrieve enrolled schemes and remaining installments for a customer on the public menu."""
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
     service = SchemeService(db)
-    return await service.get_customer_scheme_passes(uuid.UUID(shop_id), phone)
+    return await service.get_customer_scheme_passes(target_shop_id, phone)
 
 
 @public_router.post("/{scheme_id}/initiate-payment", response_model=SchemePaymentInitiateResponse)
@@ -167,8 +183,9 @@ async def initiate_scheme_join_payment(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a Razorpay order to enroll in a scheme with 2% platform commission & 3% PG fee (+18% GST)."""
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
     service = SchemeService(db)
-    return await service.initiate_join_payment(uuid.UUID(scheme_id), uuid.UUID(shop_id), data)
+    return await service.initiate_join_payment(uuid.UUID(scheme_id), target_shop_id, data)
 
 
 @public_router.post("/{scheme_id}/verify-payment", response_model=SchemeMemberResponse, status_code=status.HTTP_201_CREATED)
@@ -179,8 +196,9 @@ async def verify_scheme_join_payment(
     db: AsyncSession = Depends(get_db),
 ):
     """Verify Razorpay payment signature and complete enrollment with 1st installment paid."""
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
     service = SchemeService(db)
-    return await service.verify_join_payment(uuid.UUID(scheme_id), uuid.UUID(shop_id), data)
+    return await service.verify_join_payment(uuid.UUID(scheme_id), target_shop_id, data)
 
 
 @public_router.post("/{scheme_id}/members/{member_id}/initiate-payment", response_model=SchemePaymentInitiateResponse)
@@ -191,9 +209,10 @@ async def initiate_member_installment_payment(
     db: AsyncSession = Depends(get_db),
 ):
     """Initiate a Razorpay order for an enrolled member's next due installment."""
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
     service = SchemeService(db)
     return await service.initiate_installment_payment(
-        uuid.UUID(scheme_id), uuid.UUID(shop_id), uuid.UUID(member_id)
+        uuid.UUID(scheme_id), target_shop_id, uuid.UUID(member_id)
     )
 
 
@@ -206,8 +225,9 @@ async def verify_member_installment_payment(
     db: AsyncSession = Depends(get_db),
 ):
     """Verify Razorpay payment signature and record the next installment."""
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
     service = SchemeService(db)
     return await service.verify_installment_payment(
-        uuid.UUID(scheme_id), uuid.UUID(shop_id), uuid.UUID(member_id), data
+        uuid.UUID(scheme_id), target_shop_id, uuid.UUID(member_id), data
     )
 

@@ -14,8 +14,15 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     SECRET_KEY: str = "change-this-to-a-random-secret-key-in-production"
     FRONTEND_URL: str = "http://localhost:5173"
-    SEO_FRONTEND_URL:str="http://localhost:5174"
+    SEO_FRONTEND_URL: str = "http://localhost:5174"
+    SITEMAP_BASE_URL: Optional[str] = None
     API_V1_PREFIX: str = "/api/v1"
+
+    @property
+    def effective_sitemap_base_url(self) -> str:
+        """Returns the base URL for sitemap generation, dynamically configurable via SITEMAP_BASE_URL or FRONTEND_URL."""
+        url = self.SITEMAP_BASE_URL or self.FRONTEND_URL or "https://menukit.debuggerstechnologies.com"
+        return url.rstrip("/")
 
     @property
     def is_production(self) -> bool:

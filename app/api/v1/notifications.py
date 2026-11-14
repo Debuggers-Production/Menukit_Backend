@@ -194,6 +194,22 @@ async def mark_notifications_read(
     return MessageResponse(message=f"Marked {count} notifications as read")
 
 
+@router.delete("", response_model=MessageResponse)
+async def clear_all_notifications(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Clear all notifications for the user's shop."""
+    from app.services.shop_service import ShopService
+    shop = await ShopService(db).get_shop_by_user(user.id)
+    if not shop:
+        return MessageResponse(message="No shop found")
+
+    service = NotificationService(db)
+    count = await service.clear_all(shop.id)
+    return MessageResponse(message=f"Cleared {count} notifications")
+
+
 @router.websocket("/ws/{shop_id}")
 async def websocket_endpoint(websocket: WebSocket, shop_id: str, db: AsyncSession = Depends(get_db)):
     """Connect a shop owner to their notification stream."""

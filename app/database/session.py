@@ -220,6 +220,7 @@ async def init_chalkboard_table():
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS serial_number_digits INTEGER NOT NULL DEFAULT 3;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS auto_serial_number_enabled BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS wholesale_pricing_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS savings_schemes_enabled BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS return_allowed BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS return_window_days INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE shop_settings ADD COLUMN IF NOT EXISTS return_policy_notes VARCHAR(500);

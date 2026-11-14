@@ -30,6 +30,9 @@ class SchemeBase(BaseModel):
     term_unit: str = Field(default="months")  # "months" | "weeks" | "years"
     max_members: Optional[int] = Field(default=None, ge=1)
     items: List[SchemeItemInfo] = Field(default_factory=list)
+    reward_type: str = Field(default="specific_items")  # "all_items" | "category" | "specific_items"
+    reward_categories: List[dict] = Field(default_factory=list)  # [{"id": str, "name": str}]
+    highlight_text: Optional[str] = None
     show_on_public_menu: bool = True
     status: str = Field(default="active")  # "active" | "closed" | "completed"
     start_date: Optional[datetime] = None
@@ -49,6 +52,9 @@ class SchemeUpdate(BaseModel):
     term_unit: Optional[str] = None
     max_members: Optional[int] = None
     items: Optional[List[SchemeItemInfo]] = None
+    reward_type: Optional[str] = None
+    reward_categories: Optional[List[dict]] = None
+    highlight_text: Optional[str] = None
     show_on_public_menu: Optional[bool] = None
     status: Optional[str] = None
     start_date: Optional[datetime] = None
@@ -143,6 +149,9 @@ class SchemeResponse(BaseModel):
     term_unit: str
     max_members: Optional[int] = None
     items: List[SchemeItemInfo] = Field(default_factory=list)
+    reward_type: str = "specific_items"
+    reward_categories: List[dict] = Field(default_factory=list)
+    highlight_text: Optional[str] = None
     show_on_public_menu: bool = True
     status: str
     start_date: Optional[datetime] = None
@@ -169,6 +178,9 @@ class PublicSchemeResponse(BaseModel):
     remaining_spots: Optional[int] = None
     items: List[SchemeItemInfo] = Field(default_factory=list)
     status: str
+    reward_type: str = "specific_items"
+    reward_categories: List[dict] = Field(default_factory=list)
+    highlight_text: Optional[str] = None
 
 
 class PublicSchemeJoinRequest(BaseModel):
@@ -195,6 +207,9 @@ class CustomerSchemePassResponse(BaseModel):
     paid_installments: int
     remaining_installments: int
     items: List[SchemeItemInfo] = Field(default_factory=list)
+    reward_type: str = "specific_items"
+    reward_categories: List[dict] = Field(default_factory=list)
+    highlight_text: Optional[str] = None
     payments: List[SchemePaymentResponse] = Field(default_factory=list)
     installment_schedule: List[InstallmentScheduleItem] = Field(default_factory=list)
 

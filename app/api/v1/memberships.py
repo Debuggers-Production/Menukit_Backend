@@ -70,7 +70,7 @@ async def check_memberships_subscription(shop_id: uuid.UUID, db: AsyncSession, r
 async def add_member(
     shop_id: uuid.UUID,
     data: AddMemberRequest,
-    shop = Depends(require_permission("analytics", "write")),
+    shop = Depends(require_permission("customers", "write")),
     db: AsyncSession = Depends(get_db)
 ):
     """Retailer adds a member directly to their shop."""
@@ -90,7 +90,7 @@ async def add_member(
 @router.get("/retailer/{shop_id}/analytics", response_model=MembershipAnalyticsResponse)
 async def get_membership_analytics(
     shop_id: uuid.UUID,
-    shop = Depends(require_permission("analytics", "read")),
+    shop = Depends(require_permission("customers", "read")),
     db: AsyncSession = Depends(get_db)
 ):
     """Get aggregate membership analytics for retailer dashboard."""
@@ -118,7 +118,7 @@ async def log_membership_event(
 @router.get("/retailer/{shop_id}/members", response_model=List[MemberResponse])
 async def get_retailer_members(
     shop_id: uuid.UUID,
-    shop = Depends(require_permission("analytics", "read")),
+    shop = Depends(require_permission("customers", "read")),
     db: AsyncSession = Depends(get_db)
 ):
     """Get list of manually added members for retailer dashboard."""
@@ -151,7 +151,7 @@ async def get_retailer_members(
 @router.get("/retailer/{shop_id}/auto-registered", response_model=List[MemberResponse])
 async def get_auto_registered_members(
     shop_id: uuid.UUID,
-    shop = Depends(require_permission("analytics", "read")),
+    shop = Depends(require_permission("customers", "read")),
     db: AsyncSession = Depends(get_db)
 ):
     """Get list of auto-registered members for retailer dashboard."""
@@ -185,7 +185,7 @@ async def get_auto_registered_members(
 async def get_repeated_customers(
     shop_id: uuid.UUID,
     min_visits: int = 2,
-    shop = Depends(require_permission("analytics", "read")),
+    shop = Depends(require_permission("customers", "read")),
     db: AsyncSession = Depends(get_db)
 ):
     """Get list of customers with multiple visits."""
@@ -208,7 +208,7 @@ async def get_paginated_members(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     min_visits: int = Query(2, ge=2),
-    shop = Depends(require_permission("analytics", "read")),
+    shop = Depends(require_permission("customers", "read")),
     db: AsyncSession = Depends(get_db)
 ):
     """Get paginated member list by tab (existing, new, repeated) with backend SQL search."""
@@ -371,7 +371,7 @@ class BatchConvertMembersRequest(BaseModel):
 async def batch_convert_to_members(
     shop_id: uuid.UUID,
     data: Optional[BatchConvertMembersRequest] = None,
-    shop = Depends(require_permission("analytics", "write")),
+    shop = Depends(require_permission("customers", "write")),
     db: AsyncSession = Depends(get_db)
 ):
     """Convert multiple or all auto-registered members to manually verified members."""
@@ -404,7 +404,7 @@ async def batch_convert_to_members(
 async def convert_to_member(
     shop_id: uuid.UUID,
     customer_id: uuid.UUID,
-    shop = Depends(require_permission("analytics", "write")),
+    shop = Depends(require_permission("customers", "write")),
     db: AsyncSession = Depends(get_db)
 ):
     """Convert an auto-registered member to a manually verified member."""
