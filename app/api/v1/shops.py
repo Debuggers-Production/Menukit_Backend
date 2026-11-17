@@ -339,7 +339,9 @@ async def update_my_shop(
     service = ShopService(db)
     shop_updated = await service.update_shop(shop.id, user.id, data.model_dump(exclude_unset=True))
     await db.commit()
-    await invalidate_shop_cache(shop.id)
+    await invalidate_shop_cache(shop_updated.id, slug=shop_updated.slug)
+    if shop.slug and shop.slug != shop_updated.slug:
+        await invalidate_shop_cache(shop.id, slug=shop.slug)
     return await format_shop_response_with_subscription_checks(shop_updated, db)
 
 
@@ -362,7 +364,7 @@ async def update_theme(
             
     theme = await ShopService(db).update_theme(shop.id, user.id, data.model_dump(exclude_none=True))
     await db.commit()
-    await invalidate_shop_cache(shop.id)
+    await invalidate_shop_cache(shop.id, slug=shop.slug)
     return ThemeSettingsResponse(
         id=str(theme.id),
         theme=theme.theme,
@@ -401,7 +403,7 @@ async def update_chalkboard(
         shop.id, user.id, data.model_dump(exclude_unset=True)
     )
     await db.commit()
-    await invalidate_shop_cache(shop.id)
+    await invalidate_shop_cache(shop.id, slug=shop.slug)
     return ChalkboardResponse.model_validate(chalkboard)
 
 
@@ -437,6 +439,7 @@ async def update_razorpay_bank_account(
     service = ShopService(db)
     result = await service.update_razorpay_bank_account(user.id, data, shop_id=shop.id)
     await db.commit()
+    await invalidate_shop_cache(shop.id, slug=shop.slug)
     return result
 
 
@@ -509,16 +512,7 @@ async def format_shop_response_with_subscription_checks(shop, db: AsyncSession, 
         settings_dict = ShopSettingsResponse.model_validate(shop.settings).model_dump()
         is_bank_verified = bool(shop.settings.bank_account_last4) and shop.settings.razorpay_route_status in ["activated", "active"]
         if not is_bank_verified:
-            settings_dict["dinein_enabled"] = False
-            settings_dict["takeaway_enabled"] = False
-            settings_dict["delivery_enabled"] = False
             settings_dict["online_payments_enabled"] = False
-        elif not perms["online_orders"]:
-            # Automatic disable takeaway and delivery if online_orders is locked/expired
-            settings_dict["allow_takeaway"] = False
-            settings_dict["allow_delivery"] = False
-            settings_dict["takeaway_enabled"] = False
-            settings_dict["delivery_enabled"] = False
         if is_public:
             for field in [
                 "bank_account_last4", "beneficiary_name", "ifsc_code", "upi_id",

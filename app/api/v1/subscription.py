@@ -485,10 +485,22 @@ async def verify_payment(
         subscription.current_period_end = max(module_expirations.values())
 
     # Sync subscription across all shops owned by the user
+    other_shops = []
+    is_paid_discovery = transaction.is_all_access or "hide-discovery-badge" in (transaction.purchased_modules or [])
     try:
+        from app.models.shop_settings import ShopSettings
         shop_stmt = select(Shop).where(Shop.id == transaction.shop_id)
         shop_res = await db.execute(shop_stmt)
         curr_shop = shop_res.scalar_one_or_none()
+
+        if curr_shop and is_paid_discovery:
+            if not curr_shop.settings:
+                curr_shop.settings = ShopSettings(shop_id=curr_shop.id)
+                db.add(curr_shop.settings)
+                await db.flush()
+            curr_shop.settings.is_discoverable = True
+            curr_shop.settings.hide_discovery_badge = True
+
         if curr_shop and curr_shop.user_id:
             all_user_shops_res = await db.execute(
                 select(Shop).where(Shop.user_id == curr_shop.user_id, Shop.id != curr_shop.id)
@@ -510,10 +522,28 @@ async def verify_payment(
                 o_sub.razorpay_subscription_id = subscription.razorpay_subscription_id
                 o_sub.module_expirations = subscription.module_expirations
                 o_sub.current_period_end = subscription.current_period_end
+
+                if is_paid_discovery and o_shop:
+                    if not o_shop.settings:
+                        o_shop.settings = ShopSettings(shop_id=o_shop.id)
+                        db.add(o_shop.settings)
+                        await db.flush()
+                    o_shop.settings.is_discoverable = True
+                    o_shop.settings.hide_discovery_badge = True
     except Exception as sync_err:
         logger.warning(f"Failed to sync subscription across shops: {sync_err}")
 
     await db.commit()
+
+    if is_paid_discovery:
+        try:
+            from app.database.redis import invalidate_shop_cache
+            if curr_shop:
+                await invalidate_shop_cache(str(curr_shop.id), slug=curr_shop.slug)
+            for o_shop in other_shops:
+                await invalidate_shop_cache(str(o_shop.id), slug=o_shop.slug)
+        except Exception as cache_err:
+            logger.warning(f"Failed to invalidate cache after paid discovery activation: {cache_err}")
     
     # Send Invoice Email
     try:
@@ -818,6 +848,46 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         synced_exp["analytics-customer-insights"] = synced_exp.get("analytics-advanced")
         subscription.module_expirations = synced_exp
         await db.commit()
+
+    # Auto-activate Paid Discovery settings (visible on map, hidden menu discover badge)
+    # if merchant has an active hide-discovery-badge module or All-Access
+    hide_discovery_info = formatted_module_expirations.get("hide-discovery-badge", {})
+    hide_discovery_days = hide_discovery_info.get("days_left", 0)
+    has_active_paid_discovery = (
+        is_active
+        and not is_expired
+        and (is_actual_all_access or "hide-discovery-badge" in dynamic_active_modules)
+        and hide_discovery_days > 0
+    )
+
+    if has_active_paid_discovery and shop:
+        try:
+            from app.models.shop_settings import ShopSettings
+            from app.database.redis import invalidate_shop_cache
+
+            if not shop.settings:
+                stmt_s = select(ShopSettings).where(ShopSettings.shop_id == shop.id)
+                res_s = await db.execute(stmt_s)
+                shop.settings = res_s.scalar_one_or_none()
+                if not shop.settings:
+                    shop.settings = ShopSettings(shop_id=shop.id)
+                    db.add(shop.settings)
+                    await db.flush()
+
+            is_disc = getattr(shop.settings, "is_discoverable", None)
+            hide_badge = getattr(shop.settings, "hide_discovery_badge", None)
+
+            if is_disc is not True or hide_badge is not True:
+                shop.settings.is_discoverable = True
+                shop.settings.hide_discovery_badge = True
+                await db.commit()
+                await db.refresh(shop.settings)
+                try:
+                    await invalidate_shop_cache(str(shop.id), slug=shop.slug)
+                except Exception as cache_err:
+                    logger.warning(f"Failed to invalidate cache during discovery auto-activation: {cache_err}")
+        except Exception as e:
+            logger.warning(f"Error checking/auto-updating discovery settings in get_shop_subscription_status: {e}")
 
     return {
         "is_active": is_active,

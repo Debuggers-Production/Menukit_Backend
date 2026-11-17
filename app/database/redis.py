@@ -142,30 +142,80 @@ async def invalidate_shop_cache(shop_id: str, slug: Optional[str] = None, r_clie
 
         str_id = str(shop_id).strip().lower()
         keys_to_delete = set()
+        found_slugs = set()
+        if slug:
+            found_slugs.add(str(slug).strip().lower())
 
-        if hasattr(r_client, "keys"):
-            # 1. Match by shop UUID pattern
-            matched_id = await r_client.keys(f"public:*{str_id}*")
-            if matched_id:
-                keys_to_delete.update(matched_id)
-
-            # 2. Match by direct slug if provided
+        # Check in-memory slug-uuid cache and clear matching entries
+        try:
+            from app.api.v1.public import _SLUG_UUID_CACHE
+            for s_name, uid in list(_SLUG_UUID_CACHE.items()):
+                if str(uid).strip().lower() == str_id:
+                    found_slugs.add(s_name)
+                    _SLUG_UUID_CACHE.pop(s_name, None)
             if slug:
-                clean_slug = str(slug).strip().lower()
-                matched_slug = await r_client.keys(f"public:*{clean_slug}*")
-                if matched_slug:
-                    keys_to_delete.update(matched_slug)
+                _SLUG_UUID_CACHE.pop(str(slug).strip().lower(), None)
+        except Exception:
+            pass
 
-            # 3. Scan slug_map to find any slug associated with this shop_id
-            slug_maps = await r_client.keys("public:slug_map:*")
-            for smk in slug_maps:
-                val = await r_client.get(smk)
-                if val and str(val).strip().lower() == str_id:
-                    s_name = smk.replace("public:slug_map:", "").strip().lower()
-                    keys_to_delete.add(smk)
-                    matched_s = await r_client.keys(f"public:*{s_name}*")
-                    if matched_s:
-                        keys_to_delete.update(matched_s)
+        # Scan Redis slug_map to find any slug associated with this shop_id
+        if hasattr(r_client, "keys"):
+            try:
+                slug_maps = await r_client.keys("public:slug_map:*")
+                for smk in slug_maps:
+                    val = await r_client.get(smk)
+                    if val and str(val).strip().lower() == str_id:
+                        s_name = smk.replace("public:slug_map:", "").strip().lower()
+                        found_slugs.add(s_name)
+                        keys_to_delete.add(smk)
+            except Exception:
+                pass
+
+        # Fallback to DB lookup for slug if not found yet
+        if not found_slugs:
+            try:
+                import uuid
+                from app.database.session import async_session_factory
+                from app.models.shop import Shop
+                from sqlalchemy import select
+                try:
+                    u_val = uuid.UUID(str_id)
+                    async with async_session_factory() as session:
+                        res = await session.execute(select(Shop.slug).where(Shop.id == u_val))
+                        db_slug = res.scalar_one_or_none()
+                        if db_slug:
+                            found_slugs.add(str(db_slug).strip().lower())
+                except (ValueError, TypeError):
+                    pass
+            except Exception:
+                pass
+
+        # Direct explicit key deletions for UUID
+        keys_to_delete.add(f"public:shop:{str_id}")
+        keys_to_delete.add(f"public_shop:{str_id}")
+        keys_to_delete.add(f"shop:{str_id}")
+
+        # Direct explicit key deletions for all associated slugs
+        for s in found_slugs:
+            clean_s = str(s).strip().lower()
+            keys_to_delete.add(f"public:shop:{clean_s}")
+            keys_to_delete.add(f"public:slug_map:{clean_s}")
+            keys_to_delete.add(f"public_shop:{clean_s}")
+            keys_to_delete.add(f"shop:{clean_s}")
+
+        # Wildcard pattern matches across all namespaces
+        if hasattr(r_client, "keys"):
+            for pat in [f"public:*{str_id}*", f"public_shop:*{str_id}*", f"shop:*{str_id}*"]:
+                matched = await r_client.keys(pat)
+                if matched:
+                    keys_to_delete.update(matched)
+
+            for s in found_slugs:
+                clean_s = str(s).strip().lower()
+                for pat in [f"public:*{clean_s}*", f"public_shop:*{clean_s}*", f"shop:*{clean_s}*"]:
+                    matched = await r_client.keys(pat)
+                    if matched:
+                        keys_to_delete.update(matched)
 
         if keys_to_delete:
             await r_client.delete(*list(keys_to_delete))

@@ -1526,7 +1526,7 @@ async def create_public_order(
     is_blocked = False
     if perms.get("is_expired") or not perms.get("is_active"):
         is_blocked = True
-    elif (order_data.order_type in ["takeaway", "delivery"] or order_data.payment_method != "cash") and not perms.get("online_orders"):
+    elif (order_data.payment_method not in ["cash", "cod", "counter", "pay_at_counter"]) and not perms.get("online_orders"):
         is_blocked = True
 
     if is_blocked:

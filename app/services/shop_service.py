@@ -348,9 +348,8 @@ class ShopService:
 
         # Invalidate Redis public cache
         try:
-            from app.database.redis import get_redis
-            r_client = await get_redis()
-            await r_client.delete(f"public:shop:{str(shop.id)}")
+            from app.database.redis import invalidate_shop_cache
+            await invalidate_shop_cache(str(shop.id), slug=shop.slug)
         except Exception:
             pass
 
@@ -453,24 +452,9 @@ class ShopService:
         # 1b. Validate online_payments_enabled
         if data.get("online_payments_enabled") is True:
             status = shop.settings.razorpay_route_status
-            if status not in ["activated", "active"]:
-                raise HTTPException(status_code=400, detail="Cannot enable online payments until your settlement account is fully verified.")
-
-        # 1c. Validate ordering channels (dinein_enabled, takeaway_enabled, delivery_enabled, auto_accept_orders)
-        is_enabling_ordering = any([
-            data.get("dinein_enabled") is True,
-            data.get("takeaway_enabled") is True,
-            data.get("delivery_enabled") is True,
-            data.get("auto_accept_orders") is True,
-        ])
-        if is_enabling_ordering:
-            status = shop.settings.razorpay_route_status
             has_bank = bool(shop.settings.bank_account_last4 or bank_acc)
             if not has_bank or status not in ["activated", "active"]:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Cannot enable ordering features until your settlement bank account is added and verified."
-                )
+                raise HTTPException(status_code=400, detail="Cannot enable online payments until your settlement account is fully verified.")
 
         # 1d. Validate savings_schemes_enabled: cannot turn off if shop has existing schemes
         if data.get("savings_schemes_enabled") is False and shop.settings.savings_schemes_enabled is not False:
