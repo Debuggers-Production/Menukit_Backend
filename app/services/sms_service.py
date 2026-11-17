@@ -95,21 +95,35 @@ class SMSService:
 
     async def verify_otp(self, verification_id: str, code: str, mobile_number: Optional[str] = None) -> bool:
         """
-        Verify OTP code via MSG91 Widget API or check mock store if MOC_OTP is True.
+        Verify OTP code via MSG91 Widget API or check mock store if MOCK_OTP is True.
         """
         clean_code = str(code).strip()
+        if not clean_code or len(clean_code) != 6:
+            return False
+
+        if not verification_id or not str(verification_id).strip():
+            logger.warning("verify_otp called without verification_id.")
+            return False
+
         if self.mock_mode:
-            if clean_code in ["123456", "000000"]:
-                logger.info(f"🔑 [MOCK OTP] Dev bypass OTP accepted for {mobile_number}")
-                return True
+            # Check if an OTP was actually requested and generated via send_otp for this phone
             if mobile_number:
                 clean_phone = "".join(c for c in str(mobile_number) if c.isdigit())
                 for candidate in [str(mobile_number).strip(), clean_phone, clean_phone[-10:] if len(clean_phone) >= 10 else clean_phone]:
-                    if SMSService._mock_otps.get(candidate) == clean_code:
-                        logger.info(f"✅ [MOCK OTP] Verified SMS OTP code {clean_code} for {mobile_number}")
-                        return True
-            logger.info(f"📱 [MOCK OTP] Verifying SMS OTP code {clean_code}")
-            return True
+                    expected_otp = SMSService._mock_otps.get(candidate)
+                    if expected_otp:
+                        if expected_otp == clean_code:
+                            logger.info(f"✅ [MOCK OTP] Verified SMS OTP code {clean_code} for {mobile_number}")
+                            # Consume OTP to prevent reuse
+                            SMSService._mock_otps.pop(candidate, None)
+                            return True
+                        else:
+                            logger.warning(f"❌ [MOCK OTP] Incorrect OTP for {mobile_number}. Expected {expected_otp}, got {clean_code}")
+                            return False
+
+            # If no OTP was generated via send_otp for this mobile number, reject!
+            logger.warning(f"❌ [MOCK OTP] No pending OTP found for mobile {mobile_number} with verification_id {verification_id}")
+            return False
 
         if not self.auth_key or not self.widget_id:
             logger.error("MSG91 credentials missing.")

@@ -369,8 +369,10 @@ async def get_public_shop(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get shop details for public menu with subscription enforcement (Cached)."""
-    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
+    """Get shop details for public menu with subscription enforcement (Real-time & Redis cached)."""
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     import json
     from app.database.redis import get_redis
     r_client = await get_redis()

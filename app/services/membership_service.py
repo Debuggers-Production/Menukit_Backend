@@ -9,6 +9,7 @@ from app.models.customer import Customer
 from app.models.membership import CustomerRetailerMembership
 from app.models.analytics import MembershipEvent
 from app.services.customer_service import CustomerService
+from app.utils.phone import normalize_phone_with_country_code
 
 
 class MembershipService:
@@ -17,10 +18,12 @@ class MembershipService:
         self.customer_service = CustomerService(db)
 
     async def add_member(self, shop_id: uuid.UUID, name: str, mobile_number: str) -> CustomerRetailerMembership:
-        clean = "".join([c for c in mobile_number if c.isdigit()])
+        norm_phone = normalize_phone_with_country_code(mobile_number)
+        clean = "".join([c for c in norm_phone if c.isdigit()])
         last10 = clean[-10:] if len(clean) >= 10 else clean
         variants = list(set([
             mobile_number.strip(),
+            norm_phone,
             clean,
             f"+{clean}",
             f"+91{last10}",
@@ -43,8 +46,8 @@ class MembershipService:
             if existing_mem:
                 raise ValueError("This mobile number is already registered as a member in your shop.")
 
-        # Upsert global customer
-        customer = await self.customer_service.register_customer(name, mobile_number)
+        # Upsert global customer with normalized mobile number including country code
+        customer = await self.customer_service.register_customer(name, norm_phone)
         # Create shop-specific membership with customer_name
         return await self.customer_service.add_membership(customer.id, shop_id, is_retailer_added=True, customer_name=name)
 

@@ -20,6 +20,7 @@ from app.schemas.membership import (
 )
 from app.services.membership_service import MembershipService
 from app.services.shop_service import ShopService
+from app.utils.phone import normalize_phone_with_country_code
 
 router = APIRouter(prefix="/memberships", tags=["Memberships"])
 
@@ -99,6 +100,15 @@ async def get_membership_analytics(
 
     await check_memberships_subscription(shop_id, db, require_details=False)
 
+    # Auto-sync any existing scheme members into shop members list
+    try:
+        from app.services.scheme_service import SchemeService
+        scheme_service = SchemeService(db)
+        await scheme_service.sync_scheme_members_to_shop_members(shop_id)
+    except Exception as sync_err:
+        import logging
+        logging.getLogger(__name__).warning(f"Scheme members auto-sync warning: {sync_err}")
+
     membership_service = MembershipService(db)
     analytics = await membership_service.get_analytics(shop_id)
     return analytics
@@ -141,7 +151,7 @@ async def get_retailer_members(
         MemberResponse(
             id=m.customer.id,
             name=m.customer_name or (m.customer.name if m.customer else None),
-            mobile_number=m.customer.mobile_number,
+            mobile_number=normalize_phone_with_country_code(m.customer.mobile_number) if m.customer else "",
             joined_at=m.created_at
         )
         for m in memberships
@@ -174,7 +184,7 @@ async def get_auto_registered_members(
         MemberResponse(
             id=m.customer.id,
             name=m.customer_name or (m.customer.name if m.customer else None),
-            mobile_number=m.customer.mobile_number,
+            mobile_number=normalize_phone_with_country_code(m.customer.mobile_number) if m.customer else "",
             joined_at=m.created_at
         )
         for m in memberships
@@ -197,7 +207,12 @@ async def get_repeated_customers(
     membership_service = MembershipService(db)
     customers = await membership_service.get_repeated_customers(shop_id, min_visits)
 
-    return [RepeatedCustomerResponse(**c) for c in customers]
+    return [
+        RepeatedCustomerResponse(
+            **{**c, "mobile_number": normalize_phone_with_country_code(c.get("mobile_number"))}
+        )
+        for c in customers
+    ]
 
 
 @router.get("/retailer/{shop_id}/members-list", response_model=PaginatedMembersListResponse)
@@ -216,6 +231,15 @@ async def get_paginated_members(
         raise HTTPException(status_code=403, detail="Not authorized to access this shop")
 
     await check_memberships_subscription(shop_id, db, require_details=True)
+
+    # Auto-sync any existing scheme members into shop members list
+    try:
+        from app.services.scheme_service import SchemeService
+        scheme_service = SchemeService(db)
+        await scheme_service.sync_scheme_members_to_shop_members(shop_id)
+    except Exception as sync_err:
+        import logging
+        logging.getLogger(__name__).warning(f"Scheme members auto-sync warning: {sync_err}")
 
     items = []
     total_count = 0
@@ -278,7 +302,7 @@ async def get_paginated_members(
             items.append(MemberItemSchema(
                 id=r.id,
                 name=r.name,
-                mobile_number=r.mobile_number,
+                mobile_number=normalize_phone_with_country_code(r.mobile_number),
                 joined_at=r.joined_at,
                 is_retailer_added=r.is_retailer_added,
                 visit_count=r.visit_count
@@ -343,7 +367,7 @@ async def get_paginated_members(
             items.append(MemberItemSchema(
                 id=r.id,
                 name=r.name,
-                mobile_number=r.mobile_number,
+                mobile_number=normalize_phone_with_country_code(r.mobile_number),
                 joined_at=r.joined_at,
                 is_retailer_added=r.is_retailer_added,
                 visit_count=r.visit_count
@@ -392,8 +416,23 @@ async def batch_convert_to_members(
     if not memberships:
         return {"message": "No unverified customers found to convert", "converted_count": 0}
 
+    converted_ids = [m.customer_id for m in memberships]
     for m in memberships:
         m.is_retailer_added = True
+
+    try:
+        from app.models.scheme import SchemeMember
+        from sqlalchemy import update
+        await db.execute(
+            update(SchemeMember)
+            .where(
+                SchemeMember.shop_id == shop_id,
+                SchemeMember.customer_id.in_(converted_ids),
+            )
+            .values(notes="VERIFIED")
+        )
+    except Exception:
+        pass
 
     await db.commit()
     return {"message": f"Successfully verified and added {len(memberships)} customer(s)", "converted_count": len(memberships)}
@@ -423,6 +462,21 @@ async def convert_to_member(
         raise HTTPException(status_code=404, detail="Auto-registered membership not found")
 
     membership.is_retailer_added = True
+
+    try:
+        from app.models.scheme import SchemeMember
+        from sqlalchemy import update
+        await db.execute(
+            update(SchemeMember)
+            .where(
+                SchemeMember.shop_id == shop_id,
+                SchemeMember.customer_id == customer_id,
+            )
+            .values(notes="VERIFIED")
+        )
+    except Exception:
+        pass
+
     await db.commit()
 
     return {"message": "Customer converted to verified member successfully"}

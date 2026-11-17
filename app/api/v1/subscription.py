@@ -434,6 +434,13 @@ async def verify_payment(
             # Start fresh from today
             module_expirations[mod] = now + timedelta(days=duration_days)
 
+    # Normalize and sync legacy alias keys so they never diverge or report as expired
+    if "member-count" in module_expirations or "member-details" in module_expirations:
+        module_expirations["new-member"] = module_expirations.get("member-count") or module_expirations.get("member-details")
+    if "analytics-advanced" in module_expirations:
+        module_expirations["analytics-advanced-filters"] = module_expirations["analytics-advanced"]
+        module_expirations["analytics-customer-insights"] = module_expirations["analytics-advanced"]
+
     # 4. Rebuild active_modules based on expiration > now
     active_modules = []
     for mod, exp in module_expirations.items():
@@ -535,9 +542,15 @@ async def verify_payment(
 
 
 ALL_MARKETPLACE_MODULES = [
-    "online-orders", "new-member", "member-count", "member-details", 
+    "online-orders", "member-count", "member-details", 
     "search-data", "custom-theme", "analytics-advanced", "hide-discovery-badge"
 ]
+
+MODULE_ALIASES = {
+    "new-member": "member-count",
+    "analytics-advanced-filters": "analytics-advanced",
+    "analytics-customer-insights": "analytics-advanced",
+}
 
 
 async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
@@ -617,6 +630,26 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
             parsed_expirations[k] = dt
             tracked_dts.append(dt)
 
+    # Reconcile alias and parent-child expirations
+    # If member-details or member-count is active, reconcile new-member
+    max_member_exp = max(
+        [dt for k, dt in parsed_expirations.items() if k in ("member-details", "member-count", "new-member")],
+        default=None
+    )
+    if max_member_exp:
+        parsed_expirations["member-count"] = max(parsed_expirations.get("member-count", max_member_exp), max_member_exp)
+        parsed_expirations["new-member"] = max_member_exp
+
+    # If analytics-advanced is active, reconcile sub-keys
+    max_ana_exp = max(
+        [dt for k, dt in parsed_expirations.items() if k in ("analytics-advanced", "analytics-advanced-filters", "analytics-customer-insights")],
+        default=None
+    )
+    if max_ana_exp:
+        parsed_expirations["analytics-advanced"] = max(parsed_expirations.get("analytics-advanced", max_ana_exp), max_ana_exp)
+        parsed_expirations["analytics-advanced-filters"] = max_ana_exp
+        parsed_expirations["analytics-customer-insights"] = max_ana_exp
+
     # 3. Determine overall period_end
     # If module expirations exist, the subscription period end is determined by module expirations
     if tracked_dts:
@@ -667,15 +700,19 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
     dynamic_active_modules = []
     formatted_module_expirations = {}
 
-    db_active_mods = subscription.active_modules if subscription.active_modules else ALL_MARKETPLACE_MODULES
-    all_eval_mods = list(dict.fromkeys(list(raw_exp.keys()) + list(db_active_mods)))
-    if not all_eval_mods:
-        all_eval_mods = ALL_MARKETPLACE_MODULES
+    # Only evaluate legitimate marketplace modules (filter out internal sub-keys and legacy aliases)
+    all_eval_mods = ALL_MARKETPLACE_MODULES
 
     for mod in all_eval_mods:
-        mod_exp_dt = parsed_expirations.get(mod, fallback_dt)
-        
-        if now <= mod_exp_dt:
+        mod_exp_dt = parsed_expirations.get(mod)
+        if not mod_exp_dt:
+            # If All-Access or Trial, inherit global period_end
+            if getattr(subscription, "is_all_access", False) or getattr(subscription, "is_trial", False):
+                mod_exp_dt = period_end
+            else:
+                mod_exp_dt = fallback_dt if (subscription.active_modules and mod in subscription.active_modules) else None
+
+        if mod_exp_dt and now <= mod_exp_dt:
             mod_days_left = max(0, int(math.ceil((mod_exp_dt - now).total_seconds() / 86400)))
             is_mod_active = True
         else:
@@ -706,30 +743,45 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
         )
         is_actual_all_access = is_active and all_mods_active
     else:
-        is_actual_all_access = False
-        if getattr(subscription, "is_all_access", False) and is_active:
-            stmt_aa = select(PaymentTransaction).where(
-                PaymentTransaction.shop_id == shop.id,
-                PaymentTransaction.status == "success"
-            ).order_by(PaymentTransaction.created_at.desc())
-            aa_res = await db.execute(stmt_aa)
-            latest_tx = aa_res.scalars().first()
-            is_actual_all_access = latest_tx.is_all_access if latest_tx else False
+        # Check if all legitimate modules are active
+        all_canonical_active = all(
+            formatted_module_expirations.get(m, {}).get("days_left", 0) > 0
+            for m in ALL_MARKETPLACE_MODULES
+        )
+        if all_canonical_active and is_active:
+            is_actual_all_access = True
+        else:
+            is_actual_all_access = False
+            if getattr(subscription, "is_all_access", False) and is_active:
+                stmt_aa = select(PaymentTransaction).where(
+                    PaymentTransaction.shop_id == shop.id,
+                    PaymentTransaction.status == "success"
+                ).order_by(PaymentTransaction.created_at.desc())
+                aa_res = await db.execute(stmt_aa)
+                latest_tx = aa_res.scalars().first()
+                is_actual_all_access = latest_tx.is_all_access if latest_tx else True
 
-    # Check for expired modules (0 days left)
+    # Check for expired modules (0 days left) among marketplace modules
+    # A module is only expired if the shop was subscribed to it or has a modular plan where some features expired
     expired_mods = [
-        mod for mod, info in formatted_module_expirations.items()
-        if info.get("days_left", 0) == 0
+        mod for mod in ALL_MARKETPLACE_MODULES
+        if formatted_module_expirations.get(mod, {}).get("days_left", 0) == 0
+        and (
+            getattr(subscription, "is_all_access", False)
+            or getattr(subscription, "is_trial", False)
+            or (subscription.active_modules and mod in subscription.active_modules)
+        )
     ]
-    has_expired_modules = len(expired_mods) > 0
+    # Only report has_expired_modules if there are actual expired modules AND not all modules are active
+    has_expired_modules = len(expired_mods) > 0 and len(dynamic_active_modules) < len(ALL_MARKETPLACE_MODULES)
 
     # Active days list (only modules that actually have > 0 days left)
     active_days_list = [
         info["days_left"] for mod, info in formatted_module_expirations.items()
-        if info.get("days_left", 0) > 0
+        if info.get("days_left", 0) > 0 and mod in ALL_MARKETPLACE_MODULES
     ]
 
-    # If any module is expired, the least days left is 0!
+    # If any module is genuinely expired, the least days left is 0!
     if has_expired_modules:
         core_days_left = 0
         effective_days_left = 0
@@ -739,6 +791,7 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
     elif active_days_list:
         core_days_left = min(active_days_list)
         effective_days_left = core_days_left
+        status_msg = f"Active subscription ({core_days_left} day{'s' if core_days_left != 1 else ''} left)"
     else:
         core_days_left = days_left
         effective_days_left = days_left
@@ -747,11 +800,23 @@ async def get_shop_subscription_status(shop: Shop, db: AsyncSession) -> dict:
     if (subscription.is_active != is_active or 
         subscription.is_all_access != is_actual_all_access or
         subscription.current_period_end != period_end or 
-        subscription.active_modules != dynamic_active_modules) and mock_state == "none":
+        subscription.active_modules != dynamic_active_modules or
+        has_expired_modules != (len(expired_mods) > 0)) and mock_state == "none":
         subscription.is_active = is_active
         subscription.is_all_access = is_actual_all_access
         subscription.current_period_end = period_end
         subscription.active_modules = dynamic_active_modules
+        
+        # Clean up stale legacy keys in database
+        synced_exp = {}
+        for m in ALL_MARKETPLACE_MODULES:
+            if m in formatted_module_expirations and formatted_module_expirations[m].get("expires_at"):
+                synced_exp[m] = formatted_module_expirations[m]["expires_at"]
+        # Maintain alias entries matching canonical values so existing db constraints stay happy
+        synced_exp["new-member"] = synced_exp.get("member-count") or synced_exp.get("member-details")
+        synced_exp["analytics-advanced-filters"] = synced_exp.get("analytics-advanced")
+        synced_exp["analytics-customer-insights"] = synced_exp.get("analytics-advanced")
+        subscription.module_expirations = synced_exp
         await db.commit()
 
     return {

@@ -18,6 +18,7 @@ class Scheme(Base, UUIDMixin, TimestampMixin):
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
     # Installment price (e.g. ₹500 per month or ₹100 per week)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
@@ -125,3 +126,33 @@ class SchemePayment(Base, UUIDMixin, TimestampMixin):
     # Relationships
     scheme = relationship("Scheme", back_populates="payments")
     member = relationship("SchemeMember", back_populates="payments")
+
+
+class SchemeActivityLog(Base, UUIDMixin, TimestampMixin):
+    """Immutable audit activity log for customer scheme enrollments, payments, transfers, and deletions."""
+    __tablename__ = "scheme_activity_logs"
+
+    shop_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    scheme_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    member_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+
+    customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    customer_phone: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    member_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Action type: "ENROLLED" | "PAYMENT_RECORDED" | "TRANSFERRED" | "DELETED"
+    action_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    scheme_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    from_scheme_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    to_scheme_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    installment_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    paid_installments: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_installments: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    otp_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+

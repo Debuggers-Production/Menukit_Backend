@@ -376,7 +376,7 @@ class ShopService:
         await self.db.refresh(shop)
         
         from app.database.redis import invalidate_shop_cache
-        await invalidate_shop_cache(str(shop.id))
+        await invalidate_shop_cache(str(shop.id), slug=shop.slug)
         
         return shop.theme
 
@@ -416,7 +416,7 @@ class ShopService:
         await self.db.refresh(shop.chalkboard)
 
         from app.database.redis import invalidate_shop_cache
-        await invalidate_shop_cache(str(shop.id))
+        await invalidate_shop_cache(str(shop.id), slug=shop.slug)
 
         return shop.chalkboard
 
@@ -557,7 +557,7 @@ class ShopService:
         await self.db.refresh(shop)
 
         from app.database.redis import invalidate_shop_cache
-        await invalidate_shop_cache(str(shop.id))
+        await invalidate_shop_cache(str(shop.id), slug=shop.slug)
 
         return shop.settings
 

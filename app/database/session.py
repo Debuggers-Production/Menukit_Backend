@@ -277,6 +277,10 @@ async def init_chalkboard_table():
         );
         CREATE INDEX IF NOT EXISTS ix_schemes_shop_id ON schemes(shop_id);
         CREATE INDEX IF NOT EXISTS ix_schemes_status ON schemes(status);
+        ALTER TABLE schemes ADD COLUMN IF NOT EXISTS image_url VARCHAR(1000);
+        ALTER TABLE schemes ADD COLUMN IF NOT EXISTS reward_type VARCHAR(50) NOT NULL DEFAULT 'specific_items';
+        ALTER TABLE schemes ADD COLUMN IF NOT EXISTS reward_categories JSONB NOT NULL DEFAULT '[]'::jsonb;
+        ALTER TABLE schemes ADD COLUMN IF NOT EXISTS highlight_text TEXT;
 
         CREATE TABLE IF NOT EXISTS scheme_members (
             id UUID PRIMARY KEY,
@@ -321,12 +325,31 @@ async def init_chalkboard_table():
         ALTER TABLE scheme_payments ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ;
         ALTER TABLE scheme_payments ADD COLUMN IF NOT EXISTS razorpay_settlement_id VARCHAR(255);
 
-        -- High-Performance Composite Indexes for Menu & Order Queries
-        CREATE INDEX IF NOT EXISTS ix_menu_items_shop_avail_sort ON menu_items(shop_id, is_available, sort_order);
-        CREATE INDEX IF NOT EXISTS ix_menu_items_shop_cat_avail ON menu_items(shop_id, category_id, is_available);
-        CREATE INDEX IF NOT EXISTS ix_categories_shop_active_order ON categories(menu_catalog_id, is_active, display_order);
-        CREATE INDEX IF NOT EXISTS ix_orders_shop_status_created ON orders(shop_id, status, created_at DESC);
-        CREATE INDEX IF NOT EXISTS ix_discounts_shop_active ON discounts(shop_id, is_active);
+        -- 10. Scheme Activity & Audit Logs (Permanent customer history)
+        CREATE TABLE IF NOT EXISTS scheme_activity_logs (
+            id UUID PRIMARY KEY,
+            shop_id UUID NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+            scheme_id UUID,
+            member_id UUID,
+            customer_name VARCHAR(255) NOT NULL,
+            customer_phone VARCHAR(20) NOT NULL,
+            member_number VARCHAR(50),
+            action_type VARCHAR(50) NOT NULL,
+            scheme_title VARCHAR(255) NOT NULL,
+            from_scheme_title VARCHAR(255),
+            to_scheme_title VARCHAR(255),
+            amount NUMERIC(10, 2),
+            installment_number INTEGER,
+            paid_installments INTEGER,
+            total_installments INTEGER,
+            otp_verified BOOLEAN NOT NULL DEFAULT FALSE,
+            notes TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS ix_scheme_activity_logs_shop_id ON scheme_activity_logs(shop_id);
+        CREATE INDEX IF NOT EXISTS ix_scheme_activity_logs_phone ON scheme_activity_logs(customer_phone);
+        CREATE INDEX IF NOT EXISTS ix_scheme_activity_logs_action ON scheme_activity_logs(action_type);
     """
 
     try:

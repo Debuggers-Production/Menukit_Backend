@@ -23,6 +23,10 @@ from app.schemas.scheme import (
     SchemePaymentInitiateRequest,
     SchemePaymentInitiateResponse,
     SchemePaymentVerifyRequest,
+    SchemeMemberDeleteOtpResponse,
+    SchemeMemberDeleteRequest,
+    SchemeMemberTransferRequest,
+    SchemeActivityLogResponse,
 )
 from app.services.scheme_service import SchemeService
 
@@ -40,6 +44,21 @@ async def list_schemes(
     """List all schemes created for the current shop with stats."""
     service = SchemeService(db)
     return await service.get_schemes(shop.id)
+
+
+@router.post("/sync-members")
+async def sync_scheme_members_to_shop(
+    shop: Shop = Depends(require_permission("schemes", "write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sync all scheme members into the shop's customer members list."""
+    service = SchemeService(db)
+    synced_count = await service.sync_scheme_members_to_shop_members(shop.id)
+    return {
+        "status": "success",
+        "message": f"Successfully synchronized {synced_count} scheme members to shop members list.",
+        "synced_count": synced_count,
+    }
 
 
 @router.post("", response_model=SchemeResponse, status_code=status.HTTP_201_CREATED)
@@ -125,6 +144,90 @@ async def record_member_payment(
     return await service.record_payment(uuid.UUID(scheme_id), shop.id, uuid.UUID(member_id), data)
 
 
+@router.post("/{scheme_id}/members/{member_id}/send-delete-otp", response_model=SchemeMemberDeleteOtpResponse)
+async def send_member_delete_otp(
+    scheme_id: str,
+    member_id: str,
+    shop: Shop = Depends(require_permission("schemes", "write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send an SMS OTP to the customer's phone to authorize removing their scheme enrollment."""
+    service = SchemeService(db)
+    return await service.send_member_delete_otp(uuid.UUID(scheme_id), shop.id, uuid.UUID(member_id))
+
+
+@router.post("/{scheme_id}/members/{member_id}/delete")
+@router.delete("/{scheme_id}/members/{member_id}")
+async def delete_scheme_member(
+    scheme_id: str,
+    member_id: str,
+    data: Optional[SchemeMemberDeleteRequest] = None,
+    otp: Optional[str] = Query(None, description="Optional OTP if passed via query param"),
+    verification_id: Optional[str] = Query(None, description="Optional verification ID if passed via query param"),
+    shop: Shop = Depends(require_permission("schemes", "write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete an enrolled scheme member. Requires customer OTP if installments were paid."""
+    service = SchemeService(db)
+    final_otp = (data.otp if data and data.otp else otp)
+    final_vid = (data.verification_id if data and data.verification_id else verification_id)
+    final_reason = (data.reason if data and data.reason else None)
+    await service.delete_member(
+        uuid.UUID(scheme_id),
+        shop.id,
+        uuid.UUID(member_id),
+        otp=final_otp,
+        verification_id=final_vid,
+        reason=final_reason,
+    )
+    return {"status": "success", "message": "Scheme member removed successfully"}
+
+
+@router.post("/{scheme_id}/members/{member_id}/transfer", response_model=SchemeMemberResponse)
+async def transfer_scheme_member(
+    scheme_id: str,
+    member_id: str,
+    data: SchemeMemberTransferRequest,
+    shop: Shop = Depends(require_permission("schemes", "write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Transfer an enrolled member from one scheme to another within the same shop."""
+    service = SchemeService(db)
+    return await service.transfer_member(
+        uuid.UUID(scheme_id),
+        shop.id,
+        uuid.UUID(member_id),
+        uuid.UUID(data.target_scheme_id),
+        notes=data.notes,
+    )
+
+
+@router.get("/members/history", response_model=List[SchemeActivityLogResponse])
+async def get_customer_scheme_history_merchant(
+    phone: str = Query(..., description="Customer phone number"),
+    shop: Shop = Depends(require_permission("schemes", "read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get permanent audit history of scheme enrollments, payments, transfers, and cancellations for a customer."""
+    service = SchemeService(db)
+    return await service.get_customer_history(shop.id, phone)
+
+
+@router.get("/customers/lookup")
+async def lookup_customer_by_phone(
+    phone: str = Query(..., description="Customer phone number"),
+    scheme_id: Optional[uuid.UUID] = Query(None, description="Optional scheme ID to check if customer is already enrolled"),
+    shop: Shop = Depends(require_permission("schemes", "read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lookup an existing customer by phone number across shop and global records to autofill details and check duplicate enrollment."""
+    service = SchemeService(db)
+    result = await service.lookup_customer(shop.id, phone, scheme_id=scheme_id)
+    return result or {"found": False, "name": None, "address": None, "is_already_enrolled": False}
+
+
+
+
 # -------------------- Public Menu Endpoints --------------------
 
 async def _resolve_shop_uuid(shop_id: str, db: AsyncSession) -> uuid.UUID:
@@ -173,6 +276,19 @@ async def get_my_scheme_status(
     target_shop_id = await _resolve_shop_uuid(shop_id, db)
     service = SchemeService(db)
     return await service.get_customer_scheme_passes(target_shop_id, phone)
+
+
+@public_router.get("/my-history", response_model=List[SchemeActivityLogResponse])
+async def get_my_scheme_history_public(
+    shop_id: str,
+    phone: str = Query(..., description="Customer phone number"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve permanent scheme timeline & activity history (transfers, payments, cancellations) for a customer."""
+    target_shop_id = await _resolve_shop_uuid(shop_id, db)
+    service = SchemeService(db)
+    return await service.get_customer_history(target_shop_id, phone)
+
 
 
 @public_router.post("/{scheme_id}/initiate-payment", response_model=SchemePaymentInitiateResponse)

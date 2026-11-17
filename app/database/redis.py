@@ -134,20 +134,41 @@ class MockRedis:
         pass
 
 
-async def invalidate_shop_cache(shop_id: str, r_client=None):
+async def invalidate_shop_cache(shop_id: str, slug: Optional[str] = None, r_client=None):
     """Helper to invalidate all cached menu, items, discounts, and shop info keys for a given shop."""
     try:
         if r_client is None:
             r_client = await get_redis()
 
-        pattern = f"public:*{str(shop_id)}*"
+        str_id = str(shop_id).strip().lower()
+        keys_to_delete = set()
+
         if hasattr(r_client, "keys"):
-            matched_keys = await r_client.keys(pattern)
-            if matched_keys:
-                if isinstance(matched_keys, list):
-                    await r_client.delete(*matched_keys)
-                else:
-                    await r_client.delete(matched_keys)
+            # 1. Match by shop UUID pattern
+            matched_id = await r_client.keys(f"public:*{str_id}*")
+            if matched_id:
+                keys_to_delete.update(matched_id)
+
+            # 2. Match by direct slug if provided
+            if slug:
+                clean_slug = str(slug).strip().lower()
+                matched_slug = await r_client.keys(f"public:*{clean_slug}*")
+                if matched_slug:
+                    keys_to_delete.update(matched_slug)
+
+            # 3. Scan slug_map to find any slug associated with this shop_id
+            slug_maps = await r_client.keys("public:slug_map:*")
+            for smk in slug_maps:
+                val = await r_client.get(smk)
+                if val and str(val).strip().lower() == str_id:
+                    s_name = smk.replace("public:slug_map:", "").strip().lower()
+                    keys_to_delete.add(smk)
+                    matched_s = await r_client.keys(f"public:*{s_name}*")
+                    if matched_s:
+                        keys_to_delete.update(matched_s)
+
+        if keys_to_delete:
+            await r_client.delete(*list(keys_to_delete))
     except Exception as e:
         logger.warning(f"Failed to invalidate shop cache for {shop_id}: {e}")
 

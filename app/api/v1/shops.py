@@ -419,8 +419,8 @@ async def update_settings(
     settings = await service.update_settings(shop.id, user.id, dumped_data)
     await db.commit()
 
-    # Invalidate public shop cache
-    await invalidate_shop_cache(shop.id)
+    # Invalidate public shop cache (both UUID and slug)
+    await invalidate_shop_cache(shop.id, slug=shop.slug)
 
     return ShopSettingsResponse.model_validate(settings)
 

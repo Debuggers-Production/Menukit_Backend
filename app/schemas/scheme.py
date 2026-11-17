@@ -24,6 +24,7 @@ class SchemeItemInfo(BaseModel):
 class SchemeBase(BaseModel):
     title: str = Field(..., min_length=2, max_length=255)
     description: Optional[str] = None
+    image_url: Optional[str] = None
     price: Decimal = Field(..., gt=0)
     frequency: str = Field(default="monthly")  # "monthly" | "weekly"
     term_duration: int = Field(default=12, ge=1)
@@ -38,6 +39,13 @@ class SchemeBase(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
 
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def normalize_scheme_image(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return v
+
 
 class SchemeCreate(SchemeBase):
     pass
@@ -46,6 +54,7 @@ class SchemeCreate(SchemeBase):
 class SchemeUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    image_url: Optional[str] = None
     price: Optional[Decimal] = None
     frequency: Optional[str] = None
     term_duration: Optional[int] = None
@@ -59,6 +68,13 @@ class SchemeUpdate(BaseModel):
     status: Optional[str] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def normalize_scheme_image(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return v
 
 
 class SchemePaymentResponse(BaseModel):
@@ -143,6 +159,7 @@ class SchemeResponse(BaseModel):
     shop_id: str
     title: str
     description: Optional[str] = None
+    image_url: Optional[str] = None
     price: float
     frequency: str
     term_duration: int
@@ -160,6 +177,11 @@ class SchemeResponse(BaseModel):
     updated_at: datetime
     stats: Optional[SchemeStats] = None
 
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def resolve_scheme_image(cls, v):
+        return resolve_image_url(v)
+
     class Config:
         from_attributes = True
 
@@ -169,6 +191,7 @@ class PublicSchemeResponse(BaseModel):
     shop_id: str
     title: str
     description: Optional[str] = None
+    image_url: Optional[str] = None
     price: float
     frequency: str
     term_duration: int
@@ -182,6 +205,11 @@ class PublicSchemeResponse(BaseModel):
     reward_categories: List[dict] = Field(default_factory=list)
     highlight_text: Optional[str] = None
 
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def resolve_scheme_image(cls, v):
+        return resolve_image_url(v)
+
 
 class PublicSchemeJoinRequest(BaseModel):
     customer_name: str = Field(..., min_length=1, max_length=255)
@@ -194,6 +222,7 @@ class CustomerSchemePassResponse(BaseModel):
     member_id: str
     scheme_id: str
     scheme_title: str
+    image_url: Optional[str] = None
     price: float
     frequency: str
     term_duration: int
@@ -212,6 +241,11 @@ class CustomerSchemePassResponse(BaseModel):
     highlight_text: Optional[str] = None
     payments: List[SchemePaymentResponse] = Field(default_factory=list)
     installment_schedule: List[InstallmentScheduleItem] = Field(default_factory=list)
+
+    @field_validator("image_url", mode="before")
+    @classmethod
+    def resolve_scheme_image(cls, v):
+        return resolve_image_url(v)
 
 
 class SchemePaymentInitiateRequest(BaseModel):
@@ -240,3 +274,49 @@ class SchemePaymentVerifyRequest(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
     razorpay_signature: str
+
+
+class SchemeMemberDeleteOtpResponse(BaseModel):
+    success: bool = True
+    verification_id: Optional[str] = None
+    customer_phone_masked: str
+    paid_installments: int
+    total_paid_amount: float
+    message: str
+
+
+class SchemeMemberDeleteRequest(BaseModel):
+    otp: Optional[str] = None
+    verification_id: Optional[str] = None
+    reason: str = Field(..., min_length=1, description="Reason / settlement notes for member deletion (required)")
+
+
+class SchemeMemberTransferRequest(BaseModel):
+    target_scheme_id: str = Field(..., description="Target scheme UUID to transfer member into")
+    notes: str = Field(..., min_length=1, description="Transfer reason / notes (required)")
+
+
+class SchemeActivityLogResponse(BaseModel):
+    id: str
+    shop_id: str
+    scheme_id: Optional[str] = None
+    member_id: Optional[str] = None
+    customer_name: str
+    customer_phone: str
+    member_number: Optional[str] = None
+    action_type: str  # "ENROLLED" | "PAYMENT_RECORDED" | "TRANSFERRED" | "DELETED"
+    scheme_title: str
+    from_scheme_title: Optional[str] = None
+    to_scheme_title: Optional[str] = None
+    amount: Optional[float] = None
+    installment_number: Optional[int] = None
+    paid_installments: Optional[int] = None
+    total_installments: Optional[int] = None
+    otp_verified: bool = False
+    notes: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+

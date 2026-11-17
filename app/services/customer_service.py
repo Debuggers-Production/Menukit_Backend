@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.models.customer import Customer
 from app.models.membership import CustomerRetailerMembership
+from app.utils.phone import normalize_phone_with_country_code
 
 
 class CustomerService:
@@ -16,8 +17,10 @@ class CustomerService:
     async def get_customer_by_mobile(self, mobile_number: str) -> Optional[Customer]:
         clean = "".join([c for c in mobile_number if c.isdigit()])
         last10 = clean[-10:] if len(clean) >= 10 else clean
+        norm = normalize_phone_with_country_code(mobile_number)
         variants = list(set([
             mobile_number.strip(),
+            norm,
             clean,
             f"+91{last10}",
             f"91{last10}",
@@ -25,12 +28,24 @@ class CustomerService:
         ]))
         stmt = select(Customer).where(Customer.mobile_number.in_(variants))
         result = await self.db.execute(stmt)
-        return result.scalars().first()
+        matched = list(result.scalars().all())
+        if matched:
+            return next((c for c in matched if c.mobile_number == norm), matched[0])
+        return None
 
     async def register_customer(self, name: str, mobile_number: str) -> Customer:
+        norm_mobile = normalize_phone_with_country_code(mobile_number)
         # Check if already exists
         existing = await self.get_customer_by_mobile(mobile_number)
         if existing:
+            # Upgrade existing customer mobile number to include country code if possible
+            if existing.mobile_number != norm_mobile:
+                try:
+                    existing.mobile_number = norm_mobile
+                    await self.db.commit()
+                    await self.db.refresh(existing)
+                except Exception:
+                    pass
             # If existing customer doesn't have a name set yet, fill it; never overwrite another shop's customer name globally
             if not existing.name and name and name.strip():
                 existing.name = name.strip()
@@ -38,7 +53,7 @@ class CustomerService:
                 await self.db.refresh(existing)
             return existing
             
-        customer = Customer(name=name.strip() if name else None, mobile_number=mobile_number.strip())
+        customer = Customer(name=name.strip() if name else None, mobile_number=norm_mobile)
         self.db.add(customer)
         await self.db.commit()
         await self.db.refresh(customer)
